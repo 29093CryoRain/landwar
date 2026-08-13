@@ -132,6 +132,9 @@ bool Simulation::setDesignatedCapital(int factionId, int cityId) {
 }
 
 // P8：玩家科研三选一结算（Application 在科研弹窗点选后调用）。
+// 应用（techIndex>=0）：升级该科技（等级+1）+ 阈值提升 + 清点。
+// 跳过（techIndex==-1，2026-08 细节改进）：**下次升级所需科技点数不变**——只清空已积攒
+// 的科技点与待选（科研机会消耗），阈值/等级都不变（不再有"跳过罚阈值"）。
 bool Simulation::choosePlayerTech(int techIndex) {
     // 找玩家势力（aiId==1；最多一个）。
     int fid = -1;
@@ -147,10 +150,14 @@ bool Simulation::choosePlayerTech(int techIndex) {
             if (c == techIndex) { inCandidates = true; break; }
         if (!inCandidates) return false;
         TechSystem::applyTech(*this, fid, techIndex);
+        // 结算：清空科技点 + 阈值提升 + 清除待选（升级后下一阈值更高）。
+        f.tech.points = 0.0;
+        f.tech.threshold += config_.tech.thresholdStep;
+    } else {
+        // 跳过：清空已积攒科技点 + 待选（避免下次 tick 立即重触发死循环）；
+        // 阈值与等级**不变**（细节改进：跳过不罚阈值）。
+        f.tech.points = 0.0;
     }
-    // 结算：清空科技点 + 阈值提升 + 清除待选（跳过也消耗本次科研机会——避免无限重提示）。
-    f.tech.points = 0.0;
-    f.tech.threshold += config_.tech.thresholdStep;
     f.tech.researchPending = false;
     f.tech.candidates.clear();
     return true;

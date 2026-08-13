@@ -689,7 +689,8 @@ void Application::drawTechResearchModal(ui::UiRequests& req) {
         ImGui::PopID();
     }
     ImGui::Separator();
-    if (ImGui::Button("跳过（放弃本次科研机会）")) choice = -1;
+    // 2026-08 细节改进：跳过不提升阈值（下次升级所需科技点数不变）。
+    if (ImGui::Button("跳过（放弃本次科研机会 · 下次阈值不变）")) choice = -1;
 
     if (choice != -2) {  // 用户已做选择 → 写请求（Application renderFrame 消费）
         req.techChosen = true;

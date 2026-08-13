@@ -20,8 +20,9 @@ TEST(Determinism, BaselineSeed42_20000Ticks_StateHash) {
     ASSERT_TRUE(sim.init());
     for (int i = 0; i < 20000; ++i) sim.tick();
     const std::uint64_t h = lw::fnv1a64(lw::Snapshot::serialize(sim));
-    // 2026-08-08 P8 修正后的基线（见 .docs/开发计划.md §0）。
-    EXPECT_EQ(h, 0xe1a835b6e1a2b982ull)
+    // 2026-08 细节改进（霰弹速度方差 1/6→1/15）后基线（见 .docs/开发计划.md §0；
+    // 上一基线 0xe1a835b6e1a2b982 = P8 修正后）。
+    EXPECT_EQ(h, 0x4ac5a7925795d690ull)
         << "确定性基线漂移！对应 CLI: landwar --headless --seed 42 --ticks 20000 --summary";
     // 顺带锁定终局规模（land=3139 与基线记录一致；army 数随战斗轨迹波动，不锁）。
     EXPECT_EQ(sim.faction(1).landCount + sim.faction(2).landCount + sim.faction(3).landCount +

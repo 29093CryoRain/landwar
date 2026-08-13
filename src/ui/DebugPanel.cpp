@@ -267,6 +267,19 @@ void DebugPanel::drawPlayerSection(const Simulation& sim, UiRequests& req, UiCon
         } else {
             ImGui::TextUnformatted("无首都 · 请指定候补新都");
         }
+        // 迁都冷却期（2026-08 细节改进）：显示文本 + 剩余冷却秒数（保留 1 位小数）。
+        // 窗口 = [lostTick, lostTick + relocationDelayTicks)；窗口内迁都不可立即执行。
+        if (f.capitalState.lostTick > 0) {
+            const double delayTicks = sim.config().capital.relocationDelayTicks;
+            const double remainTicks =
+                static_cast<double>(f.capitalState.lostTick) + delayTicks
+                - static_cast<double>(sim.tickCount());
+            if (remainTicks > 0.0) {
+                const double remainSec = remainTicks / sim.config().sim.tickRate;
+                std::snprintf(buf, sizeof(buf), "迁都冷却中 · 剩余 %.1fs", remainSec);
+                ImGui::TextUnformatted(buf);
+            }
+        }
         const bool designating = controls && controls->capitalDesignating;
         if (ImGui::Button(designating ? "取消指定首都" : "指定首都")) req.toggleCapitalDesignation = true;
         ImGui::TextUnformatted(designating ? "点击己方城市 → 指定/立即迁都" : "左键点己方城市指定候补新都");

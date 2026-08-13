@@ -95,7 +95,7 @@ struct Config {
         /* bomb     */ {23.0, 0.6, 1.8, 1.0, 21.0, 1.0, false, DeathEffect::bomb,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
         /* mine     */ {13.0, 0.6, 1.4, 1.0, 17.0, 1.0, false, DeathEffect::mine,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
         /* pistol   */ {80.0, 0.5, 1.3, 1.0, 14.0, 1.0, false, DeathEffect::none,   PeriodicAction::firePistol,  120, 0.5,     0.0,     1, 90, 0.3, 0.0,     0.3},
-        /* shotgun  */ {120.0, 0.5, 1.3, 1.0, 16.0, 1.0, false, DeathEffect::none,  PeriodicAction::fireShotgun, 180, 1.0/3.0, 0.5/3.0, 3, 60, 0.3, 2.0/9.0, 0.3},
+        /* shotgun  */ {120.0, 0.5, 1.3, 1.0, 16.0, 1.0, false, DeathEffect::none,  PeriodicAction::fireShotgun, 180, 1.0/3.0, 0.2/3.0, 3, 60, 0.3, 2.0/9.0, 0.3},
     }};
 
     struct Faction {

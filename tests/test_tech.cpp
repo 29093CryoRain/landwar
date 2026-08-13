@@ -288,7 +288,8 @@ TEST(Tech, ChoosePlayerTechSkip) {
     ASSERT_TRUE(sim.choosePlayerTech(-1));  // 跳过
     EXPECT_FALSE(f.tech.researchPending);
     EXPECT_DOUBLE_EQ(f.tech.points, 0.0);
-    EXPECT_DOUBLE_EQ(f.tech.threshold, 200.0);
+    // 2026-08 细节改进：跳过**不提升阈值**（下次升级所需科技点数不变）；等级也不变。
+    EXPECT_DOUBLE_EQ(f.tech.threshold, 100.0);
     EXPECT_EQ(f.techLevel(), 0);
     EXPECT_TRUE(sim.takeEvents().empty());
 }

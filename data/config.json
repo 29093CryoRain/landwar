@@ -105,7 +105,7 @@
     },
     {
       "type": "shotgun",
-      "_comment": "霰弹（P9 射弹兵）：每 180 tick 向正前方 40° 扇形（均布占位 -20°/0/+20° + 轻抖动，避免三弹全偏一侧）发 3 颗随机速度（0.333±0.167 格/tick，2026-08-07 定为原值 1/3）的子弹，寿命 60 tick（1s）。",
+      "_comment": "霰弹（P9 射弹兵）：每 180 tick 向正前方 40° 扇形（均布占位 -20°/0/+20° + 轻抖动，避免三弹全偏一侧）发 3 颗随机速度（0.333±0.067 = 基准值 0.8~1.2 倍，2026-08 细节改进：原 ±0.167 方差过大）的子弹，寿命 60 tick（1s）。",
       "cost": 120,
       "speedMult": 0.5,
       "sizeMult": 1.3,
@@ -117,7 +117,7 @@
       "periodic": "shotgun",
       "periodTicks": 180,
       "bulletSpeed": 0.333333,
-      "bulletSpeedJitter": 0.166667,
+      "bulletSpeedJitter": 0.066667,
       "bulletCount": 3,
       "bulletLifespanTicks": 60,
       "bulletSize": 0.3,

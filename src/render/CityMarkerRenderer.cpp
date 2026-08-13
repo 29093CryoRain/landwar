@@ -1,7 +1,10 @@
 // CityMarkerRenderer.cpp — 玩家城市指示实现（P2 + 2026-08-07 修正；贴图走统一 tint 管线）。
+// 2026-08 细节改进：箭头从"整图按城市大小缩放"改为"拆分四方向子图 + 固定尺寸移动位置"，
+// 见 CityMarkerRenderer.h 文件头注。
 #include "render/CityMarkerRenderer.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 #include "core/GameDefs.h"
@@ -12,6 +15,17 @@ namespace lw::render {
 
 namespace {
 constexpr int kTexSize = 128;  // 源贴图（data/ring.png、data/arrow.png）尺寸
+
+// 四箭头源子图（tools/gen_markers.py 布局：128×128，四箭头尖端距中心 22px、长 20px、
+// 半宽 15px，指向中心）。取每支箭头的最小包围盒（含尖端的一侧即指向中心的一侧）：
+//   左箭头（指向右，尖端在右缘）→ {22, 49, 20, 30}
+//   右箭头（指向左，尖端在左缘）→ {86, 49, 20, 30}
+//   上箭头（指向下，尖端在下缘）→ {49, 22, 30, 20}
+//   下箭头（指向上，尖端在上缘）→ {49, 86, 30, 20}
+constexpr SDL_Rect kArrowLeftSrc{22, 49, 20, 30};
+constexpr SDL_Rect kArrowRightSrc{86, 49, 20, 30};
+constexpr SDL_Rect kArrowTopSrc{49, 22, 30, 20};
+constexpr SDL_Rect kArrowBottomSrc{49, 86, 30, 20};
 }  // namespace
 
 int CityMarkerRenderer::ringSizePx(int w, int h, double cellPx, double margin) {
@@ -19,10 +33,31 @@ int CityMarkerRenderer::ringSizePx(int w, int h, double cellPx, double margin) {
     return static_cast<int>(std::lround(outerCells * cellPx / kRingOuterFrac));
 }
 
-int CityMarkerRenderer::arrowSizePx(int w, int h, double cellPx, double gap) {
-    const double tipRadius =
-        static_cast<double>(std::max(w, h)) / 2.0 + gap;  // 尖端半径（格）
-    return static_cast<int>(std::lround(tipRadius * cellPx / kArrowTipFrac));
+std::array<CityMarkerRenderer::ArrowRect, 4> CityMarkerRenderer::arrowRects(
+    const CityTarget& t, double cellPx, double gap) {
+    // 固定箭头尺寸（只随 zoom/cellPx；不随城市大小——城市大小由位置吸收）。
+    const double lenPx = kArrowLenCells * cellPx;          // 箭头长（指向方向）
+    const double widPx = lenPx * kArrowWidthOverLen;       // 箭头宽
+    const double hw = static_cast<double>(t.w) * cellPx / 2.0;  // 城市框半宽（屏幕 px）
+    const double hh = static_cast<double>(t.h) * cellPx / 2.0;  // 城市框半高
+    const double gapPx = gap * cellPx;                     // 尖端与框缘间距
+    // 尖端位置：左/右箭头在框左/右缘中点，上/下箭头在框上/下缘中点，均外移 gapPx。
+    const double tipL = t.cx - hw - gapPx;
+    const double tipR = t.cx + hw + gapPx;
+    const double tipT = t.cy - hh - gapPx;
+    const double tipB = t.cy + hh + gapPx;
+    // 绘制中心 = 尖端沿指向方向回退 lenPx/2（水平箭头尖端在左/右缘、垂直在上下缘），
+    // 使尖端恰好落在 (框缘 + gapPx) 处。
+    return {{
+        {tipL - lenPx / 2.0, t.cy, static_cast<int>(std::lround(lenPx)),
+         static_cast<int>(std::lround(widPx))},  // 左（指向右）
+        {tipR + lenPx / 2.0, t.cy, static_cast<int>(std::lround(lenPx)),
+         static_cast<int>(std::lround(widPx))},  // 右（指向左）
+        {t.cx, tipT - lenPx / 2.0, static_cast<int>(std::lround(widPx)),
+         static_cast<int>(std::lround(lenPx))},  // 上（指向下）
+        {t.cx, tipB + lenPx / 2.0, static_cast<int>(std::lround(widPx)),
+         static_cast<int>(std::lround(lenPx))},  // 下（指向上）
+    }};
 }
 
 CityMarkerRenderer::CityMarkerRenderer(SDL_Renderer* ren, const Camera& cam,
@@ -41,7 +76,6 @@ void CityMarkerRenderer::bake(const std::vector<std::array<int, 3>>& factionColo
     std::vector<std::array<int, 3>> dim;
     dim.reserve(factionColors.size());
     for (const auto& c : factionColors) dim.push_back(scaledColor(c, 0.8));  // 城市显示亮度 ×0.8
-    // 白底透明源图，Multiply 整体 tint（白→目标色），保持 P2 调暗观感。
     ringTint_.load(ren_, "data/ring.png", dim, TintMode::Multiply, /*grayscaleFirst=*/false,
                    /*preserveWhite=*/0);
     arrowTint_.load(ren_, "data/arrow.png", dim, TintMode::Multiply, /*grayscaleFirst=*/false,
@@ -72,11 +106,22 @@ void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const 
 
     if (hover) {
         // 待选城（按下鼠标会选中）：四箭头指向该城，不旋转。
-        // 尺寸随城市基建尺寸自适应：尖端半径 = max(w,h)/2 + markerArrowGap 格
-        //（2026-08-07 起间距可调，能指示大小不一的城）。
-        const int size = arrowSizePx(hover->w, hover->h, cellPx, pcfg.markerArrowGap);
+        // 2026-08 细节改进：拆分四方向子图、固定尺寸、位置随城市框移动（大城箭头外移）。
+        // 尺寸只随 zoom（cellPx），与其余精灵一致；尖端与框缘间距 = markerArrowGap 格。
+        const auto rects = arrowRects(*hover, cellPx, pcfg.markerArrowGap);
         const int alpha = static_cast<int>(std::lround(255.0 * alphaScale * 0.9));
-        drawTex(arrowTint_.texture(idx), hover->cx, hover->cy, size, 0.0, alpha);
+        SDL_Texture* tex = arrowTint_.texture(idx);
+        if (tex && ren_) {
+            Renderer r(ren_);
+            r.drawSpriteCenteredRect(tex, kArrowLeftSrc, rects[0].cx, rects[0].cy, rects[0].dstW,
+                                     rects[0].dstH, alpha);
+            r.drawSpriteCenteredRect(tex, kArrowRightSrc, rects[1].cx, rects[1].cy, rects[1].dstW,
+                                     rects[1].dstH, alpha);
+            r.drawSpriteCenteredRect(tex, kArrowTopSrc, rects[2].cx, rects[2].cy, rects[2].dstW,
+                                     rects[2].dstH, alpha);
+            r.drawSpriteCenteredRect(tex, kArrowBottomSrc, rects[3].cx, rects[3].cy, rects[3].dstW,
+                                     rects[3].dstH, alpha);
+        }
     }
     if (sel) {
         // 产兵城：旋转虚线环（顺时针）。外圆直径 = max(w,h) + markerRingMargin 格，

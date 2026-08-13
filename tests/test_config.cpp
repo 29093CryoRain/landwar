@@ -45,7 +45,8 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.units[7].periodic, lw::PeriodicAction::fireShotgun);
     EXPECT_EQ(cfg.units[7].periodTicks, 180);
     EXPECT_NEAR(cfg.units[7].bulletSpeed, 1.0 / 3.0, 1e-12);        // 原值 1.0 的 1/3
-    EXPECT_NEAR(cfg.units[7].bulletSpeedJitter, 0.5 / 3.0, 1e-12);  // 原值 0.5 的 1/3
+    // 2026-08 细节改进：速度方差收窄到基准值 0.8~1.2 倍（±20%，原 ±50% = 0.5/3）。
+    EXPECT_NEAR(cfg.units[7].bulletSpeedJitter, 0.2 / 3.0, 1e-12);
     EXPECT_EQ(cfg.units[7].bulletCount, 3);
     EXPECT_EQ(cfg.units[7].bulletLifespanTicks, 60);
     // P9（2026-08-07）散射：霰弹全角 40°（=2π/9，π 分数），单颗抖动 = 半角的 0.3。

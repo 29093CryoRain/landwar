@@ -128,7 +128,8 @@ public:
     // 期满（或 immediateRelocate 态下）执行正式迁都。返回是否生效。
     bool setDesignatedCapital(int factionId, int cityId);
     // P8：玩家科研三选一结算（external input；techIndex=-1=跳过，否则须在候选内才应用）。
-    // 结算：清空科技点 + 阈值提升 + 清除待选（跳过同样消耗本次科研机会）。返回是否生效。
+    // 结算：应用 → 清点 + 阈值提升 + 升级；跳过 → 只清点（**阈值/等级不变**，2026-08
+    // 细节改进：跳过不罚阈值）。两种情况都清除待选（科研机会消耗一次）。返回是否生效。
     bool choosePlayerTech(int techIndex);
     // P4 灭亡/统一检测：tick 末尾调用（也暴露给单测直接调用）。纯逻辑，不消耗 Rng。
     // 灭亡：alive && cityCount==0 && 无兵 && 无特效 → 置 alive=false + FactionAnnihilated。
