@@ -1,0 +1,96 @@
+// EffectRenderer.cpp — 特效渲染实现（翻新计划 Phase 7，§2.9；Phase 8 接入 Camera）。
+#include "render/EffectRenderer.h"
+
+#include <cmath>
+
+#include "core/GameDefs.h"
+#include "core/Simulation.h"
+#include "sim/components.h"
+
+namespace lw::render {
+
+namespace {
+constexpr int kSpriteSize = 32;  // 激光火花原尺寸（scale 1）
+}  // namespace
+
+EffectRenderer::EffectRenderer(SDL_Renderer* ren, const SpriteSheet& sheet, const Camera& cam,
+                               int mineDrawSize)
+    : ren_(ren), sheet_(sheet), cam_(cam), mineDrawSize_(mineDrawSize) {}
+
+void EffectRenderer::draw(const Simulation& sim) {
+    const auto& reg = sim.registry();
+    Renderer r(ren_);
+    const std::uint64_t simTick = sim.tickCount();
+    const double z = cam_.zoom();
+
+    for (auto e : reg.view<comp::EffectTypeId>()) {
+        const auto& pos = reg.get<comp::Position>(e);
+        const int fid = reg.get<comp::FactionId>(e).value;
+        if (fid < 1 || fid > kPlayerFactionCount) continue;
+        const auto& params = reg.get<comp::EffectParams>(e);
+        const int elapsedTicks =
+            static_cast<int>(simTick) - reg.get<comp::EffectTimer>(e).createdTick;
+        const int cx = cam_.toScreenXi(pos.x);
+        const int cy = cam_.toScreenYi(pos.y);
+        const auto& color = sim.faction(fid).color;
+
+        switch (reg.get<comp::EffectTypeId>(e).type) {
+            case EffectType::bomb: {
+                // 爆炸：半透明实心圆。r 用 solve 版公式 sqrt(elapsedTicks+1)*bomb_range（§2.9 注记）。
+                if (elapsedTicks < 0 || elapsedTicks > 8) break;  // elapsedTicks>8 已消亡，防御
+                const double rWorld =
+                    std::sqrt(static_cast<double>(elapsedTicks) + 1.0) * params.p0;
+                const int alpha = static_cast<int>((9.0 - elapsedTicks) / 9.0 * 255.0);
+                r.fillCircle(cx, cy, static_cast<int>(rWorld * cam_.cellPx()),
+                             Renderer::toColor(color, alpha));
+                break;
+            }
+            case EffectType::mine: {
+                // 地雷：闪烁 alpha（elapsedTicks>=600 且 elapsedTicks%12∈{0,1,2,10,11} → 220，否则 60）。
+                const int mod12 = ((elapsedTicks % 12) + 12) % 12;
+                const bool blink = elapsedTicks >= 600
+                                   && (mod12 == 0 || mod12 == 1 || mod12 == 2 || mod12 == 10
+                                       || mod12 == 11);
+                const int size = std::max(2, static_cast<int>(std::lround(mineDrawSize_ * z)));
+                // 与兵种贴图同步（2026-08-06）：紫色势力（kSpecialUnitFaction[mine]=7）的地雷
+                // 用特殊版贴图（原样彩色），与 ArmyRenderer 同款判定。
+                const bool special =
+                    (fid == kSpecialUnitFaction[static_cast<int>(ArmyType::mine)]);
+                SDL_Texture* tex =
+                    special ? sheet_.specialTexture() : sheet_.texture(fid - 1);
+                r.drawSpriteCentered(tex, sheet_.rect(5), cx, cy, size, blink ? 220 : 60);
+                break;
+            }
+            case EffectType::laser: {
+                // 光束：第 7 行子图 DrawRotaGraph3 等价。p0=世界角，p1=本 tick 光束长。
+                // dst 宽 16*z（0.5×32 随缩放）、高 cellPx*finalLength；pivot=顶中点(8*z,0)。
+                // SDL 正角=顺时针（与 DxLib 一致），角 = -angle-π/2（§2.9）。
+                // 曾试 ADD 混合（发光风格），但本机 direct3d 渲染器在 logical-size 下 ADD
+                // 静默失效（RenderCopyEx 返回 0 无错误却什么都不画，探针+实测确认）→ 回退 BLEND。
+                // 改用分层解决"势力色描边进白色头部"：光束先画、火花（BLEND）盖在其上。
+                const double angle = params.p0;
+                const int h = static_cast<int>(std::lround(cam_.cellPx() * params.p1));
+                if (h > 0) {
+                    const int w = std::max(2, static_cast<int>(std::lround(16.0 * z)));
+                    const int pv = static_cast<int>(std::lround(8.0 * z));
+                    const double angleDeg = (-angle - kPi / 2.0) * 180.0 / kPi;
+                    r.drawSpriteRotated(sheet_.texture(fid - 1), sheet_.rect(7), cx - pv, cy, w, h,
+                                        angleDeg, pv, 0);
+                }
+                // 火花：第 6 行子图，旋转角 = (sim tickCount, 实体 id) 的确定性哈希
+                // （Phase 9：暂停时 ttime 冻结 → 火花静态；运行中每 tick 换角，视觉随机，
+                // 不碰 sim RNG → 确定性/回放成立）。BLEND 画在光束之上（头实束虚）。
+                const std::uint64_t rotSeed =
+                    static_cast<std::uint64_t>(simTick) * 1103515245ull
+                    + static_cast<std::uint32_t>(e) * 2654435761ull;
+                const double rotDeg = static_cast<double>((rotSeed >> 16) % 360);
+                const int sp = std::max(2, static_cast<int>(std::lround(kSpriteSize * z)));
+                r.drawSpriteRotated(sheet_.texture(fid - 1), sheet_.rect(6), cx - sp / 2,
+                                    cy - sp / 2, sp, sp, rotDeg, sp / 2, sp / 2);
+                break;
+            }
+        }
+    }
+}
+
+}  // namespace lw::render

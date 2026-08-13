@@ -1,0 +1,395 @@
+{
+  "_comment": "领土战争全部魔法数字外置。值与翻新计划 §2 规格/原代码一致；运行时可改（Phase 8 支持 F5 热加载）。unitPreference = 兵种偏好系数（>1 → 默认 AI 在该兵种上花费更多；P11 改版：势力 costDiv 价格折扣已移除，各势力兵种同价）。",
+  "map": {
+    "file": "data/map_bigIslands.bmp",
+    "width": 105,
+    "height": 95,
+    "blockSize": 15,
+    "panelWidth": 600,
+    "capitalMinDistance": 28
+  },
+  "army": {
+    "baseSpeed": 0.3,
+    "baseSize": 1,
+    "bounceJitterHalfRange": 48.5,
+    "bounceJitterDenominator": 14447.0
+  },
+  "sea": {
+    "_comment": "P14：timeToUnify 已删除（原仅被旧经济魔法公式引用）；goSeaIncrease 为独立常量，不再由它推导。",
+    "initialGoSeaProbability": 1.0,
+    "goSeaIncrease": 8.5e-05,
+    "goSeaChanceConst": 110.0,
+    "goSeaChanceDenominator": 17700.0,
+    "cyanSeaMult": 0.666,
+    "seaSpeedMult": 0.5
+  },
+  "terrain": {
+    "_comment": "P5 改版地形基图（RGB 概率权重，画图软件可编辑）。任一分量<32→海（确定性）；否则→陆；山概率=ramp(R)、城概率=ramp(G)、B 闲置。ramp(x)=clamp((x-128)/127,0,1)。调色板见 .docs/配置说明.md。",
+    "seaChannelMin": 32,
+    "probFloor": 128,
+    "probScale": 127,
+    "mountainEnterChance": 0.5,
+    "mountainSpeedMult": 0.5
+  },
+  "units": [
+    {
+      "type": "normal",
+      "cost": 25,
+      "speedMult": 1.0,
+      "sizeMult": 1.0,
+      "bounceMult": 1.0,
+      "visualRadius": 12.0
+    },
+    {
+      "type": "vanguard",
+      "cost": 32,
+      "speedMult": 2.0,
+      "sizeMult": 1.0,
+      "bounceMult": 0.4,
+      "visualRadius": 13.0
+    },
+    {
+      "type": "pioneer",
+      "cost": 40,
+      "speedMult": 1.0,
+      "sizeMult": 1.0,
+      "bounceMult": 1.0,
+      "visualRadius": 15.0,
+      "mountainEnterMult": 1.6,
+      "mountainNoSlow": true
+    },
+    {
+      "type": "laser",
+      "cost": 100,
+      "speedMult": 0.6,
+      "sizeMult": 1.8,
+      "bounceMult": 1.0,
+      "visualRadius": 20.0
+    },
+    {
+      "type": "bomb",
+      "cost": 120,
+      "speedMult": 0.6,
+      "sizeMult": 1.8,
+      "bounceMult": 1.0,
+      "visualRadius": 21.0
+    },
+    {
+      "type": "mine",
+      "cost": 90,
+      "speedMult": 0.6,
+      "sizeMult": 1.4,
+      "bounceMult": 1.0,
+      "visualRadius": 17.0
+    },
+    {
+      "type": "pistol",
+      "_comment": "手枪（P9 射弹兵）：每 120 tick 向正前方发 1 颗恒定速度 0.5 格/tick 的子弹（2026-08-07 定为原值 1/3），寿命 90 tick（1.5s）。自身速度 0.5×、碰撞半径 1.3×（暂定）。",
+      "cost": 80,
+      "speedMult": 0.5,
+      "sizeMult": 1.3,
+      "bounceMult": 1.0,
+      "visualRadius": 14.0,
+      "mountainEnterMult": 1.0,
+      "mountainNoSlow": false,
+      "deathEffect": "none",
+      "periodic": "pistol",
+      "periodTicks": 120,
+      "bulletSpeed": 0.5,
+      "bulletSpeedJitter": 0.0,
+      "bulletCount": 1,
+      "bulletLifespanTicks": 90,
+      "bulletSize": 0.3,
+      "bulletSpreadPIFrac": 0.0,
+      "bulletSpreadJitterFrac": 0.3
+    },
+    {
+      "type": "shotgun",
+      "_comment": "霰弹（P9 射弹兵）：每 180 tick 向正前方 40° 扇形（均布占位 -20°/0/+20° + 轻抖动，避免三弹全偏一侧）发 3 颗随机速度（0.333±0.167 格/tick，2026-08-07 定为原值 1/3）的子弹，寿命 60 tick（1s）。",
+      "cost": 120,
+      "speedMult": 0.5,
+      "sizeMult": 1.3,
+      "bounceMult": 1.0,
+      "visualRadius": 16.0,
+      "mountainEnterMult": 1.0,
+      "mountainNoSlow": false,
+      "deathEffect": "none",
+      "periodic": "shotgun",
+      "periodTicks": 180,
+      "bulletSpeed": 0.333333,
+      "bulletSpeedJitter": 0.166667,
+      "bulletCount": 3,
+      "bulletLifespanTicks": 60,
+      "bulletSize": 0.3,
+      "bulletSpreadPIFrac": 0.222222,
+      "bulletSpreadJitterFrac": 0.3
+    }
+  ],
+  "factions": [
+    {
+      "id": 1,
+      "name": "红",
+      "color": [
+        255,
+        0,
+        0
+      ],
+      "unitPreference": {
+        "normal": 2.0
+      }
+    },
+    {
+      "id": 2,
+      "name": "黄",
+      "color": [
+        255,
+        255,
+        0
+      ],
+      "unitPreference": {
+        "laser": 1.5,
+        "bomb": 1.5,
+        "mine": 1.5
+      }
+    },
+    {
+      "id": 3,
+      "name": "青",
+      "color": [
+        0,
+        255,
+        255
+      ],
+      "unitPreference": {
+        "vanguard": 3.0
+      },
+      "speedMultAll": 1.5,
+      "seaMult": 0.666
+    },
+    {
+      "id": 4,
+      "name": "蓝",
+      "color": [
+        0,
+        85,
+        255
+      ],
+      "unitPreference": {
+        "pioneer": 3.0,
+        "vanguard": 1.5
+      },
+      "bounceMultAll": 0.6,
+      "pioneerSpeedMult": 2.0
+    },
+    {
+      "id": 5,
+      "name": "绿",
+      "color": [
+        0,
+        255,
+        0
+      ],
+      "unitPreference": {
+        "laser": 3.0
+      },
+      "extraLaserBeams": 2,
+      "laserDurationMult": 1.5,
+      "laserLengthMult": 1.5
+    },
+    {
+      "id": 6,
+      "name": "橙",
+      "color": [
+        255,
+        127,
+        0
+      ],
+      "unitPreference": {
+        "bomb": 3.0
+      },
+      "bombRadius": 4.08
+    },
+    {
+      "id": 7,
+      "name": "紫",
+      "color": [
+        127,
+        0,
+        255
+      ],
+      "unitPreference": {
+        "mine": 3.0
+      },
+      "mineTriggerRadius": 1.43
+    },
+    {
+      "id": 8,
+      "name": "品红",
+      "color": [
+        255,
+        0,
+        255
+      ],
+      "freeArmyChance": 0.6
+    }
+  ],
+  "effect": {
+    "bomb": {
+      "lifetimeTicks": 8,
+      "conquerEveryTicks": 2,
+      "baseRadius": 2.4
+    },
+    "mine": {
+      "radius": 1.4,
+      "armTicks": 600,
+      "checkEveryTicks": 12,
+      "timeoutTicks": 3600,
+      "triggerRadiusMult": 1.1,
+      "triggerBombRadius": 1.1
+    },
+    "laser": {
+      "durationTicks": 22,
+      "length": 30.0,
+      "extendPerTick": 2,
+      "killExtraRadius": 0.1,
+      "beamSpreadPIFrac": 0.0909091
+    }
+  },
+  "projectile": {
+    "_comment": "P9 射弹全局参数。drawSize = 子弹 sprite 边长（逻辑像素，zoom=1；= army_base.png 行8 的原生 32）。",
+    "drawSize": 32,
+    "mountainLifespanPenalty": 2
+  },
+  "economy": {
+    "_comment": "P14 经济重构（朴素逐 tick 收入，思路 9.3；具体数值待实验，验收后调参）：landIncome = perLandIncome × landCount（普通领地，含城市基建格）；cityIncome = perLandIncome × cityBaseMult × Σ level^alpha（alpha = city.levelIncomeExponent；归城市 owner）；capitalIncome = capitalBase（P15：正式首都**直接加一个数值**的 flat 加成——首都的 level^alpha 收入已含在 cityIncome，勿重复计率）；总 = 三者之和 × 势力 economyGainMult（P7 增益）。城市基建格双计：既是普通领地（归 belongi 势力 land 收入）又属城市（归 owner city 收入），勿去重。旧键（economyBase/gainFactor/crEpsilon/cityPowBase/atPow/atMult/faction8FreeArmyChance）与 sea.timeToUnify 已删除。",
+    "initialEconomy": 1.1,
+    "perLandIncome": 0.0003,
+    "cityBaseMult": 20.0,
+    "capitalBase": 0.2
+  },
+  "city": {
+    "_comment": "P13 城市系统：levelIncomeExponent=alpha（n级城收入=n^alpha×1级城，>=1 待实验，P14 经济重构读取）；levelRankExponent=beta（等级幂律指数增量，等级分布 P(L>=n)∝n^{-(alpha+beta)}，思路默认 0.5）；shapes=等级基建地块形状（w=列数、h=行数；思路 9.1 表格记作'行数×列数'，如 2 级=2行×1列→{w:1,h:2}；固定朝向不旋转，锚点=形状左上格，锚点格须可成城、扩展格仅须陆地）。",
+    "levelIncomeExponent": 1.0,
+    "levelRankExponent": 0.5,
+    "shapes": [
+      { "level": 1, "w": 1, "h": 1 },
+      { "level": 2, "w": 1, "h": 2 },
+      { "level": 4, "w": 2, "h": 2 },
+      { "level": 6, "w": 2, "h": 3 },
+      { "level": 9, "w": 3, "h": 3 }
+    ]
+  },
+  "capital": {
+    "_comment": "P15 首都系统：relocationDelayTicks=迁都冷却（tick；= 迁都冷却秒数 × sim.tickRate，统一规范名，数值待实验）。首都沦陷后经此窗口方可正式迁都；窗口内可指定候补新都，期满自动迁到候补。",
+    "relocationDelayTicks": 600
+  },
+  "sim": {
+    "tickRate": 60.0,
+    "maxArmyGuard": 50000
+  },
+  "render": {
+    "windowWidth": 2175,
+    "windowHeight": 1425,
+    "spriteSize": 32,
+    "armyDrawSize": 48,
+    "city": {
+      "_comment": "P13 城市渲染：lineMinCellPx=屏上格大小阈值（屏上格>此值→高缩放，画细线围基建地块区域）；lineThickness=细线宽；lineDarken=细线势力色加深系数（细线颜色=势力色×lineDarken）；iconDarken=等级塔图标颜色加深系数（图标色=势力色×iconDarken，2026-08-07 城市图标太亮→调暗）；iconScale[]=每级图标\"框填充比例\"（9 项，下标=等级-1，0~1；<1 → 图标略小于基建地块框；2026-08-07 反馈图标尺寸按框自适应：框=形状 w×h 个格子，保留源纵横比下能放进框的最大宽 fitW=min(w×cellPx, h×cellPx/源纵横比)，图标宽=round(fitW×iconScale[level-1])，图标高=round(宽×源高/源宽)，长/宽均不超出框×填充比例；图标中心=基建地块几何中心，2026-08-07 移除 offsetY 错开偏移）。2026-08-08：普通城市**随缩放继续缩小**（无下限，原 minIconSizePx 已移除）；正式首都/候补的保底最小宽由 render.capital.minIconSizePx 承担。城市不再画 data/city.png 基建格贴图，只画等级塔图标 + 高缩放细线。",
+      "lineMinCellPx": 20.0,
+      "lineThickness": 1.5,
+      "lineDarken": 0.7,
+      "iconDarken": 0.8,
+      "iconScale": [0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85]
+    },
+    "capital": {
+      "_comment": "P15 首都渲染：minIconSizePx=低缩放正式首都/候补图标保底最小宽（不随缩放继续缩小；2026-08-08 用户定夺：缩到最小时首都渲染得更大，原 city.minIconSizePx=12 → 本值 20，待实验）；iconScale[9]=首都图标按等级缩放表（下标=等级-1，语义同 city.iconScale：按基建地块框自适应，1.0=填满框，待实验）；lineThickness=正式首都基建区细线宽（比普通城市粗）；designatedAlpha=候补指定新都虚化首都图标透明度（0-1）。放大/缩小行为复用普通城市（city.lineMinCellPx）。",
+      "minIconSizePx": 30,
+      "lineThickness": 2.5,
+      "designatedAlpha": 0.45,
+      "iconScale": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    }
+  },
+  "player": {
+    "_comment": "P2 玩家产兵指示。hoverCityRadius=悬停触发半径（格）；markerAlpha=指示透明度；markerRotateSpeed=环旋转角/tick；markerRingMargin=产兵城指示环外径 = max(城w,城h)+该值（格），随城市基建地块大小自适应、可调（外径须 ≥ 对角 √(w²+h²) 才圈住全部基建格，当前最大 3×3 → margin≥1.24）；markerArrowGap=悬停四箭头尖端半径 = max(城w,城h)/2 + 该值（格），间距可调，能指示大小不一的城。",
+    "hoverCityRadius": 2.0,
+    "markerAlpha": 0.85,
+    "markerRotateSpeed": 0.03,
+    "markerRingMargin": 1.5,
+    "markerArrowGap": 0.6
+  },
+  "ui": {
+    "messageMaxShown": 12
+  },
+  "tech": {
+    "_comment": "P8 科技系统（思路'科技细节'）。科技点=城市产出（每tick每座n级城产 n×pointsPerCityLevel×mods.techGainMult 点）；到阈值清空+科研机会、阈值+thresholdStep。节奏（用户定夺 2026-08-08 放慢默认）：pointsPerCityLevel=0.01 占位待实验。玩家 3 选 1（candidates 用游戏 Rng 采样）；AI 随机选一个可升级科技。levels[i]=第i+1级累计效果（升级=用该级 buff 替换旧 buff）；preferenceUnits=每级默认 AI 该兵种偏好 +preferencePerLevel（思路：非全兵种科技影响偏好，大爆炸对地雷与炸弹都加）。",
+    "thresholdBase": 100.0,
+    "thresholdStep": 100.0,
+    "pointsPerCityLevel": 0.01,
+    "preferencePerLevel": 0.5,
+    "playerCandidateCount": 3,
+    "techs": [
+      { "id": "throttle_normal", "name": "节流·普通兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "normal", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "normal", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "normal", "magnitude": 0.75 }, { "type": "UnitCostMult", "param": "normal", "magnitude": 0.70 } ],
+        "preferenceUnits": ["normal"] },
+      { "id": "throttle_vanguard", "name": "节流·先锋兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "vanguard", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "vanguard", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "vanguard", "magnitude": 0.75 } ],
+        "preferenceUnits": ["vanguard"] },
+      { "id": "throttle_pioneer", "name": "节流·开拓兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "pioneer", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "pioneer", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "pioneer", "magnitude": 0.75 } ],
+        "preferenceUnits": ["pioneer"] },
+      { "id": "throttle_laser", "name": "节流·激光兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "laser", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "laser", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "laser", "magnitude": 0.75 } ],
+        "preferenceUnits": ["laser"] },
+      { "id": "throttle_bomb", "name": "节流·爆炸兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "bomb", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "bomb", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "bomb", "magnitude": 0.75 } ],
+        "preferenceUnits": ["bomb"] },
+      { "id": "throttle_mine", "name": "节流·地雷兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "mine", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "mine", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "mine", "magnitude": 0.75 } ],
+        "preferenceUnits": ["mine"] },
+      { "id": "throttle_pistol", "name": "节流·手枪兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "pistol", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "pistol", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "pistol", "magnitude": 0.75 } ],
+        "preferenceUnits": ["pistol"] },
+      { "id": "throttle_shotgun", "name": "节流·霰弹兵", "desc": "造价",
+        "levels": [ { "type": "UnitCostMult", "param": "shotgun", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "shotgun", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "shotgun", "magnitude": 0.75 } ],
+        "preferenceUnits": ["shotgun"] },
+      { "id": "march_normal", "name": "行军·普通兵", "desc": "速度",
+        "levels": [ { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.60 }, { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.80 } ],
+        "preferenceUnits": ["normal"] },
+      { "id": "march_vanguard", "name": "行军·先锋兵", "desc": "速度",
+        "levels": [ { "type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.60 } ],
+        "preferenceUnits": ["vanguard"] },
+      { "id": "march_pioneer", "name": "行军·开拓兵", "desc": "速度",
+        "levels": [ { "type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.60 } ],
+        "preferenceUnits": ["pioneer"] },
+      { "id": "march_laser", "name": "行军·激光兵", "desc": "速度",
+        "levels": [ { "type": "UnitSpeedMult", "param": "laser", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "laser", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "laser", "magnitude": 1.60 } ],
+        "preferenceUnits": ["laser"] },
+      { "id": "march_bomb", "name": "行军·爆炸兵", "desc": "速度",
+        "levels": [ { "type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.60 } ],
+        "preferenceUnits": ["bomb"] },
+      { "id": "march_mine", "name": "行军·地雷兵", "desc": "速度",
+        "levels": [ { "type": "UnitSpeedMult", "param": "mine", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "mine", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "mine", "magnitude": 1.60 } ],
+        "preferenceUnits": ["mine"] },
+      { "id": "big_bang", "name": "大爆炸", "desc": "爆炸半径",
+        "levels": [ { "type": "BombRadiusMult", "param": "all", "magnitude": 1.30 }, { "type": "BombRadiusMult", "param": "all", "magnitude": 1.60 }, { "type": "BombRadiusMult", "param": "all", "magnitude": 1.80 } ],
+        "preferenceUnits": ["bomb", "mine"] },
+      { "id": "stable_laser", "name": "稳定激光", "desc": "激光持续时间",
+        "levels": [ { "type": "LaserDurationMult", "param": "all", "magnitude": 1.50 }, { "type": "LaserDurationMult", "param": "all", "magnitude": 2.00 } ],
+        "preferenceUnits": ["laser"] },
+      { "id": "extend_laser", "name": "延长激光", "desc": "激光长度",
+        "levels": [ { "type": "LaserLengthMult", "param": "all", "magnitude": 1.50 }, { "type": "LaserLengthMult", "param": "all", "magnitude": 2.00 } ],
+        "preferenceUnits": ["laser"] },
+      { "id": "rapid_fire", "name": "高速射击", "desc": "手枪兵攻击速度",
+        "levels": [ { "type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.30 }, { "type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.60 }, { "type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.90 } ],
+        "preferenceUnits": ["pistol"] },
+      { "id": "barrage", "name": "弹幕", "desc": "霰弹兵每次子弹数",
+        "levels": [ { "type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 2.0 }, { "type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 3.0 }, { "type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 4.0 } ],
+        "preferenceUnits": ["shotgun"] },
+      { "id": "economy_boost", "name": "经济振兴", "desc": "经济获取",
+        "levels": [ { "type": "EconomyGainMult", "param": "all", "magnitude": 1.05 }, { "type": "EconomyGainMult", "param": "all", "magnitude": 1.10 }, { "type": "EconomyGainMult", "param": "all", "magnitude": 1.15 }, { "type": "EconomyGainMult", "param": "all", "magnitude": 1.20 } ],
+        "preferenceUnits": [] },
+      { "id": "observatory", "name": "观星台", "desc": "科技获取",
+        "levels": [ { "type": "TechGainMult", "param": "all", "magnitude": 1.10 }, { "type": "TechGainMult", "param": "all", "magnitude": 1.20 }, { "type": "TechGainMult", "param": "all", "magnitude": 1.30 }, { "type": "TechGainMult", "param": "all", "magnitude": 1.40 } ],
+        "preferenceUnits": [] }
+    ]
+  }
+}
