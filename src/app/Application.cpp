@@ -20,6 +20,7 @@
 #include "sim/components.h"
 #include "ui/ImGuiSetup.h"
 #include "ui/Menu.h"
+#include "ui/UiScale.h"
 #include "ui/panels/StatsPanel.h"  // P11：统计面板注册
 #include "ui/panels/TechPanel.h"   // P8：科技面板注册
 #include "world/MapGenerator.h"
@@ -508,8 +509,10 @@ void Application::updatePlayerIntent() {
     // 即中心，故命中判定与产兵坐标天然一致）。
     for (int cid : sim_.faction(playerFid).cityIds) {
         const auto& city = sim_.map().city(static_cast<size_t>(cid));
-        const double d = std::hypot(a.mouseX - camera_.toScreenXi(city.centerX()),
-                                    a.mouseY - camera_.toScreenYi(city.centerY()));
+        // 2026-08 收敛：连续变换（toScreenX/Y 双精度）算距离——城市中心可能是 .5 等
+        // 非整数坐标，int 版会抹掉小数（旧混用；阈值 20px 量级下差别极小，但语义应统一）。
+        const double d = std::hypot(a.mouseX - camera_.toScreenX(city.centerX()),
+                                    a.mouseY - camera_.toScreenY(city.centerY()));
         if (d <= selR && d < hitDist) {
             hitDist = d;
             hitCityId = cid;
@@ -632,7 +635,7 @@ void Application::drawTechResearchModal(ui::UiRequests& req) {
     const ImVec4 kNewGreen(0.35f, 0.95f, 0.35f, 1.0f);
     const ImVec4 kOldYellow(0.95f, 0.9f, 0.2f, 1.0f);
 
-    ImGui::SetNextWindowSize(ImVec2(560.0f * uiScale_, 0.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(ui::scaled(560.0f, uiScale_), 0.0f), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     ImGui::Begin("科研选择", nullptr,

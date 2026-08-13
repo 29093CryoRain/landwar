@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 #include "render/TintMath.h"
 
@@ -213,6 +214,19 @@ int TintCache::sizePixel(int sizeIndex) const {
     if (sizes_.empty()) return texW_;
     if (sizeIndex < 0 || sizeIndex >= static_cast<int>(sizes_.size())) return texW_;
     return sizes_[static_cast<size_t>(sizeIndex)];
+}
+
+int TintCache::pickSizeIndex(int target) const {
+    if (target <= 0) return 0;
+    int best = 0, bestDist = std::numeric_limits<int>::max();
+    for (int i = 0; i < sizeCount(); ++i) {
+        const int d = std::abs(sizePixel(i) - target);
+        if (d < bestDist) {  // 严格小于 → 平局保留先出现的（更大档位）
+            bestDist = d;
+            best = i;
+        }
+    }
+    return best;
 }
 
 int TintCache::width(int sizeIndex) const {

@@ -56,6 +56,11 @@ public:
     int width() const { return texW_; }                       // 源图宽（向后兼容）
     int height() const { return texH_; }                      // 源图高
 
+    // LOD 档位选择（2026-08 工程改进，从 MapRenderer/CityRenderer 各副本收敛到本类）：
+    // 选预烘焙尺寸与 target 屏上尺寸最近的档（同距优先大档 → 尽量降采样而非放大，
+    // 避免小档上采样发糊）。target <= 0 → 返回 0（源图档）。
+    int pickSizeIndex(int target) const;
+
     // 显式销毁全部纹理（须先于 SDL_DestroyRenderer；析构也会调用，可重复调用）。
     void release();
 

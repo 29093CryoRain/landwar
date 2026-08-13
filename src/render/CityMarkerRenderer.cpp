@@ -6,19 +6,12 @@
 
 #include "core/GameDefs.h"
 #include "core/Simulation.h"
+#include "render/RendererUtil.h"
 
 namespace lw::render {
 
 namespace {
 constexpr int kTexSize = 128;  // 源贴图（data/ring.png、data/arrow.png）尺寸
-
-// 城市显示亮度：mix_color(势力色, 黑, 0.8) = 势力色 × 0.8（MapRenderer 城市格同款）。
-std::array<int, 3> dimCityColor(const std::array<int, 3>& col) {
-    std::array<int, 3> out;
-    for (int i = 0; i < 3; ++i)
-        out[static_cast<size_t>(i)] = static_cast<int>(col[static_cast<size_t>(i)] * 0.8);
-    return out;
-}
 }  // namespace
 
 int CityMarkerRenderer::ringSizePx(int w, int h, double cellPx, double margin) {
@@ -47,7 +40,7 @@ void CityMarkerRenderer::bake(const std::vector<std::array<int, 3>>& factionColo
     // 用"城市显示亮度"（×0.8）着色，保持 P2 用户反馈调暗后的观感。
     std::vector<std::array<int, 3>> dim;
     dim.reserve(factionColors.size());
-    for (const auto& c : factionColors) dim.push_back(dimCityColor(c));
+    for (const auto& c : factionColors) dim.push_back(scaledColor(c, 0.8));  // 城市显示亮度 ×0.8
     // 白底透明源图，Multiply 整体 tint（白→目标色），保持 P2 调暗观感。
     ringTint_.load(ren_, "data/ring.png", dim, TintMode::Multiply, /*grayscaleFirst=*/false,
                    /*preserveWhite=*/0);

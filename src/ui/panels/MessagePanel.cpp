@@ -5,26 +5,16 @@
 
 #include <imgui.h>
 
-#include <cstring>
-
 #include "core/Simulation.h"  // Simulation::tickCount / config
+#include "ui/UiText.h"
 
 namespace lw::ui {
 
 namespace {
 
-// 势力色（0=中立灰）。仅用于消息中的势力名。
-ImVec4 factionColor(const Simulation& sim, int factionId) {
-    std::array<int, 3> rgb{180, 180, 180};
-    if (factionId >= 1 && factionId < static_cast<int>(sim.factions().size())) {
-        rgb = sim.faction(factionId).color;
-    }
-    return ImVec4(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f);
-}
-
 // 渲染一条消息：按势力名把文本切成 [前缀|势力名|后缀] 三段——前缀/后缀白色，
 // 势力名用势力色（如 "(333s) 势力 红 被灭亡"，只有"红"红色）。factionId=0 或
-// 文本中找不到势力名时整段白色（如自定义消息）。
+// 文本中找不到势力名时整段白色（如自定义消息）。统一走 drawTextWithHighlight（2026-08）。
 void renderMessageText(const Simulation& sim, const Message& m) {
     const char* name = (m.factionId >= 1 && m.factionId <= kPlayerFactionCount)
                            ? factionShortName(m.factionId)
@@ -33,20 +23,7 @@ void renderMessageText(const Simulation& sim, const Message& m) {
         ImGui::TextUnformatted(m.text.c_str());
         return;
     }
-    const std::string& t = m.text;
-    const std::size_t pos = t.find(name);
-    if (pos == std::string::npos) {
-        ImGui::TextUnformatted(t.c_str());
-        return;
-    }
-    const std::size_t nameLen = std::strlen(name);
-    ImGui::TextUnformatted(t.substr(0, pos).c_str());
-    ImGui::SameLine(0.0f, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_Text, factionColor(sim, m.factionId));
-    ImGui::TextUnformatted(t.substr(pos, nameLen).c_str());
-    ImGui::PopStyleColor();
-    ImGui::SameLine(0.0f, 0.0f);
-    ImGui::TextUnformatted(t.substr(pos + nameLen).c_str());
+    drawTextWithHighlight(m.text, name, factionColor(sim, m.factionId));
 }
 
 }  // namespace

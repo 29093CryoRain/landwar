@@ -6,6 +6,7 @@
 
 #include "core/GameDefs.h"
 #include "core/Simulation.h"
+#include "render/RendererUtil.h"
 #include "render/WrapDraw.h"
 #include "sim/components.h"
 
@@ -15,7 +16,7 @@ void ArmyRenderer::draw(const Simulation& sim, bool wrap) {
     const auto& reg = sim.registry();
     Renderer r(ren_);
     // 兵 sprite 尺寸随缩放等比（世界等比渲染）；保留最小 2px 防退化。
-    const int size = std::max(2, static_cast<int>(std::lround(drawSize_ * cam_.zoom())));
+    const int size = render::spriteSize(drawSize_, cam_.zoom());
     // 无 y 偏移：曾加 spriteSize/2（16px）下移以修正视觉，后取消（不加偏移视觉正常）。
     // 点选交互锚点与渲染一致（同样不加偏移），见 Application::pickSelection。
     // P10：环绕双渲染的屏幕跨度（图宽/高像素）与贴界阈值（绘制尺寸折格）。wrap 关闭 → 不画副本。
@@ -38,6 +39,10 @@ void ArmyRenderer::draw(const Simulation& sim, bool wrap) {
         if (fid < 1 || fid > kPlayerFactionCount) continue;  // 防御：中立/非法 id 不上场
         const int type = static_cast<int>(reg.get<comp::UnitType>(e).type);
         const auto& p = reg.get<comp::Position>(e);
+        // 视野剔除（2026-08 工程改进）：实体离屏且（wrap 下）不在贴界带 → 跳过绘制。
+        // 半径取整颗 sprite 折算格数（保守，多画无害）。
+        if (!render::isVisibleOnScreen(cam_, p.x, p.y, size / cam_.cellPx(), wrap, edgeDist))
+            continue;
         const int sx = cam_.toScreenXi(p.x);
         const int sy = cam_.toScreenYi(p.y);
         // 签名兵种（该势力特色兵种）用特殊版贴图（原样彩色），其余用该势力色相旋转的基础版。

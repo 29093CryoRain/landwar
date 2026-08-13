@@ -18,6 +18,11 @@ double getRandomAngle(Rng& rng);
 unsigned mixColor(unsigned color1, unsigned color2, double rate);
 
 // 原版 toscreenx / toscreeny（y 轴翻转：世界 y=0 在屏幕底）。
+// 2026-08 收敛：f 版（连续 double）为唯一实现，int 版 = f 版显式截断（语义与旧版逐位一致）。
+// 规则：新代码一律用 f 版（ScreenTransform::toXf / Camera::toScreenX），保留小数；
+// 绘制取整走 Camera::toScreenXi/Yi（lround）。int 版仅供历史逐像素对齐路径。
+double toScreenXf(double x, double blockSize, int panelWidth);
+double toScreenYf(double y, double blockSize, int mapHeight);
 int toScreenX(double x, double blockSize, int panelWidth);
 int toScreenY(double y, double blockSize, int mapHeight);
 
@@ -38,13 +43,14 @@ struct ScreenTransform {
     int panelWidth = 600;
     int mapHeight = 95;
 
-    int toX(double x) const { return toScreenX(x, blockSize, panelWidth); }
-    int toY(double y) const { return toScreenY(y, blockSize, mapHeight); }
-    // 连续（double）版：保留小数部分。整数世界坐标下与 int 版一致；城市中心等非整数坐标
+    // 连续版（唯一实现）：保留小数。整数世界坐标下与 int 版一致；城市中心等非整数坐标
     //（baseX+w/2）若走 int 版会在缩放前被抹掉 0.5 格 → 图标比地块中心恒偏左/上 0.5×zoom px
     // 且随 zoom 变化（2026-08-07 城市 1/2 级"略偏左"回归根因）。Camera 一律用 f 版。
-    double toXf(double x) const { return x * blockSize + panelWidth; }
-    double toYf(double y) const { return (mapHeight - y) * blockSize; }
+    double toXf(double x) const { return toScreenXf(x, blockSize, panelWidth); }
+    double toYf(double y) const { return toScreenYf(y, blockSize, mapHeight); }
+    // int 版（历史逐像素路径；截断语义与旧版一致）。新代码用 f 版 + 显式取整。
+    int toX(double x) const { return toScreenX(x, blockSize, panelWidth); }
+    int toY(double y) const { return toScreenY(y, blockSize, mapHeight); }
 };
 
 }  // namespace lw::math

@@ -5,9 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 #include "core/GameDefs.h"
+#include "render/RendererUtil.h"
 
 namespace lw::render {
 
@@ -24,31 +24,8 @@ std::string towerPath(int level) {
 // 首都图标源图路径（P15：data/tower/capital.png，白色前景透明背景，与其他城市贴图同类）。
 std::string capitalPath() { return "data/tower/capital.png"; }
 
-// LOD 档位选择：选预烘焙尺寸与目标屏上尺寸最近的档（同距优先大档 → 尽量降采样而非放大）。
-// 与 MapRenderer 同款（CityRenderer 独立维护，避免跨文件匿名命名空间依赖）。
-int pickSizeIndex(const TintCache& cache, int target) {
-    int best = 0, bestDist = std::numeric_limits<int>::max();
-    for (int i = 0; i < cache.sizeCount(); ++i) {
-        const int d = std::abs(cache.sizePixel(i) - target);
-        if (d < bestDist) {  // 严格小于 → 平局保留先出现的（更大档位）
-            bestDist = d;
-            best = i;
-        }
-    }
-    return best;
-}
-
-// 单通道按比例缩放（col × rate；与 MapRenderer::scaled 同款，CityRenderer 独立维护）。
-std::array<int, 3> scaled(const std::array<int, 3>& col, double rate) {
-    std::array<int, 3> out;
-    for (int i = 0; i < 3; ++i)
-        out[static_cast<size_t>(i)] =
-            static_cast<int>(col[static_cast<size_t>(i)] * rate + 0.5);
-    return out;
-}
-
 // 绘制一批图标（等级塔：towers_[level-1]；首都/候补：capital_）。alpha 施加于纹理（虚化候补）。
-// 共用 pickSizeIndex LOD 选档 + 按该档实际纹理尺寸采样（塔图非方形，2026-08-07 偏移修复）。
+// 共用 TintCache::pickSizeIndex LOD 选档 + 按该档实际纹理尺寸采样（塔图非方形，2026-08-07 偏移修复）。
 void drawIcons(const std::vector<CityRenderer::Icon>& icons,
                const std::array<TintCache, 9>& towers, const TintCache& capital,
                bool useCapitalTex, Renderer& r, int alpha) {
@@ -56,7 +33,7 @@ void drawIcons(const std::vector<CityRenderer::Icon>& icons,
         const TintCache& cache = useCapitalTex ? capital : towers[static_cast<size_t>(ic.level - 1)];
         if (cache.count() == 0) continue;
         const int ci = std::clamp(ic.colorIndex, 0, cache.count() - 1);
-        const int si = pickSizeIndex(cache, ic.dstW);
+        const int si = cache.pickSizeIndex(ic.dstW);
         SDL_Texture* tex = cache.texture(ci, si);
         if (!tex) continue;
         const SDL_Rect src{0, 0, cache.width(si), cache.height(si)};
@@ -92,7 +69,7 @@ void CityRenderer::bake(const std::vector<std::array<int, 3>>& factionColors,
     //（2026-08-07 反馈大城看不清 → 调暗）。细线仍用原色 × lineDarken（draw 里单独混黑）。
     std::vector<std::array<int, 3>> iconCols;
     iconCols.reserve(factionColors.size());
-    for (const auto& c : factionColors) iconCols.push_back(scaled(c, iconDarken));
+    for (const auto& c : factionColors) iconCols.push_back(scaledColor(c, iconDarken));
     const std::vector<int> lodSizes = {kTerrainTexSize, 64, 32, 16};
     for (int lv = 1; lv <= kTowerCount; ++lv) {
         TintCache& cache = towers_[static_cast<size_t>(lv - 1)];

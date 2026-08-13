@@ -11,19 +11,13 @@
 #include "app/InputManager.h"  // app::Selection 完整定义
 #include "core/Simulation.h"
 #include "sim/components.h"
+#include "ui/UiScale.h"
+#include "ui/UiText.h"
 #include "world/Faction.h"
 
 namespace lw::ui {
 
 namespace {
-
-// uiScale=1 时的面板宽度基准。默认 uiScale=2.0（2026-08-03），2.0×=580 ≤ panelWidth(600)，
-// 面板不压到地图（原 312×2=624 会盖住地图左缘 24px）。
-constexpr float kBasePanelWidth = 290.0f;
-
-ImVec4 toImVec4(const std::array<int, 3>& rgb) {
-    return ImVec4(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f);
-}
 
 const char* armyTypeName(ArmyType t) {
     switch (t) {
@@ -59,7 +53,8 @@ void DebugPanel::draw(PanelCtx& ctx) {
     UiRequests& req = *ctx.requests;
 
     const ImVec2 display = ImGui::GetIO().DisplaySize;
-    const float w = std::max(240.0f, kBasePanelWidth * ctrl.uiScale);  // 面板宽度随 UI 缩放
+    // 面板宽度随 UI 缩放（2026-08 统一走 UiScale：基准 290 → 2.0×=580 ≤ panelWidth 600）。
+    const float w = mainPanelWidth(ctrl.uiScale);
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
     ImGui::SetNextWindowSize(ImVec2(w, display.y));
     ImGuiWindowFlags flags =
@@ -135,8 +130,8 @@ void DebugPanel::draw(PanelCtx& ctx) {
     // ---- UI 缩放（放最下方，Phase 9 用户反馈）----
     // 锚定窗口底部固定高度 → 竖直位置不随上方内容/缩放倍率变化；长度随缩放倍率（直观反映当前值）。
     ImGui::SetCursorPosY(display.y - 58.0f);
-    ImGui::SetNextItemWidth(220.0f * ctrl.uiScale);  // 长度随缩放倍率（Phase 9 用户反馈：翻倍）
-    ImGui::SliderFloat("UI缩放", &ctrl.uiScale, 0.6f, 2.0f, "%.2f");
+    ImGui::SetNextItemWidth(scaled(kSliderWidth, ctrl.uiScale));  // 长度随缩放倍率（Phase 9 反馈）
+    ImGui::SliderFloat("UI缩放", &ctrl.uiScale, kMinUiScale, kMaxUiScale, "%.2f");
     ImGui::End();
 }
 
@@ -176,7 +171,7 @@ void DebugPanel::drawPlayerSection(const Simulation& sim, UiRequests& req, UiCon
     const auto& intent = sim.playerIntent();
 
     ImGui::Separator();
-    ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(f.color));
+    ImGui::PushStyleColor(ImGuiCol_Text, rgbToImVec4(f.color));
     ImGui::Text("玩家 · %s", factionShortName(playerFid));
     ImGui::PopStyleColor();
 
@@ -303,7 +298,7 @@ void DebugPanel::drawLeaderboard(const Simulation& sim, const DebugCounts& count
             std::snprintf(buf, sizeof(buf), "%d", i + 1);
             ImGui::TextUnformatted(buf);
             ImGui::TableNextColumn();
-            ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(f->color));
+            ImGui::PushStyleColor(ImGuiCol_Text, rgbToImVec4(f->color));
             ImGui::TextUnformatted(factionShortName(f->id));  // 单字颜色名（红/黄/青/…）
             ImGui::PopStyleColor();
             ImGui::TableNextColumn();

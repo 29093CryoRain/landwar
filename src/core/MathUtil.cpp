@@ -38,12 +38,21 @@ unsigned mixColor(unsigned color1, unsigned color2, double rate) {
            | static_cast<unsigned>(b);
 }
 
+// 连续版（唯一实现）：toScreenXf/Yf 保留小数；int 版 = f 版显式截断（2026-08 收敛）。
+double toScreenXf(double x, double blockSize, int panelWidth) {
+    return x * blockSize + panelWidth;
+}
+
+double toScreenYf(double y, double blockSize, int mapHeight) {
+    return (mapHeight - y) * blockSize;
+}
+
 int toScreenX(double x, double blockSize, int panelWidth) {
-    return static_cast<int>(x * blockSize) + panelWidth;
+    return static_cast<int>(toScreenXf(x, blockSize, panelWidth));
 }
 
 int toScreenY(double y, double blockSize, int mapHeight) {
-    return static_cast<int>((mapHeight - y) * blockSize);
+    return static_cast<int>(toScreenYf(y, blockSize, mapHeight));
 }
 
 // rng 保留在签名中（历史 API：Phase 9 起每 tick 抖动已取消，调用方仍传）；

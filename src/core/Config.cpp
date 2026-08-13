@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 
@@ -187,6 +188,148 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
     magenta.id = 8;
     magenta.color = {255, 0, 255};
     magenta.freeArmyChance = 0.6;
+}
+
+}  // namespace
+
+// ---- 键名校验（2026-08 工程改进）----
+// 缺键回退默认是设计，但**打错的键名**同样静默回退——平衡性全在 config.json，
+// 一个 typo 就是"改了没生效"且毫无提示。以下在解析后整树校验：
+// 已知键集合外的键 → spdlog::warn（不阻断；'_' 前缀键如 _comment 视为注释，不告警）。
+// 维护：每增删 config 键，须同步更新下方列表与 toJson（键严格对称，单测往返锁定）。
+namespace {
+
+void warnUnknownKeys(const Json& obj, const std::vector<std::string>& known,
+                     const std::string& path) {
+    if (!obj.is_object()) return;
+    for (auto it = obj.begin(); it != obj.end(); ++it) {
+        const std::string& k = it.key();
+        if (!k.empty() && k[0] == '_') continue;  // _comment 等注释键
+        if (std::find(known.begin(), known.end(), k) == known.end())
+            spdlog::warn("config: unknown key '{}' under '{}' (ignored; typo?)", k, path);
+    }
+}
+
+void validateConfigKeys(const Json& root) {
+    using V = std::vector<std::string>;
+    // 顶层。
+    warnUnknownKeys(root,
+                    {"map", "army", "sea", "terrain", "units", "factions", "effect",
+                     "projectile", "economy", "city", "capital", "sim", "render", "player",
+                     "ui", "tech"},
+                    "<root>");
+    // 对象取值辅助（不存在/非对象 → 空对象，warnUnknownKeys 自动跳过）。
+    auto obj = [&root](const char* name) -> const Json& {
+        static const Json kEmpty = Json::object();
+        return (root.contains(name) && root[name].is_object()) ? root[name] : kEmpty;
+    };
+    auto child = [](const Json& parent, const char* name) -> const Json& {
+        static const Json kEmpty = Json::object();
+        return (parent.contains(name) && parent[name].is_object()) ? parent[name] : kEmpty;
+    };
+    // 纯键值段。
+    warnUnknownKeys(obj("map"),
+                    {"file", "width", "height", "blockSize", "panelWidth", "capitalMinDistance"},
+                    "map");
+    warnUnknownKeys(obj("army"),
+                    {"baseSpeed", "baseSize", "bounceJitterHalfRange", "bounceJitterDenominator"},
+                    "army");
+    warnUnknownKeys(obj("sea"),
+                    {"initialGoSeaProbability", "goSeaIncrease", "goSeaChanceConst",
+                     "goSeaChanceDenominator", "cyanSeaMult", "seaSpeedMult"},
+                    "sea");
+    warnUnknownKeys(obj("terrain"),
+                    {"seaChannelMin", "probFloor", "probScale", "mountainEnterChance",
+                     "mountainSpeedMult"},
+                    "terrain");
+    warnUnknownKeys(obj("projectile"), {"drawSize", "mountainLifespanPenalty"}, "projectile");
+    warnUnknownKeys(obj("economy"),
+                    {"initialEconomy", "perLandIncome", "cityBaseMult", "capitalBase"}, "economy");
+    warnUnknownKeys(obj("capital"), {"relocationDelayTicks"}, "capital");
+    warnUnknownKeys(obj("sim"), {"tickRate", "maxArmyGuard"}, "sim");
+    warnUnknownKeys(obj("player"),
+                    {"hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin",
+                     "markerArrowGap"},
+                    "player");
+    warnUnknownKeys(obj("ui"), {"messageMaxShown"}, "ui");
+    // effect 嵌套。
+    const Json& eff = obj("effect");
+    warnUnknownKeys(eff, {"bomb", "mine", "laser"}, "effect");
+    warnUnknownKeys(child(eff, "bomb"), {"lifetimeTicks", "conquerEveryTicks", "baseRadius"},
+                    "effect.bomb");
+    warnUnknownKeys(child(eff, "mine"),
+                    {"radius", "armTicks", "checkEveryTicks", "timeoutTicks", "triggerRadiusMult",
+                     "triggerBombRadius"},
+                    "effect.mine");
+    warnUnknownKeys(child(eff, "laser"),
+                    {"durationTicks", "length", "extendPerTick", "killExtraRadius",
+                     "beamSpreadPIFrac"},
+                    "effect.laser");
+    // render 嵌套。
+    const Json& ren = obj("render");
+    warnUnknownKeys(ren,
+                    {"windowWidth", "windowHeight", "spriteSize", "armyDrawSize", "city",
+                     "capital"},
+                    "render");
+    warnUnknownKeys(child(ren, "city"),
+                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "iconScale"},
+                    "render.city");
+    warnUnknownKeys(child(ren, "capital"),
+                    {"minIconSizePx", "lineThickness", "designatedAlpha", "iconScale"},
+                    "render.capital");
+    // city（顶层，P13 城市系统）。
+    const Json& cityJ = obj("city");
+    warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes"}, "city");
+    // 数组段（units / factions 在根；city.shapes 在 city 下）。unitPreference 键为动态
+    // 兵种名（normal/vanguard/…）→ 列在已知集合里自然跳过动态校验。
+    const V kUnitKeys = {"type",          "cost",              "speedMult",
+                         "sizeMult",      "bounceMult",        "visualRadius",
+                         "mountainEnterMult", "mountainNoSlow", "deathEffect",
+                         "periodic",      "periodTicks",       "bulletSpeed",
+                         "bulletSpeedJitter", "bulletCount",   "bulletLifespanTicks",
+                         "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac"};
+    const V kFactionKeys = {"id", "color", "unitPreference", "speedMultAll", "seaMult",
+                            "bounceMultAll", "pioneerSpeedMult", "extraLaserBeams",
+                            "laserDurationMult", "laserLengthMult", "bombRadius",
+                            "mineTriggerRadius", "freeArmyChance"};
+    const V kShapeKeys = {"level", "w", "h"};
+    const V kTechKeys = {"id", "name", "desc", "levels", "preferenceUnits"};
+    const V kLevelKeys = {"type", "param", "magnitude"};
+    auto arrayOf = [&root](const char* name) -> const Json& {
+        static const Json kEmpty = Json::array();
+        return (root.contains(name) && root[name].is_array()) ? root[name] : kEmpty;
+    };
+    int idx = 0;
+    for (const auto& u : arrayOf("units"))
+        warnUnknownKeys(u, kUnitKeys, "units[" + std::to_string(idx++) + "]");
+    idx = 0;
+    for (const auto& f : arrayOf("factions"))
+        warnUnknownKeys(f, kFactionKeys, "factions[" + std::to_string(idx++) + "]");
+    idx = 0;
+    if (cityJ.contains("shapes") && cityJ["shapes"].is_array()) {
+        for (const auto& s : cityJ["shapes"])
+            warnUnknownKeys(s, kShapeKeys, "city.shapes[" + std::to_string(idx++) + "]");
+    }
+    // tech：阈值键 + techs 数组（含 levels）。
+    const Json& tech = obj("tech");
+    warnUnknownKeys(tech,
+                    {"thresholdBase", "thresholdStep", "pointsPerCityLevel",
+                     "preferencePerLevel", "playerCandidateCount", "techs"},
+                    "tech");
+    if (tech.contains("techs") && tech["techs"].is_array()) {
+        idx = 0;
+        for (const auto& tj : tech["techs"]) {
+            warnUnknownKeys(tj, kTechKeys, "tech.techs[" + std::to_string(idx) + "]");
+            if (tj.is_object() && tj.contains("levels") && tj["levels"].is_array()) {
+                int lv = 0;
+                for (const auto& lj : tj["levels"])
+                    warnUnknownKeys(lj, kLevelKeys,
+                                    "tech.techs[" + std::to_string(idx) + "].levels[" +
+                                        std::to_string(lv++) + "]");
+            }
+            ++idx;
+        }
+    }
 }
 
 }  // namespace
@@ -525,6 +668,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
         }
     }
 
+    validateConfigKeys(root);  // 键名校验（2026-08）：未知键记警告，不阻断
     return cfg;
 }
 

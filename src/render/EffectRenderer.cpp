@@ -5,6 +5,7 @@
 
 #include "core/GameDefs.h"
 #include "core/Simulation.h"
+#include "render/RendererUtil.h"
 #include "sim/components.h"
 
 namespace lw::render {
@@ -30,11 +31,19 @@ void EffectRenderer::draw(const Simulation& sim) {
         const auto& params = reg.get<comp::EffectParams>(e);
         const int elapsedTicks =
             static_cast<int>(simTick) - reg.get<comp::EffectTimer>(e).createdTick;
+        // 视野剔除（2026-08 工程改进）：按特效类型取保守世界半径（爆炸动态增长、
+        // 激光取光束长），离屏则跳过。
+        const EffectType et = reg.get<comp::EffectTypeId>(e).type;
+        const double worldRadius =
+            (et == EffectType::bomb)
+                ? std::sqrt(static_cast<double>(elapsedTicks) + 1.0) * params.p0 + 1.0
+                : ((et == EffectType::laser) ? params.p1 + 2.0 : 2.0);
+        if (!render::isVisibleOnScreen(cam_, pos.x, pos.y, worldRadius)) continue;
         const int cx = cam_.toScreenXi(pos.x);
         const int cy = cam_.toScreenYi(pos.y);
         const auto& color = sim.faction(fid).color;
 
-        switch (reg.get<comp::EffectTypeId>(e).type) {
+        switch (et) {
             case EffectType::bomb: {
                 // 爆炸：半透明实心圆。r 用 solve 版公式 sqrt(elapsedTicks+1)*bomb_range（§2.9 注记）。
                 if (elapsedTicks < 0 || elapsedTicks > 8) break;  // elapsedTicks>8 已消亡，防御
@@ -51,7 +60,7 @@ void EffectRenderer::draw(const Simulation& sim) {
                 const bool blink = elapsedTicks >= 600
                                    && (mod12 == 0 || mod12 == 1 || mod12 == 2 || mod12 == 10
                                        || mod12 == 11);
-                const int size = std::max(2, static_cast<int>(std::lround(mineDrawSize_ * z)));
+                const int size = render::spriteSize(mineDrawSize_, z);
                 // 与兵种贴图同步（2026-08-06）：紫色势力（kSpecialUnitFaction[mine]=7）的地雷
                 // 用特殊版贴图（原样彩色），与 ArmyRenderer 同款判定。
                 const bool special =
@@ -84,7 +93,7 @@ void EffectRenderer::draw(const Simulation& sim) {
                     static_cast<std::uint64_t>(simTick) * 1103515245ull
                     + static_cast<std::uint32_t>(e) * 2654435761ull;
                 const double rotDeg = static_cast<double>((rotSeed >> 16) % 360);
-                const int sp = std::max(2, static_cast<int>(std::lround(kSpriteSize * z)));
+                const int sp = render::spriteSize(kSpriteSize, z);
                 r.drawSpriteRotated(sheet_.texture(fid - 1), sheet_.rect(6), cx - sp / 2,
                                     cy - sp / 2, sp, sp, rotDeg, sp / 2, sp / 2);
                 break;

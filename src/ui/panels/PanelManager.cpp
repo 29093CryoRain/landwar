@@ -1,10 +1,12 @@
 // PanelManager.cpp — 可移动面板窗口绘制（开发计划 P3）。
 // PanelManager 纯逻辑在 PanelManager.h（内联）；本文件只做 ImGui 窗口层：
 // 统一可拖动窗口、标题栏"隐藏"按钮、位置/大小随帧回写（布局持久化）、UI 缩放适配
-// （长条选项区长度随缩放倍率，参考 DebugPanel/Menu 同款处理——用户增注 5）。
+// （长条选项区长度随缩放倍率，统一走 ui::scaled —— 用户增注 5，2026-08 收敛）。
 #include "ui/panels/PanelManager.h"
 
 #include <imgui.h>
+
+#include "ui/UiScale.h"
 
 namespace lw::ui {
 
@@ -40,8 +42,8 @@ void PanelManager::draw(PanelCtx& ctx) {
         } else {
             ImGui::SetNextWindowPos(ImVec2(p->state.x, p->state.y), ImGuiCond_FirstUseEver);
         }
-        if (p->state.w <= 0.0f) p->state.w = kBasePanelWidth * uiScale;
-        if (p->state.h <= 0.0f) p->state.h = kBasePanelHeight * uiScale;
+        if (p->state.w <= 0.0f) p->state.w = scaled(kBasePanelWidth, uiScale);
+        if (p->state.h <= 0.0f) p->state.h = scaled(kBasePanelHeight, uiScale);
         ImGui::SetNextWindowSize(ImVec2(p->state.w, p->state.h), ImGuiCond_FirstUseEver);
 
         // NoTitleBar → 整窗可拖动（标题栏信息自绘）；NoCollapse 防误收。

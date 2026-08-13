@@ -6,6 +6,7 @@
 
 #include "core/GameDefs.h"
 #include "core/Simulation.h"
+#include "render/RendererUtil.h"
 #include "render/SpriteSheet.h"
 #include "sim/components.h"
 
@@ -24,7 +25,9 @@ void ProjectileRenderer::draw(const Simulation& sim) {
         if (fid < 1 || fid > kPlayerFactionCount) continue;
         const auto& pos = reg.get<comp::Position>(e);
         // 子弹 sprite（army_base.png 行 8，势力色 tint）：边长 drawSize×zoom（最小 2px 防退化）。
-        const int s = std::max(2, static_cast<int>(std::lround(drawSize_ * z)));
+        const int s = render::spriteSize(drawSize_, z);
+        // 视野剔除（2026-08 工程改进）：半径取整颗 sprite 折算格数（保守）。
+        if (!render::isVisibleOnScreen(cam_, pos.x, pos.y, s / cam_.cellPx())) continue;
         r.drawSpriteCentered(sheet_.texture(fid - 1), sheet_.bulletRect(),
                              cam_.toScreenXi(pos.x), cam_.toScreenYi(pos.y), s);
     }

@@ -10,6 +10,7 @@
 #include "core/GameDefs.h"
 #include "core/Simulation.h"
 #include "sim/Statistics.h"
+#include "ui/UiText.h"  // factionColor（势力色 → ImVec4，2026-08 统一）
 
 namespace lw::ui {
 
@@ -31,13 +32,6 @@ const char* unitName(int t) {
 
 // 人均（0 除保护）。
 float perCapita(int n, int produced) { return produced > 0 ? static_cast<float>(n) / produced : 0.0f; }
-
-// 势力色文本。
-ImVec4 factionColor(const Simulation& sim, int fid) {
-    std::array<int, 3> rgb{180, 180, 180};
-    if (fid >= 1 && fid < static_cast<int>(sim.factions().size())) rgb = sim.faction(fid).color;
-    return ImVec4(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f);
-}
 
 // 势力×兵种表（选定势力）。列：兵种/击杀/占领/产兵/人均击杀/人均占领。
 void drawFactionUnitTable(const Simulation& sim, int fid) {

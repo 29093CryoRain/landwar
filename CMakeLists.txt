@@ -133,6 +133,7 @@ add_executable(landwar
     src/ui/DebugPanel.cpp
     src/ui/ImGuiSetup.cpp
     src/ui/Menu.cpp
+    src/ui/UiText.cpp
     src/ui/panels/MessagePanel.cpp
     src/ui/panels/PanelManager.cpp
     src/ui/panels/StatsPanel.cpp

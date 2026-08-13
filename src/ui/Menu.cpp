@@ -16,6 +16,8 @@
 #include "core/GameDefs.h"
 #include "core/Random.h"
 #include "render/MapPreview.h"
+#include "ui/UiScale.h"
+#include "ui/UiText.h"
 #include "world/MapGenerator.h"
 
 namespace lw::ui {
@@ -29,10 +31,6 @@ constexpr float kBaseMenuWidth = 620.0f;
 constexpr float kBaseMapSelectWidth = 800.0f;
 // 预览缩略图目标宽度（像素；实际纹理 = cell×宽 × cell×高）。
 constexpr int kPreviewW = 180;
-
-ImVec4 toImVec4(const std::array<int, 3>& rgb) {
-    return ImVec4(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f);
-}
 
 // 文件名（去掉 data/ 前缀），用于预装图列表显示。
 const char* baseName(const std::string& path) {
@@ -171,7 +169,7 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
     }
     ImGui::TextUnformatted(summary);
     ImGui::SameLine();
-    if (ImGui::Button("选择地图…", ImVec2(140.0f * uiScale, 0.0f))) {
+    if (ImGui::Button("选择地图…", ImVec2(scaled(kButtonWidth, uiScale), 0.0f))) {
         st.screen = MenuState::Screen::MapSelect;
         if (!st.seededOnce) initDrafts(st, options);
     }
@@ -187,7 +185,7 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
             (i + 1 < static_cast<int>(cfg.factions.size()))
                 ? cfg.factions[static_cast<size_t>(i + 1)].color
                 : std::array<int, 3>{127, 127, 127};
-        ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(col));
+        ImGui::PushStyleColor(ImGuiCol_Text, rgbToImVec4(col));
         ImGui::TextUnformatted(factionShortName(i + 1));
         ImGui::PopStyleColor();
         ImGui::SameLine();
@@ -195,7 +193,7 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
         ImGui::Checkbox(buf, &slot.enabled);
         ImGui::SameLine();
         std::snprintf(buf, sizeof(buf), "##ai%d", i + 1);
-        ImGui::SetNextItemWidth(120.0f * uiScale);
+        ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         int ai = slot.aiId;
         const char* aiItems[] = {"默认AI", "玩家"};
         if (ImGui::Combo(buf, &ai, aiItems, 2)) slot.aiId = ai;
@@ -210,10 +208,10 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
         ImGui::PopStyleColor();
     }
     ImGui::BeginDisabled(!valid);
-    if (ImGui::Button("开始游戏", ImVec2(140.0f * uiScale, 0.0f))) res.started = true;
+    if (ImGui::Button("开始游戏", ImVec2(scaled(kButtonWidth, uiScale), 0.0f))) res.started = true;
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("退出", ImVec2(140.0f * uiScale, 0.0f))) res.quit = true;
+    if (ImGui::Button("退出", ImVec2(scaled(kButtonWidth, uiScale), 0.0f))) res.quit = true;
     ImGui::End();
 }
 
@@ -241,7 +239,7 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
     // ---- 地图随机种子（一套：预装图山/城骰子 + 随机图生成共用；编辑/随机 → 预览失效重生成）----
     ImGui::TextUnformatted("地图随机种子");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(140.0f * uiScale);
+    ImGui::SetNextItemWidth(scaled(kButtonWidth, uiScale));
     const std::uint32_t seedBefore = st.draftSeed;
     ImGui::InputScalar("##draftseed", ImGuiDataType_U32, &st.draftSeed, nullptr, nullptr, "%u");
     ImGui::SameLine();
@@ -288,9 +286,9 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
     } else {
         // ---- 随机地图参数 ----
         ImGui::TextUnformatted("随机地图参数");
-        ImGui::SetNextItemWidth(120.0f * uiScale);
+        ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         ImGui::InputInt("长", &st.randW, 1, 8);
-        ImGui::SetNextItemWidth(120.0f * uiScale);
+        ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         ImGui::InputInt("宽", &st.randH, 1, 8);
         st.randW = std::clamp(st.randW, 32, 200);
         st.randH = std::clamp(st.randH, 32, 200);
@@ -424,7 +422,7 @@ MenuResult drawMenu(MenuState& st, SDL_Renderer* ren, Options& options, const Co
         const ImVec2 pad = ImGui::GetStyle().WindowPadding;
         const float gap = ImGui::GetStyle().ItemSpacing.x;
         const float labelW = ImGui::CalcTextSize("UI缩放").x;
-        const float sliderW = 220.0f * uiScale;
+        const float sliderW = scaled(kSliderWidth, uiScale);  // 长度随缩放倍率（共享基准 220）
         const float anchorX = 8.0f;                 // 滑条左端 x（固定）
         const float anchorY = display.y - 24.0f;    // 滑条垂直中部 y（固定）
         // 窗口左上角：使滑条左端 = anchorX、滑条垂直中部 = anchorY。
@@ -436,7 +434,7 @@ MenuResult drawMenu(MenuState& st, SDL_Renderer* ren, Options& options, const Co
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                          ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
         ImGui::SetNextItemWidth(sliderW);
-        ImGui::SliderFloat("UI缩放", &uiScale, 0.6f, 2.0f, "%.2f");
+        ImGui::SliderFloat("UI缩放", &uiScale, kMinUiScale, kMaxUiScale, "%.2f");
         ImGui::End();
     }
 

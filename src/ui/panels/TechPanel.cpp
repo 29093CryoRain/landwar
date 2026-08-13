@@ -9,20 +9,10 @@
 #include <cstdio>
 
 #include "core/Simulation.h"
+#include "ui/UiText.h"  // factionColor（势力色 → ImVec4，2026-08 统一）
 #include "world/Faction.h"
 
 namespace lw::ui {
-
-namespace {
-
-ImVec4 factionColor(const Simulation& sim, int fid) {
-    std::array<int, 3> rgb{180, 180, 180};
-    if (fid >= 1 && fid < static_cast<int>(sim.factions().size()))
-        rgb = sim.faction(fid).color;
-    return ImVec4(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f);
-}
-
-}  // namespace
 
 TechPanel::TechPanel() {
     state.id = "tech";       // 唯一 id（ImGui 窗口 id / 布局持久化键）

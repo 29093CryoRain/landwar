@@ -4,9 +4,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <limits>
 
 #include "core/GameDefs.h"
+#include "render/RendererUtil.h"
 
 namespace lw::render {
 
@@ -16,29 +16,6 @@ constexpr unsigned kBlack = 0x000000u;  // RGB_COLOR(0,0,0)
 constexpr int kTerrainTexSize = 128;    // data/mountain.png、data/city.png 源图尺寸
 // 颜色组数 = 势力数(9，含中立0) —— 陆地基色按同色格聚合的批次上限。
 constexpr int kColorGroups = kPlayerFactionCount + 1;  // 9
-
-// 单通道按比例缩放（mix_color(色,黑,rate) = 色×rate，黑项恒 0）。
-std::array<int, 3> scaled(const std::array<int, 3>& col, double rate) {
-    std::array<int, 3> out;
-    for (int i = 0; i < 3; ++i)
-        out[static_cast<size_t>(i)] =
-            static_cast<int>(col[static_cast<size_t>(i)] * rate + 0.5);
-    return out;
-}
-
-// LOD 档位选择：选预烘焙尺寸与屏上格大小最近的档（同距优先大档 → 尽量降采样而非放大，
-// 避免小档上采样发糊）。屏上格越小 → 档位越小，规避 128px 线条图被 GPU 糊成几像素。
-int pickSizeIndex(const TintCache& cache, int target) {
-    int best = 0, bestDist = std::numeric_limits<int>::max();
-    for (int i = 0; i < cache.sizeCount(); ++i) {
-        const int d = std::abs(cache.sizePixel(i) - target);
-        if (d < bestDist) {  // 严格小于 → 平局保留先出现的（更大档位）
-            bestDist = d;
-            best = i;
-        }
-    }
-    return best;
-}
 }  // namespace
 
 void MapRenderer::bake(const std::vector<std::array<int, 3>>& factionColors) {
@@ -48,7 +25,7 @@ void MapRenderer::bake(const std::vector<std::array<int, 3>>& factionColors) {
     // P13：城贴图迁出到 CityRenderer（基建格/等级图标/细线围区），此处只烘焙山。
     std::vector<std::array<int, 3>> mtn;
     mtn.reserve(factionColors.size());
-    for (const auto& c : factionColors) mtn.push_back(scaled(c, 0.08));
+    for (const auto& c : factionColors) mtn.push_back(scaledColor(c, 0.08));
     // LOD 多尺寸（细节改进 2026-08）：预烘焙 128/64/32/16 档，缩放小时按屏上格大小选档，
     // 规避 128px 线条图被 GPU 降采样糊成几像素（见 drawOverlay 的 pickSizeIndex）。
     const std::vector<int> lodSizes = {kTerrainTexSize, 64, 32, 16};
@@ -93,7 +70,7 @@ void MapRenderer::draw(const Map& map, const std::vector<Faction>& factions) {
             const int size = std::max(rc.w, rc.h);
             if (size <= 0) continue;
             const int ci = std::clamp(static_cast<int>(cell.belongi), 0, mountain_.count() - 1);
-            const int si = pickSizeIndex(mountain_, size);  // LOD：按屏上格大小选预烘焙档位
+            const int si = mountain_.pickSizeIndex(size);  // LOD：按屏上格大小选预烘焙档位
             SDL_Texture* tex = mountain_.texture(ci, si);
             if (!tex) continue;
             const int srcSize = mountain_.sizePixel(si);

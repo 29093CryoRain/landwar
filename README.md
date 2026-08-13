@@ -7,6 +7,8 @@
 > 翻新(已实现)见`.docs/翻新计划.md`
 > 行为规范以 `.docs/开发计划.md` 。为准
 > 设计思路见 `.docs/开发思路.txt`。
+> **工程规范（编码约定）见 `.docs/工程规范.md`**——新代码先读它（路径/CMake/确定性/
+> config 键/渲染器/UI 约定都在那里收敛）。
 本 README 只讲怎么构建/运行/用。
 
 ## 构建
@@ -166,8 +168,8 @@ new_project_landwar/
                        options.json（菜单选项，开始游戏时保存）、maps/gen_*.bmp（随机地图生成物）、
                        screenshots/（F12 / QA 钩子截图）
   src/
-    core/              Config、Simulation、MathUtil、Rng、GameDefs、Paths（路径约定，2026-08）、
-                       FixedTimestep（固定步长累加器，2026-08）
+    core/              Config（含**未知键校验**，2026-08）、Simulation、MathUtil、Rng、GameDefs、
+                       Paths（路径约定单点，2026-08）、FixedTimestep（固定步长累加器，2026-08）
     world/             Map、Faction、MapGenerator（P6 随机地图生成 → 概率基图 BMP）
     sim/               entt 组件 + ECS 系统（移动/战斗/特效/经济/产兵/死亡/生成）
                        Buff（P7 增益：BuffType/Buff/FactionMods/computeMods/initialFactionBuffs）
@@ -175,10 +177,12 @@ new_project_landwar/
                        ProductionSystem、DeathSystem、SpawnSystem、
                        UnitActionSystem（P9 周期发射）、ProjectileSystem（P9 子弹求解）
     render/            Renderer、SpriteSheet、Camera、Map/Army/Effect/Projectile/CityMarkerRenderer、
-                       TintCache（读图→单色 tint→多版本存内存）、MapPreview（P6 地形预览缩略图）、
-                       TintMath（纯逻辑可单测）
+                       TintCache（读图→单色 tint→多版本存内存；含 LOD 选档）、
+                       RendererUtil（渲染器公共辅助：剔除/精灵尺寸/颜色缩放，2026-08）、
+                       MapPreview（P6 地形预览缩略图）、TintMath（纯逻辑可单测）
     app/               Application（主循环）、InputManager（输入翻译）
-    ui/                ImGuiSetup（含中文字体）、DebugPanel（主面板）、Menu（P1/P6 菜单+二级选图页）
+    ui/                ImGuiSetup（含中文字体）、DebugPanel（主面板）、Menu（P1/P6 菜单+二级选图页）、
+                       UiScale（UI 缩放公式唯一入口，2026-08）、UiText（彩色文本统一，2026-08）
     ui/panels/         P3/P4 面板系统：Panel/PanelManager（多面板可隐藏/移动）、MessagePanel（消息）、MessageLog
     replay/            Cli、Headless、Snapshot（存档/回放）
     main.cpp           入口（无头 CLI 或窗口模式）
@@ -206,6 +210,8 @@ new_project_landwar/
 
 所有魔法数字外置在 `data/config.json`（缺键回退内置默认）。**每个键的含义与出处**见
 `.docs/配置说明.md`。运行中按 `F5` 热加载（重建模拟）。
+**未知键校验（2026-08）**：打错的键名会在启动/重载时记警告（不再静默失效），详见
+`.docs/工程规范.md` §4。
 
 ## 测试
 
