@@ -138,6 +138,28 @@ TEST(CityMarker, ArrowRectsOrderAndAspect) {
     EXPECT_NEAR(rc[3].cy - rc[3].dstH / 2.0, c.cy + hw, 0.6);  // 下箭头尖端（框下缘外）
 }
 
+TEST(CityMarker, ArrowRectsDrawPathConvertsWorldToScreen) {
+    // 回归（2026-08 修复）：draw 路径须先把世界坐标经 Camera 转换到屏幕，再算箭头布局——
+    // 未转换（旧 bug）会把箭头画到"世界坐标当像素"的位置（屏幕左上角、主面板遮挡区）→ 不可见。
+    // 用应用同款参数与玩家初始城中心（世界 (47.5,23.5)，见冒烟日志）。
+    lw::math::ScreenTransform tf{15.0, 600, 95};
+    lw::render::Camera cam;
+    cam.configure(tf, 2175, 1425, 105, 95);
+    const CityMarkerRenderer::CityTarget world{47.5, 23.5, 1, 1};
+    const CityMarkerRenderer::CityTarget screen{
+        cam.toScreenX(world.cx), cam.toScreenY(world.cy), world.w, world.h};
+    EXPECT_NEAR(screen.cx, 1312.5, 0.001);  // 600 + 47.5×15
+    EXPECT_NEAR(screen.cy, 1072.5, 0.001);  // (95-23.5)×15
+    const auto r = CityMarkerRenderer::arrowRects(screen, 15.0, kGap);
+    for (int i = 0; i < 4; ++i) {
+        // 四箭头须落在视口内、且在主面板（左侧 ~600px）右侧的可见区。
+        EXPECT_GT(r[i].cx - r[i].dstW / 2.0, 600.0) << "arrow " << i;
+        EXPECT_LT(r[i].cx + r[i].dstW / 2.0, 2175.0) << "arrow " << i;
+        EXPECT_GT(r[i].cy - r[i].dstH / 2.0, 0.0) << "arrow " << i;
+        EXPECT_LT(r[i].cy + r[i].dstH / 2.0, 1425.0) << "arrow " << i;
+    }
+}
+
 TEST(CityMarker, TargetDefaultsToSingleCellCenter) {
     // CityTarget 默认值：1×1 城、中心 (0,0)。draw 接收指针即可用（纯几何部分仅依赖尺寸函数）。
     const CityMarkerRenderer::CityTarget t;

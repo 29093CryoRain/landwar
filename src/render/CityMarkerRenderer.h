@@ -53,6 +53,7 @@ public:
     // 环纹理边长（px）：外圆直径 = max(w,h)+margin 格（除以 kRingOuterFrac 换算回贴图边长）。
     static int ringSizePx(int w, int h, double cellPx, double margin);
     // 四箭头屏幕布局（顺序：左/右/上/下）：固定尺寸 + 随城市框移动（见文件头注）。
+    // **输入/输出均为屏幕像素坐标**（CityTarget.cx/cy 传屏幕坐标；draw 前须先经 Camera 转换）。
     static std::array<ArrowRect, 4> arrowRects(const CityTarget& t, double cellPx, double gap);
 
     // factionColors：势力 1..8 的颜色（烘焙"城市显示亮度"版本，即 ×0.8）。

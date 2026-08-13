@@ -108,7 +108,11 @@ void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const 
         // 待选城（按下鼠标会选中）：四箭头指向该城，不旋转。
         // 2026-08 细节改进：拆分四方向子图、固定尺寸、位置随城市框移动（大城箭头外移）。
         // 尺寸只随 zoom（cellPx），与其余精灵一致；尖端与框缘间距 = markerArrowGap 格。
-        const auto rects = arrowRects(*hover, cellPx, pcfg.markerArrowGap);
+        // **注意**：arrowRects 在屏幕坐标空间计算——先把城市中心从世界坐标转换到屏幕
+        // （2026-08 修复：漏掉转换曾把箭头画到"世界坐标当像素"的错位位置 → 完全不可见）。
+        const CityTarget screenTarget{cam_.toScreenX(hover->cx), cam_.toScreenY(hover->cy),
+                                      hover->w, hover->h};
+        const auto rects = arrowRects(screenTarget, cellPx, pcfg.markerArrowGap);
         const int alpha = static_cast<int>(std::lround(255.0 * alphaScale * 0.9));
         SDL_Texture* tex = arrowTint_.texture(idx);
         if (tex && ren_) {
