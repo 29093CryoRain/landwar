@@ -116,7 +116,8 @@ add_library(landwar_render STATIC
     src/render/ProjectileRenderer.cpp
     src/render/Renderer.cpp
     src/render/SpriteSheet.cpp
-    src/render/TintCache.cpp)
+    src/render/TintCache.cpp
+    src/render/TwoToneTintCache.cpp)
 target_include_directories(landwar_render PUBLIC src)
 target_link_libraries(landwar_render PUBLIC
     landwar_core

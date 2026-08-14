@@ -11,8 +11,6 @@
 namespace lw::render {
 
 namespace {
-constexpr unsigned kWhite = 0xFFFFFFu;  // RGB_COLOR(255,255,255)
-constexpr unsigned kBlack = 0x000000u;  // RGB_COLOR(0,0,0)
 constexpr int kTerrainTexSize = 128;    // data/mountain.png、data/city.png 源图尺寸
 // 颜色组数 = 势力数(9，含中立0) —— 陆地基色按同色格聚合的批次上限。
 constexpr int kColorGroups = kPlayerFactionCount + 1;  // 9
@@ -33,14 +31,15 @@ void MapRenderer::bake(const std::vector<std::array<int, 3>>& factionColors) {
                    /*preserveWhite=*/0, lodSizes);
 }
 
-void MapRenderer::draw(const Map& map, const std::vector<Faction>& factions) {
+void MapRenderer::draw(const Map& map,
+                       const std::array<std::array<int, 3>, kFactionTotal>& tileColors) {
     // 陆地基色（山/城同底色）按势力聚合矩形批次 → 一次 SDL_RenderFillRects 画一组。
+    // 双色系统（视觉工程改进 ⑫）：填色 = 调色板 tileColor(id)（主:副:白 加权平均），
+    // 取代旧 mix_color(势力色, 白, 0.6)。
     std::array<std::vector<SDL_Rect>, kColorGroups> batches;
     std::array<SDL_Color, kColorGroups> groupColor;
-    for (int f = 0; f < kColorGroups; ++f) {
-        const auto& col = factions[static_cast<size_t>(f)].color;
-        groupColor[static_cast<size_t>(f)] = Renderer::mixed(col, kWhite, 0.6);  // 陆地
-    }
+    for (int f = 0; f < kColorGroups; ++f)
+        groupColor[static_cast<size_t>(f)] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
     Renderer r(ren_);
     // 视野剔除（缩放/平移时只绘制可见范围，避免扫描全图 9975 格）。
     const int i0 = std::clamp(static_cast<int>(std::floor(cam_.viewWorldX0())), 0, map.width() - 1);

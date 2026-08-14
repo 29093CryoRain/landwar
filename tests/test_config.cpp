@@ -30,6 +30,20 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.effect.bomb.baseRadius, 2.4);          // 炸弹死亡爆炸基础半径
     EXPECT_EQ(cfg.factions[7].mineTriggerRadius, 1.43);  // 紫：地雷引爆爆炸半径覆盖
     EXPECT_EQ(cfg.factions[8].freeArmyChance, 0.6);      // 品红：免费产兵
+    // 双色系统（⑫）：副色默认浅灰 191；中立灰占位主色 = 深灰 96（用户定夺"深灰+浅灰"）。
+    EXPECT_EQ(cfg.factions[0].color, (std::array<int, 3>{96, 96, 96}));
+    for (int id = 0; id < static_cast<int>(cfg.factions.size()); ++id)
+        EXPECT_EQ(cfg.factions[static_cast<size_t>(id)].secondary,
+                  (std::array<int, 3>{191, 191, 191}));
+    // 双色混合比例默认（render.tile 主:副:白、render.city.mix 主:副:黑）。
+    EXPECT_NEAR(cfg.render.tileMix.primary, 0.35, 1e-12);
+    EXPECT_NEAR(cfg.render.tileMix.secondary, 0.35, 1e-12);
+    EXPECT_NEAR(cfg.render.tileMix.white, 0.30, 1e-12);
+    EXPECT_NEAR(cfg.render.city.mix.primary, 0.60, 1e-12);
+    EXPECT_NEAR(cfg.render.city.mix.secondary, 0.20, 1e-12);
+    EXPECT_NEAR(cfg.render.city.mix.black, 0.20, 1e-12);
+    // 旧死键 cyanSeaMult 已删除（势力3 下海概率 ×0.666 由 factions[3].seaMult 承担）。
+    EXPECT_NEAR(cfg.factions[3].seaMult, 0.666, 1e-9);
     // P9 新兵种（手枪/霰弹）与 projectile 段。
     ASSERT_EQ(cfg.units.size(), 8u);
     EXPECT_EQ(cfg.units[6].cost, 80.0);       // 手枪成本 80
@@ -67,7 +81,10 @@ TEST(Config, JsonOverrides) {
         "map": { "width": 200, "height": 150, "blockSize": 20 },
         "army": { "baseSpeed": 0.5 },
         "units": [ { "type": "laser", "cost": 99.0 } ],
-        "factions": [ { "id": 1, "color": [1,2,3], "unitPreference": { "normal": 2.5 } } ],
+        "factions": [ { "id": 1, "color": [1,2,3], "secondary": [4,5,6],
+                        "unitPreference": { "normal": 2.5 } } ],
+        "render": { "tile": { "primary": 0.4, "secondary": 0.3, "white": 0.3 },
+                    "city": { "mix": { "primary": 0.7, "secondary": 0.1, "black": 0.2 } } },
         "economy": { "initialEconomy": 5.0, "perLandIncome": 0.5, "cityBaseMult": 3.0 }
     })";
     const lw::Config cfg = lw::Config::loadFromJson(json);
@@ -80,12 +97,30 @@ TEST(Config, JsonOverrides) {
     EXPECT_EQ(cfg.factions[1].color[0], 1);
     EXPECT_EQ(cfg.factions[1].color[1], 2);
     EXPECT_EQ(cfg.factions[1].color[2], 3);
+    EXPECT_EQ(cfg.factions[1].secondary, (std::array<int, 3>{4, 5, 6}));  // 副色覆盖
     EXPECT_EQ(cfg.factions[1].unitPreference[0], 2.5);
     EXPECT_EQ(cfg.factions[1].unitPreference[1], 1.0);  // 未覆盖的保持默认
+    EXPECT_NEAR(cfg.render.tileMix.primary, 0.4, 1e-12);
+    EXPECT_NEAR(cfg.render.city.mix.primary, 0.7, 1e-12);
     EXPECT_NEAR(cfg.economy.initialEconomy, 5.0, 1e-12);
     EXPECT_NEAR(cfg.economy.perLandIncome, 0.5, 1e-12);
     EXPECT_NEAR(cfg.economy.cityBaseMult, 3.0, 1e-12);
     EXPECT_NEAR(cfg.economy.capitalBase, 0.0, 1e-12);  // 未覆盖的保持默认
+}
+
+TEST(Config, TwoToneDerivedColors) {
+    // 双色派生色公式（⑫）：地块格 = 主:副:白、城市图标 = 主:副:黑（加权平均四舍五入）。
+    const lw::Config cfg = lw::Config::loadFromJson("{}");
+    // 红势力（主 255,0,0 / 副 191）：tile = 0.35·255+0.35·191+0.30·255=232.6→233，
+    // g/b = 0.35·0+0.35·191+0.30·255=143.35→143。
+    EXPECT_EQ(cfg.factionTileColor(1), (std::array<int, 3>{233, 143, 143}));
+    // 城市图标 = 0.6·255+0.2·191=191.2→191、g = 0.2·191=38.2→38。
+    EXPECT_EQ(cfg.factionCityColor(1), (std::array<int, 3>{191, 38, 38}));
+    // 中立（深灰 96 + 浅灰）：tile → 0.35·96+0.35·191+0.30·255=176.95→177；city → 95.8→96。
+    EXPECT_EQ(cfg.factionTileColor(0), (std::array<int, 3>{177, 177, 177}));
+    EXPECT_EQ(cfg.factionCityColor(0), (std::array<int, 3>{96, 96, 96}));
+    // 越界 → 中性灰占位（不崩）。
+    EXPECT_EQ(cfg.factionTileColor(99), (std::array<int, 3>{177, 177, 177}));
 }
 
 TEST(Config, LoadsDataFile) {
@@ -97,6 +132,12 @@ TEST(Config, LoadsDataFile) {
     EXPECT_EQ(cfg.factions.size(), 9u);
     EXPECT_EQ(cfg.factions[1].unitPreference[0], 2.0);  // 数据文件红 normal 偏好 2
     EXPECT_NEAR(cfg.factions[3].seaMult, 0.666, 1e-9);
+    // 双色系统（⑫）：数据文件 id0 = 深灰主色 + 浅灰副色；id1 副色 = 浅灰。
+    EXPECT_EQ(cfg.factions[0].color, (std::array<int, 3>{96, 96, 96}));
+    EXPECT_EQ(cfg.factions[0].secondary, (std::array<int, 3>{191, 191, 191}));
+    EXPECT_EQ(cfg.factions[1].secondary, (std::array<int, 3>{191, 191, 191}));
+    EXPECT_NEAR(cfg.render.tileMix.primary, 0.35, 1e-9);
+    EXPECT_NEAR(cfg.render.city.mix.primary, 0.6, 1e-9);
     EXPECT_NEAR(cfg.units[7].bulletSpreadPIFrac, 2.0 / 9.0, 1e-5);  // 数据文件 0.222222 ≈ 2/9
 }
 

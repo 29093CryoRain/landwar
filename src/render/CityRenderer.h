@@ -39,14 +39,13 @@ public:
     // compute 完全可用（不碰渲染器）。
     explicit CityRenderer(const Camera& cam) : ren_(nullptr), cam_(cam) {}
 
-    // 烘焙 9 级塔贴图 + 首都图标（factionColors 下标即势力 id，含中立 0 共 9 项），并留存势力色
-    // 供细线加深用 + 记录各塔/首都源图纵横比（图标框适配用）。可重复调用（F5 重烘焙）。
-    // iconDarken = render.city.iconDarken（图标色 = 势力色 × 该值；2026-08-07 城市图标调暗）。
+    // 烘焙 9 级塔贴图 + 首都图标（cfg.factions 下标即势力 id，含中立 0 共 9 项），并留存主色
+    // 供细线加深用 + 记录各塔/首都源图纵横比（图标框适配用）。可重复调用（F5/F7 重烘焙）。
+    // 双色系统（视觉工程改进 ⑫）：图标色 = cfg.factionCityColor(id)（主:副:黑 加权）× iconDarken
+    //（render.city.iconDarken；2026-08-07 城市图标调暗）；细线用主色（× lineDarken）。
     // P15：另载 data/tower/capital.png（白色前景透明背景，与其他城市贴图同类）→ capital_。
-    void bake(const std::vector<std::array<int, 3>>& factionColors, double iconDarken = 1.0);
-    void reloadColors(const std::vector<std::array<int, 3>>& factionColors, double iconDarken = 1.0) {
-        bake(factionColors, iconDarken);
-    }
+    void bake(const Config& cfg, double iconDarken = 1.0);
+    void reloadColors(const Config& cfg, double iconDarken = 1.0) { bake(cfg, iconDarken); }
     // 纯几何单测用：直接指定等级塔源图宽高（模拟 bake 记录的贴图尺寸，推导纵横比）。
     // 未指定 → 该等级按 1.0（方形）处理。
     void setTowerSourceSize(int level, int srcW, int srcH);
@@ -89,7 +88,7 @@ public:
 private:
     SDL_Renderer* ren_;
     const Camera& cam_;
-    std::vector<std::array<int, 3>> factionColors_;  // 势力色（含中立 0；细线加深用）
+    std::vector<std::array<int, 3>> factionColors_;  // 主色表（含中立 0；细线加深用）
     std::array<double, 9> srcAspect_{};   // 各等级塔源图纵横比 高/宽（下标 = 等级-1；0 → 按 1.0）
     double capitalAspect_ = 0.0;          // 首都图标源图纵横比 高/宽（0 → 按 1.0）
     std::array<TintCache, 9> towers_;      // 9 级塔贴图（data/tower/tower<N>.png，下标 = 等级-1）

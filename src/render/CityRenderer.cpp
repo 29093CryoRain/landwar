@@ -61,15 +61,19 @@ void drawOutlines(const std::vector<CityRenderer::Outline>& outlines, double thi
 }
 }  // namespace
 
-void CityRenderer::bake(const std::vector<std::array<int, 3>>& factionColors,
-                        double iconDarken) {
-    factionColors_ = factionColors;  // 留存原势力色（细线加深查表用）
+void CityRenderer::bake(const Config& cfg, double iconDarken) {
+    // 留存主色表（细线加深查表用；双色系统：细线 = 主色 × lineDarken）。
+    factionColors_.clear();
+    factionColors_.reserve(cfg.factions.size());
+    for (const auto& f : cfg.factions) factionColors_.push_back(f.color);
     // 等级塔 + 首都图标：白底透明线条源图 → 目标色（Multiply，与玩家指示/山同管线）。
-    // 图标色加深（render.city.iconDarken）：势力色 × 系数，避免亮色图标在亮陆地上对比弱
-    //（2026-08-07 反馈大城看不清 → 调暗）。细线仍用原色 × lineDarken（draw 里单独混黑）。
+    // 双色系统（视觉工程改进 ⑫）：图标色 = cfg.factionCityColor(id)（主:副:黑 加权）× iconDarken
+    //（render.city.iconDarken），避免亮色图标在亮陆地上对比弱（2026-08-07 反馈调暗）。
+    // 细线仍用主色 × lineDarken（draw 里单独混黑）。
     std::vector<std::array<int, 3>> iconCols;
-    iconCols.reserve(factionColors.size());
-    for (const auto& c : factionColors) iconCols.push_back(scaledColor(c, iconDarken));
+    iconCols.reserve(cfg.factions.size());
+    for (std::size_t id = 0; id < cfg.factions.size(); ++id)
+        iconCols.push_back(scaledColor(cfg.factionCityColor(static_cast<int>(id)), iconDarken));
     const std::vector<int> lodSizes = {kTerrainTexSize, 64, 32, 16};
     for (int lv = 1; lv <= kTowerCount; ++lv) {
         TintCache& cache = towers_[static_cast<size_t>(lv - 1)];

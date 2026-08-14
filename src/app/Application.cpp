@@ -148,33 +148,26 @@ bool Application::init() {
                                 mcfg.height};
     camera_.configure(tf_, rcfg.windowWidth, rcfg.windowHeight, mcfg.width, mcfg.height);
 
-    // 势力 1..8 颜色（统一 tint 管线：兵表/标记贴图按势力色烘焙多版本存内存）。
-    std::vector<std::array<int, 3>> factionColors;
-    factionColors.reserve(kPlayerFactionCount);
-    for (int id = 1; id <= kPlayerFactionCount; ++id)
-        factionColors.push_back(uiConfig_.factions[static_cast<size_t>(id)].color);
-
-    if (!sheet_.load(ren_, factionColors)) {
-        spdlog::critical("sprite sheet load failed");
-        return false;
-    }
+    // 双色势力渲染（视觉工程改进 ⑫）：主副色与混合比例全部来自 config.json
+    //（factions[i].color/secondary + render.tile / render.city.mix；F7 重烘焙肉眼评美）。
 
     mapRenderer_ = std::make_unique<render::MapRenderer>(ren_, camera_);
     // P13 城市渲染：基建格贴图 + 等级图标 + 高缩放细线围区（在 MapRenderer 之后绘制）。
     cityRenderer_ = std::make_unique<render::CityRenderer>(ren_, camera_);
-    // 山/城线条贴图：下标即势力 id（含中立 0 共 9 项）→ 按归属取对应势力色版本。
-    std::vector<std::array<int, 3>> mapColors = {uiConfig_.factions[0].color};
-    mapColors.insert(mapColors.end(), factionColors.begin(), factionColors.end());
-    mapRenderer_->bake(mapColors);
-    cityRenderer_->bake(mapColors, uiConfig_.render.city.iconDarken);
     armyRenderer_ = std::make_unique<render::ArmyRenderer>(ren_, sheet_, camera_,
                                                            rcfg.armyDrawSize);
+    // 特效/玩家指示构造时传空主色表，随后 applyPaletteColors() 统一填充（爆炸圆/环/箭头）。
     effectRenderer_ =
         std::make_unique<render::EffectRenderer>(ren_, sheet_, camera_, rcfg.armyDrawSize);
     projectileRenderer_ = std::make_unique<render::ProjectileRenderer>(
         ren_, sheet_, camera_, uiConfig_.projectile.drawSize);
-    cityMarker_ =
-        std::make_unique<render::CityMarkerRenderer>(ren_, camera_, factionColors);
+    cityMarker_ = std::make_unique<render::CityMarkerRenderer>(
+        ren_, camera_, std::vector<std::array<int, 3>>{});
+    // 统一重烘焙：兵表（主副色对）+ 山/城/标记/特效 + 地块填色缓存。
+    if (!applyPaletteColors()) {
+        spdlog::critical("palette bake failed (sprite sheet load?)");
+        return false;
+    }
 
     if (!ui::initImGui(win_, ren_)) {
         spdlog::critical("ImGui init failed");
@@ -233,6 +226,7 @@ void Application::applyInputs() {
     if (a.click) pickSelection();
     if (a.screenshot) takeScreenshot();
     if (a.reloadConfig) reloadConfig();
+    if (a.reloadPalette) reloadPalette();  // F7：双色调色板热重载（不重建模拟，⑫）
 
     // ---- 玩家意图（P2）：兵种键/城市点击/悬停城/校验（须在 pickSelection 之后）----
     updatePlayerIntent();
@@ -242,7 +236,7 @@ void Application::renderFrame() {
     SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);  // 背景黑（海 = 背景黑，见 §2.9）
     SDL_RenderClear(ren_);
     computeCounts();
-    mapRenderer_->draw(sim_.map(), sim_.factions());
+    mapRenderer_->draw(sim_.map(), tileColors_);
     // P13：城市渲染（基建格贴图 + 等级塔图标 + 高缩放细线围区）。画在陆军/子弹/特效之下，
     // 兵/子弹/特效压在城市上；渲染常数走 uiConfig_（视图层配置，F5 重载同步）。
     // P15：capitalStatus[c.id]（0 普通 / 1 正式首都 / 2 候补指定新都）→ 首都图标/更粗细线/虚化。
@@ -537,6 +531,48 @@ void Application::updatePlayerIntent() {
     sim_.setPlayerIntent(intent);
 }
 
+bool Application::applyPaletteColors() {
+    // 双色势力渲染统一重烘焙（init / F5 / F7 共用；视觉工程改进 ⑫）。
+    // 数据源 = uiConfig_（config.json）：factions[i].color=主色、.secondary=副色；
+    // render.tileMix / render.city.mix = 地块格/城市图标混合比例。
+    // 势力 1..8 主副色对 → 兵表双色烘焙（TwoToneTintCache：反解模板 → 按 (主,副) 合成）。
+    std::vector<std::pair<std::array<int, 3>, std::array<int, 3>>> pairs;
+    pairs.reserve(kPlayerFactionCount);
+    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+        const auto& f = uiConfig_.factions[static_cast<size_t>(id)];
+        pairs.emplace_back(f.color, f.secondary);
+    }
+    if (!sheet_.load(ren_, pairs)) {
+        spdlog::error("applyPaletteColors: sprite sheet load failed");
+        return false;
+    }
+    // 主色表（含中立 0 共 9 项）：山贴图 / 城细线与图标共用。
+    std::vector<std::array<int, 3>> primaries;
+    primaries.reserve(kFactionTotal);
+    for (int id = 0; id < kFactionTotal; ++id)
+        primaries.push_back(uiConfig_.factions[static_cast<size_t>(id)].color);
+    if (mapRenderer_) mapRenderer_->reloadColors(primaries);
+    if (cityRenderer_) cityRenderer_->reloadColors(uiConfig_, uiConfig_.render.city.iconDarken);
+    // 玩家指示（环/箭头）与特效爆炸圆：势力 1..8 主色。
+    std::vector<std::array<int, 3>> primaries8;
+    primaries8.reserve(kPlayerFactionCount);
+    for (int id = 1; id <= kPlayerFactionCount; ++id)
+        primaries8.push_back(uiConfig_.factions[static_cast<size_t>(id)].color);
+    if (cityMarker_) cityMarker_->reloadColors(primaries8);
+    if (effectRenderer_) effectRenderer_->reloadColors(primaries8);
+    // 地块填色缓存（MapRenderer::draw 用；主:副:白 加权平均）。
+    for (int id = 0; id < kFactionTotal; ++id)
+        tileColors_[static_cast<size_t>(id)] = uiConfig_.factionTileColor(id);
+    return true;
+}
+
+void Application::reloadPalette() {
+    // F7：按当前 uiConfig_（config.json 的 factions 主副色 / render.tile / render.city.mix）
+    // 重烘焙全部势力色（不重建模拟，当前局面保留）。改 config.json 后按 F5 会连带重建。
+    applyPaletteColors();
+    spdlog::info("palette re-baked from config (sim untouched)");
+}
+
 void Application::reloadConfig() {
     // 调试功能：读盘重建模拟（同种子重启），当前局面丢弃。破坏性，仅调试用。
     // 沿用当前地图选择（--map 覆盖 / 菜单 options / 随机图 P6），避免 F5 后地图被重置回 config 默认（P5 改版修复）。
@@ -556,24 +592,9 @@ void Application::reloadConfig() {
     selection_ = app::Selection{};
     paused_ = false;
     if (messagePanel_) messagePanel_->clear();  // P4：清掉旧局消息
-    // 势力色可能被 config.json 改动 → 重烘焙兵表/标记/山城贴图 tint（与 sim 颜色保持一致）。
-    std::vector<std::array<int, 3>> factionColors;
-    factionColors.reserve(kPlayerFactionCount);
-    for (int id = 1; id <= kPlayerFactionCount; ++id)
-        factionColors.push_back(cfg.factions[static_cast<size_t>(id)].color);
-    sheet_.load(ren_, factionColors);
-    if (cityMarker_) cityMarker_->reloadColors(factionColors);
-    if (mapRenderer_) {
-        std::vector<std::array<int, 3>> mapColors = {cfg.factions[0].color};
-        mapColors.insert(mapColors.end(), factionColors.begin(), factionColors.end());
-        mapRenderer_->reloadColors(mapColors);
-    }
-    // P13：城市贴图（基建格 + 等级塔）重烘焙（与 sim 颜色保持一致）。
-    if (cityRenderer_) {
-        std::vector<std::array<int, 3>> mapColors = {cfg.factions[0].color};
-        mapColors.insert(mapColors.end(), factionColors.begin(), factionColors.end());
-        cityRenderer_->reloadColors(mapColors, cfg.render.city.iconDarken);
-    }
+    // 势力色可能被 config.json 改动 → 统一重烘焙全部势力色（双色系统，视觉工程改进 ⑫：
+    // factions[i].color/secondary + render.tile / render.city.mix 为渲染色唯一数据源）。
+    applyPaletteColors();
     initPlayerIntent();  // 有玩家：重建后重置意图 + 暂停
     capitalDesignationMode_ = false;  // P15：重建后退出"指定首都"模式
     spdlog::info("config reloaded '{}' → sim restarted (seed={}, tick=0)", configPath_, seed_);

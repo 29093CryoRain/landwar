@@ -1,21 +1,17 @@
-// SpriteSheet.cpp — 兵表实现（色相旋转 tint）。
+// SpriteSheet.cpp — 兵表实现（双色渲染管线，视觉工程改进 ⑫）。
 #include "render/SpriteSheet.h"
 
 #include <spdlog/spdlog.h>
 
 namespace lw::render {
 
-bool SpriteSheet::load(SDL_Renderer* ren, const std::vector<std::array<int, 3>>& factionColors) {
-    // 基础版：彩色源（红）→ HueRotate 到各势力色（精确复现原图色相处理）。
-    const bool baseOk =
-        baseTint_.load(ren, "data/army_base.png", factionColors, TintMode::HueRotate);
-    // 特殊版：原样彩色（Multiply 恒等，白=255 → 不改变）。
-    const std::vector<std::array<int, 3>> identity{{255, 255, 255}};
-    const bool specialOk =
-        specialTint_.load(ren, "data/army_special.png", identity, TintMode::Multiply);
-    if (!baseOk || !specialOk) {
-        spdlog::error("SpriteSheet: sheet load incomplete (base={} special={})", baseOk,
-                      specialOk);
+bool SpriteSheet::load(
+    SDL_Renderer* ren,
+    const std::vector<std::pair<std::array<int, 3>, std::array<int, 3>>>& palettes) {
+    // 基础版：源图 = 红势力成品渲染 → 反解模板 → 按 (主色, 副色) 对重合成（TwoToneTintCache）。
+    // army_special.png 停用（用户定夺：统一 army_base.png）。
+    if (!baseTint_.load(ren, "data/army_base.png", palettes)) {
+        spdlog::error("SpriteSheet: sheet load failed");
         return false;
     }
     return true;

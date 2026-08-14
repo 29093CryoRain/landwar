@@ -82,6 +82,9 @@ void InputManager::onKeyDown(const SDL_Event& ev) {
         case SDLK_F5:
             actions_.reloadConfig = true;
             break;
+        case SDLK_F7:
+            actions_.reloadPalette = true;  // 重载双色调色板（F6 已用于步进）
+            break;
         case SDLK_F12:
             actions_.screenshot = true;
             break;

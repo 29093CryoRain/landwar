@@ -1,22 +1,24 @@
-// SpriteSheet.h — 军队兵表（统一 tint 管线，色相旋转方案）。
-// 两张彩色源表（各 1 列 × 11 行 32×32，army_base.png 352px 高）：
+// SpriteSheet.h — 军队兵表（双色渲染管线，视觉工程改进 ⑫）。
+// 单张彩色源表（1 列 × 11 行 32×32，army_base.png 352px 高）：
 //   行 0-5 = 原 6 兵种（普通/先锋/开拓/激光/爆炸/地雷）；
 //   行 6-7 = 激光火花/光束（特效用，rect() 保留行号语义，见 EffectRenderer）；
 //   行 8-10 = P9 新贴图（子弹/手枪/霰弹，2026-08-07 用户放入最底 3 格）。
-//   data/army_base.png    — 基础版（源列0 红）。TintCache **HueRotate** 按 8 势力色烘焙：
-//                           精确复现原图"色相处理"（保留明度/饱和度，白像素不动→激光白芯自动保留）。
-//   data/army_special.png — 签名兵种特殊版（青先锋/蓝开拓/绿激光/橙爆炸/紫地雷），
-//                           原样彩色，由所属势力直接使用（kSpecialUnitFaction 决定谁用）。
-// 渲染时取势力版纹理（base）+ unitRect(type)，或特殊版纹理（special）+ unitRect(type)。
+// 渲染：把源图视为"红势力（主红/副浅灰 191）的成品渲染"→ 逐像素反解 主/副/黑白比例+色相
+// 偏移 模板 → 按各势力 (主色, 副色) 重合成（TwoToneTintCache）。性质：
+//   - 副色=浅灰191 时与旧 HueRotate 逐像素等价 → 默认调色板观感不变；
+//   - 红势力还原源图；白芯（激光/子弹）天然保留；色相偏移照旧平移。
+// army_special.png **停用**（用户定夺：统一 army_base.png）→ 不再加载。
+// 渲染时取势力版纹理（base）+ unitRect(type)。
 #pragma once
 
 #include <SDL.h>
 
 #include <array>
+#include <utility>
 #include <vector>
 
 #include "core/GameDefs.h"
-#include "render/TintCache.h"
+#include "render/TwoToneTintCache.h"
 
 namespace lw::render {
 
@@ -25,24 +27,20 @@ public:
     SpriteSheet() = default;
     ~SpriteSheet() = default;
 
-    // 加载 army_base.png（HueRotate → factionColors 8 份）+ army_special.png（原样）。
-    bool load(SDL_Renderer* ren, const std::vector<std::array<int, 3>>& factionColors);
+    // 加载 army_base.png，按 palettes（下标 = 势力 id-1，各 (主色, 副色)）烘焙 8 份双色纹理。
+    bool load(SDL_Renderer* ren,
+              const std::vector<std::pair<std::array<int, 3>, std::array<int, 3>>>& palettes);
 
-    // 势力色版本的基础兵表纹理（factionIndex 0..7 = 势力 id 1..8）；未加载/越界 → nullptr。
+    // 势力版双色兵表纹理（factionIndex 0..7 = 势力 id 1..8）；未加载/越界 → nullptr。
     SDL_Texture* texture(int factionIndex) const { return baseTint_.texture(factionIndex); }
-    // 特殊版兵表纹理（原样彩色，单张共享）。
-    SDL_Texture* specialTexture() const { return specialTint_.texture(0); }
 
     int spriteSize() const { return spriteSize_; }
-    // 基础/特殊纹理都是单列 32×352（11 行）。
+    // 双色纹理都是单列 32×352（11 行）。
     int textureWidth() const { return baseTint_.width(); }
     int textureHeight() const { return baseTint_.height(); }
 
     // 显式销毁纹理（须先于 SDL_DestroyRenderer；可重复调用）。
-    void release() {
-        baseTint_.release();
-        specialTint_.release();
-    }
+    void release() { baseTint_.release(); }
 
     // 兵种子图矩形（按兵种类型映射到行号）。行 0-5 = 原 6 兵种；
     // P9 手枪/霰弹映射到行 9/10（行 8 = 子弹）。特效用（激光火花/光束）的 rect() 见下。
@@ -53,8 +51,7 @@ public:
     SDL_Rect rect(int row) const;
 
 private:
-    TintCache baseTint_;     // army_base.png，HueRotate → 8 势力色
-    TintCache specialTint_;  // army_special.png，Multiply 恒等（白=255）→ 原样
+    TwoToneTintCache baseTint_;  // army_base.png → 8 势力双色合成
     int spriteSize_ = 32;
 };
 

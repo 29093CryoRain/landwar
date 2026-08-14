@@ -15,8 +15,9 @@ constexpr int kSpriteSize = 32;  // 激光火花原尺寸（scale 1）
 }  // namespace
 
 EffectRenderer::EffectRenderer(SDL_Renderer* ren, const SpriteSheet& sheet, const Camera& cam,
-                               int mineDrawSize)
-    : ren_(ren), sheet_(sheet), cam_(cam), mineDrawSize_(mineDrawSize) {}
+                               int mineDrawSize, const std::vector<std::array<int, 3>>& primaryColors)
+    : ren_(ren), sheet_(sheet), cam_(cam), mineDrawSize_(mineDrawSize),
+      primaryColors_(primaryColors) {}
 
 void EffectRenderer::draw(const Simulation& sim) {
     const auto& reg = sim.registry();
@@ -41,7 +42,12 @@ void EffectRenderer::draw(const Simulation& sim) {
         if (!render::isVisibleOnScreen(cam_, pos.x, pos.y, worldRadius)) continue;
         const int cx = cam_.toScreenXi(pos.x);
         const int cy = cam_.toScreenYi(pos.y);
-        const auto& color = sim.faction(fid).color;
+        // 爆炸圆等直接色填充：优先调色板主色（双色系统，视觉工程改进 ⑫），缺省回退 sim 势力色。
+        const std::array<int, 3> color =
+            (fid >= 1 && fid <= kPlayerFactionCount &&
+             static_cast<std::size_t>(fid - 1) < primaryColors_.size())
+                ? primaryColors_[static_cast<std::size_t>(fid - 1)]
+                : sim.faction(fid).color;
 
         switch (et) {
             case EffectType::bomb: {
@@ -61,12 +67,8 @@ void EffectRenderer::draw(const Simulation& sim) {
                                    && (mod12 == 0 || mod12 == 1 || mod12 == 2 || mod12 == 10
                                        || mod12 == 11);
                 const int size = render::spriteSize(mineDrawSize_, z);
-                // 与兵种贴图同步（2026-08-06）：紫色势力（kSpecialUnitFaction[mine]=7）的地雷
-                // 用特殊版贴图（原样彩色），与 ArmyRenderer 同款判定。
-                const bool special =
-                    (fid == kSpecialUnitFaction[static_cast<int>(ArmyType::mine)]);
-                SDL_Texture* tex =
-                    special ? sheet_.specialTexture() : sheet_.texture(fid - 1);
+                // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png 行 5（army_special 停用）。
+                SDL_Texture* tex = sheet_.texture(fid - 1);
                 r.drawSpriteCentered(tex, sheet_.rect(5), cx, cy, size, blink ? 220 : 60);
                 break;
             }

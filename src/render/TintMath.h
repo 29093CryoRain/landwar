@@ -5,6 +5,9 @@
 //   2. HueRotate（hueRotatePixel）：**彩色源图按色相旋转**到目标色——精确复现"色相处理"的原图
 //      （RGB→HSV→h 移位→RGB，保留明度与饱和度；白色像素 s=0 天然不动 → 激光白芯自动保留）。
 //      军队精灵（army_base.png 源列0 是红）用。灰度 luma 方案已废弃（会压暗、且破坏跨列亮度一致）。
+//   3. 双色模板（decomposeTwoTonePixel/compositeTwoTone，视觉工程改进 ⑫）：
+//      "红势力成品渲染"逐像素反解 → 模板 {v,m,Δ,α}，按任意势力 主色/副色 重合成。
+//      副色=浅灰191 时与 HueRotate 逐像素等价（新管线是旧管线的严格推广，见文档 §2 ⑫）。
 #pragma once
 
 #include <array>
@@ -78,6 +81,62 @@ inline TintRgba hueRotatePixel(int r, int g, int b, int a, double deltaDeg) {
     return TintRgba{static_cast<int>((rp + m) * 255.0 + 0.5),
                     static_cast<int>((gp + m) * 255.0 + 0.5),
                     static_cast<int>((bp + m) * 255.0 + 0.5), a};
+}
+
+// 红族像素 (v,m,m) 可拆为 主色比例 rFrac = v−m（0..255）+ 灰度 g = m（0..255）；
+// 灰度再对基准灰 refGray 拆 副色/白/黑 比例。合成公式见 compositeTwoTone。
+// 量化：Δ 0..255 ↔ 0..360°（±0.7° 误差，视觉无感）。
+struct TwoToneTemplate {
+    int v = 0;      // 明度 max 通道（0..255）
+    int m = 0;      // 灰度 min 通道（0..255）
+    int delta = 0;  // 距纯红的色相偏移（0..255 ↔ 0..360°；灰像素 0）
+    int a = 0;      // alpha（0..255）
+};
+
+// ---- 双色模板：反解（源 = 红势力成品渲染）----
+inline TwoToneTemplate decomposeTwoTonePixel(int r, int g, int b, int a) {
+    if (a <= 0) return TwoToneTemplate{};
+    const int maxc = std::max(r, std::max(g, b));
+    const int minc = std::min(r, std::min(g, b));
+    const int delta =
+        (maxc == minc) ? 0 : static_cast<int>(std::lround(hueOf(r, g, b) * 255.0 / 360.0));
+    return TwoToneTemplate{maxc, minc, delta, a};
+}
+
+// ---- 双色模板：按势力 主色/副色 合成 ----
+// base = (rFrac/255)·Pc + grayPart；grayPart 按灰度 g 对 refSecondaryGray 拆：
+//   g ≥ ref  → 副色 + 白；g < ref → 副色（黑比例隐式，贡献 0）。
+// 最后按 Δ 旋转色相（保留源像素相对纯红的色相偏移）。α 原样。
+// 性质：合成(反解(p), 红, 浅灰191) ≡ p（±1~2/通道）；Pc.max=255 且 Sc=灰191 时 ≡ 旧 HueRotate。
+inline TintRgba compositeTwoTone(const TwoToneTemplate& t,
+                                 const std::array<int, 3>& primary,
+                                 const std::array<int, 3>& secondary,
+                                 int refSecondaryGray = 191) {
+    if (t.a <= 0 || t.v <= 0) return TintRgba{0, 0, 0, t.a};
+    const int rFrac = t.v - t.m;  // 主色比例（0..255）
+    const int g = t.m;            // 灰度（0..255）
+    // 灰度部分比例。
+    double sec = 0.0, white = 0.0;
+    if (g >= refSecondaryGray) {
+        const int span = 255 - refSecondaryGray;
+        if (span > 0) {
+            sec = static_cast<double>(255 - g) / span;
+            white = static_cast<double>(g - refSecondaryGray) / span;
+        } else {
+            sec = 1.0;
+        }
+    } else if (refSecondaryGray > 0) {
+        sec = static_cast<double>(g) / refSecondaryGray;
+    }
+    const auto ch = [&](int pc, int sc) -> int {
+        const double v = static_cast<double>(rFrac) / 255.0 * pc + sec * sc + white * 255.0;
+        return v < 0.0 ? 0 : (v > 255.0 ? 255 : static_cast<int>(v + 0.5));
+    };
+    const int br = ch(primary[0], secondary[0]);
+    const int bg = ch(primary[1], secondary[1]);
+    const int bb = ch(primary[2], secondary[2]);
+    if (t.delta == 0 || (br == bg && bg == bb)) return TintRgba{br, bg, bb, t.a};
+    return hueRotatePixel(br, bg, bb, t.a, static_cast<double>(t.delta) * 360.0 / 255.0);
 }
 
 }  // namespace lw::render

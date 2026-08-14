@@ -5,7 +5,7 @@
 //       1/2/3/4 = 1x/2x/4x/8x 倍速（玩家操控时 1-6 选兵种）；+/= 快一档、-= 慢一档；
 //       F6=步进一帧（跑一个逻辑帧后进入暂停，再按再跑，测试用）；
 //       滚轮=缩放（锚定光标）；**右键拖拽=平移**、左键单击=点选（2026-08-03 拖动改右键）；
-//       F5=重载配置；F12=截图。
+//       F5=重载配置；F7=重载双色调色板（视觉工程改进 ⑫，不重建模拟）；F12=截图。
 // 坐标语义：SDL 在关联了【逻辑尺寸渲染器】的窗口上，已把鼠标【事件】坐标自动换算为
 // 逻辑坐标（实测 push 窗口像素 (100,100) → poll 逻辑 (148,148)）。故 actions_.mouseX/Y
 // 与 panDX/panDY 都是【逻辑坐标】，Application 直接用（不再 SDL_RenderWindowToLogical）。
@@ -34,6 +34,7 @@ struct InputActions {
     int speedCycle = 0;           // +/-：+1 升一档、-1 降一档
     double wheelDelta = 0.0;      // 本帧滚轮档数累积（+滚入，-滚出）
     bool reloadConfig = false;    // F5：重载配置（重建模拟）
+    bool reloadPalette = false;   // F7：重载双色调色板（不重建模拟，视觉工程改进 ⑫）
     bool screenshot = false;      // F12：截图
     bool stepFrame = false;       // F6：步进一帧（跑一个逻辑帧后暂停）
     int selectUnitType = -1;      // 数字键 1-6 → 兵种（ArmyType 0..5）；-1=无（P2）。

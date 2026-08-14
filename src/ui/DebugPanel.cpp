@@ -63,6 +63,13 @@ void DebugPanel::draw(PanelCtx& ctx) {
     ImGui::Begin("###info-panel", nullptr, flags);
 
     char buf[128];
+    // 内容滚动区（除底部 UI 缩放条外全部内容；2026-08 修复：此前缩放条用 SetCursorPosY
+    // 定位在内容流底部，内容超高滚动时会随内容滚到上方——改为独立 Child 滚动区 +
+    // 窗口底部固定区，滚动条只滚内容，缩放条恒在底部）。
+    const float bottomH = 58.0f;
+    ImGui::BeginChild("###main-scroll", ImVec2(0.0f, std::max(0.0f, display.y - bottomH)), false,
+                      0);
+
     ImGui::TextUnformatted("领土战争");
     ImGui::Separator();
     std::snprintf(buf, sizeof(buf), "时间: %llu   实体: 兵 %d · 特效 %d",
@@ -76,9 +83,9 @@ void DebugPanel::draw(PanelCtx& ctx) {
     // ---- 面板开关区（P3：各注册可移动面板的 checkbox）----
     drawPanelToggles(ctx);
 
-    // ---- 速度 / 暂停 / UI 缩放（渲染节奏，不改模拟）----
+    // ---- 速度 / 暂停（渲染节奏，不改模拟）----
     ImGui::Separator();
-    ImGui::TextUnformatted("速度 / 暂停 / UI");
+    ImGui::TextUnformatted("速度 / 暂停");
     // 倍速档位含 <1x（0.25/0.5，隔帧执行逻辑帧，测试用）；+/- 循环步进。
     const float steps[6] = {0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f};
     int cur = 0;
@@ -124,13 +131,15 @@ void DebugPanel::draw(PanelCtx& ctx) {
     // ---- 操作提示（分多行，避免超宽被截断，用户反馈 Phase 8）----
     ImGui::Separator();
     ImGui::TextUnformatted("空格 / ESC双击 暂停 · F6 步进");
-    ImGui::TextUnformatted("1/2/3/4 倍速 · +/- 调档(0.25~8x) · F5 重载配置");
+    ImGui::TextUnformatted("1/2/3/4 倍速 · +/- 调档(0.25~8x) · F5 重载配置 · F7 重烘焙渲染色");
     ImGui::TextUnformatted("滚轮缩放 · 右拖平移 · 左键点选 · F12 截图");
 
-    // ---- UI 缩放（放最下方，Phase 9 用户反馈）----
-    // 锚定窗口底部固定高度 → 竖直位置不随上方内容/缩放倍率变化；长度随缩放倍率（直观反映当前值）。
-    ImGui::SetCursorPosY(display.y - 58.0f);
-    ImGui::SetNextItemWidth(scaled(kSliderWidth, ctrl.uiScale));  // 长度随缩放倍率（Phase 9 反馈）
+    ImGui::EndChild();
+
+    // ---- UI 缩放（固定在窗口底部，不随内容滚动；2026-08 修复）----
+    // 长度随缩放倍率（直观反映当前值，Phase 9 反馈）。
+    ImGui::SetCursorPosY(display.y - bottomH);
+    ImGui::SetNextItemWidth(scaled(kSliderWidth, ctrl.uiScale));
     ImGui::SliderFloat("UI缩放", &ctrl.uiScale, kMinUiScale, kMaxUiScale, "%.2f");
     ImGui::End();
 }
@@ -188,50 +197,65 @@ void DebugPanel::drawPlayerSection(const Simulation& sim, UiRequests& req, UiCon
         ImGui::ProgressBar(frac, ImVec2(-FLT_MIN, 0.0f), buf);
     }
 
-    // 兵种图标栏：最左空框（不生产）+ 8 个兵种子图（玩家势力色，统一 tint 管线），选中高亮，下方标成本。
+    // ---- 兵种图标栏：最左空框（不生产）+ 8 个兵种子图（玩家势力色，统一 tint 管线），选中高亮，下方标成本。
     // 成本 = 有效造价 = f.armyCost × mods.costMult（P11 各势力同价 = 定义 baseCost；P8 节流
     // 科技降低 → 面板显示折扣后价格，与 PlayerAI/ProductionSystem 扣费一致）。
     // P9 手枪/霰弹走 unitRect（army_base.png 行 9/10 贴图），选中高亮与其余兵种一致。
+    // 2026-08 手动布局（表格方案多轮迭代后放弃）：完全控制尺寸/间距/行宽——
+    //   - 可用宽 = 面板宽 − 2×WindowPadding − ScrollbarSize（主面板内容超高时滚动条占位，
+    //     不预留则图标栏右缘被滚动条挤压/溢出——"间隔不一致/不占满"根因）；
+    //   - 列间距 gap = scaled(4, uiScale)（随缩放，列间/首尾统一 → 间隔均匀）；
+    //   - 图标 = (可用宽 − 8×gap) / 9 → **恰好占满一整行**（用户要求放大到满行）；
+    //   - FramePadding 压 0：ImageButton 外框 = image_size+2×FramePadding（imgui 源码
+    //     ImageButtonEx），Button 的 size 即外框 → 空框与兵种框严格同大。
     const int tw = sheet.textureWidth(), th = sheet.textureHeight();
-    const float iconSize = 36.0f;
+    const float uiScaleF = controls ? controls->uiScale : 1.0f;
+    const float scrollW = ImGui::GetStyle().ScrollbarSize;  // 滚动条占位（内容超高时出现）
+    const float availW = mainPanelWidth(uiScaleF) - 2.0f * ImGui::GetStyle().WindowPadding.x
+                         - scrollW;
+    const float gap = scaled(4.0f, uiScaleF);   // 列间距（随缩放；列间与首尾一致）
+    const float iconSize = std::max(8.0f, (availW - 8.0f * gap) / 9.0f);
     char idBuf[24];
-    if (ImGui::BeginTable("##unitbar", kArmyTypeCount + 1, ImGuiTableFlags_SizingFixedFit)) {
-        // 空框 = 不生产（selectedType == -1）。
-        ImGui::TableNextColumn();
-        const bool noneSelected = (intent.selectedType == -1);
-        if (noneSelected) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 1.0f, 0.5f));
-        if (ImGui::Button("##none", ImVec2(iconSize, iconSize))) req.selectNone = true;
-        if (noneSelected) ImGui::PopStyleColor();
-        for (int t = 0; t < kArmyTypeCount; ++t) {
-            ImGui::TableNextColumn();
-            // 玩家势力的签名兵种用特殊版贴图（原样彩色），其余用该势力色相旋转的基础版。
-            const bool special = (playerFid == kSpecialUnitFaction[t]);
-            const ImTextureID tid = reinterpret_cast<ImTextureID>(
-                special ? sheet.specialTexture() : sheet.texture(playerFid - 1));
-            const SDL_Rect r = sheet.unitRect(t);
-            const ImVec2 u0(r.x / static_cast<float>(tw), r.y / static_cast<float>(th));
-            const ImVec2 u1((r.x + r.w) / static_cast<float>(tw),
-                            (r.y + r.h) / static_cast<float>(th));
-            const bool selected = (intent.selectedType == t);
-            // 选中 → 蓝色背景高亮；未选 → 透明。
-            const ImVec4 bg =
-                selected ? ImVec4(0.35f, 0.6f, 1.0f, 0.5f) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-            std::snprintf(idBuf, sizeof(idBuf), "##unit%d", t);
-            if (ImGui::ImageButton(idBuf, tid, ImVec2(iconSize, iconSize), u0, u1, bg)) {
-                req.selectUnitType = t;  // Application 消费 → 写入 PlayerIntent
-            }
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    const float x0 = ImGui::GetCursorPosX();
+    const float y0 = ImGui::GetCursorPosY();
+    // 空框 = 不生产（selectedType == -1）。
+    const bool noneSelected = (intent.selectedType == -1);
+    if (noneSelected) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 1.0f, 0.5f));
+    ImGui::SetCursorPos(ImVec2(x0, y0));
+    if (ImGui::Button("##none", ImVec2(iconSize, iconSize))) req.selectNone = true;
+    if (noneSelected) ImGui::PopStyleColor();
+    for (int t = 0; t < kArmyTypeCount; ++t) {
+        // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png（army_special 停用），
+        // 势力版 = 该势力 (主色, 副色) 合成纹理。
+        ImGui::SetCursorPos(ImVec2(x0 + static_cast<float>(t + 1) * (iconSize + gap), y0));
+        const ImTextureID tid = reinterpret_cast<ImTextureID>(sheet.texture(playerFid - 1));
+        const SDL_Rect r = sheet.unitRect(t);
+        const ImVec2 u0(r.x / static_cast<float>(tw), r.y / static_cast<float>(th));
+        const ImVec2 u1((r.x + r.w) / static_cast<float>(tw),
+                        (r.y + r.h) / static_cast<float>(th));
+        const bool selected = (intent.selectedType == t);
+        // 选中 → 蓝色背景高亮；未选 → 透明。
+        const ImVec4 bg =
+            selected ? ImVec4(0.35f, 0.6f, 1.0f, 0.5f) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+        std::snprintf(idBuf, sizeof(idBuf), "##unit%d", t);
+        if (ImGui::ImageButton(idBuf, tid, ImVec2(iconSize, iconSize), u0, u1, bg)) {
+            req.selectUnitType = t;  // Application 消费 → 写入 PlayerIntent
         }
-        // 成本行：空框列显示 "—"。
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted("—");
-        for (int t = 0; t < kArmyTypeCount; ++t) {
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%.0f", f.armyCost[static_cast<size_t>(t)]
-                                                          * f.mods.costMult[static_cast<size_t>(t)]);
-            ImGui::TextUnformatted(buf);
-        }
-        ImGui::EndTable();
     }
+    // 成本行（与图标同列对齐；空框列 "—"）。
+    const float yCost = y0 + iconSize + scaled(2.0f, uiScaleF);
+    ImGui::SetCursorPos(ImVec2(x0, yCost));
+    ImGui::TextUnformatted("—");
+    for (int t = 0; t < kArmyTypeCount; ++t) {
+        ImGui::SetCursorPos(ImVec2(x0 + static_cast<float>(t + 1) * (iconSize + gap), yCost));
+        std::snprintf(buf, sizeof(buf), "%.0f", f.armyCost[static_cast<size_t>(t)]
+                                                      * f.mods.costMult[static_cast<size_t>(t)]);
+        ImGui::TextUnformatted(buf);
+    }
+    ImGui::PopStyleVar();  // FramePadding（压零统一空框/兵种框尺寸）
+    // 恢复光标到成本行之后（手动 SetCursorPos 后布局流继续）。
+    ImGui::SetCursorPosY(yCost + ImGui::GetTextLineHeight() + scaled(2.0f, uiScaleF));
 
     // 已选摘要：兵种名 + 产兵城。
     const char* typeName = (intent.selectedType >= 0 && intent.selectedType < kArmyTypeCount)

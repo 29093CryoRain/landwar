@@ -135,7 +135,9 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
 
     auto& neutral = v[0];
     neutral.id = 0;
-    neutral.color = {127, 127, 127};
+    // 双色系统（⑫）：中立灰占位 = 深灰主色 + 浅灰副色（用户定夺）。
+    neutral.color = {96, 96, 96};
+    neutral.secondary = {191, 191, 191};
 
     auto& red = v[1];
     red.id = 1;
@@ -236,7 +238,7 @@ void validateConfigKeys(const Json& root) {
                     "army");
     warnUnknownKeys(obj("sea"),
                     {"initialGoSeaProbability", "goSeaIncrease", "goSeaChanceConst",
-                     "goSeaChanceDenominator", "cyanSeaMult", "seaSpeedMult"},
+                     "goSeaChanceDenominator", "seaSpeedMult"},
                     "sea");
     warnUnknownKeys(obj("terrain"),
                     {"seaChannelMin", "probFloor", "probScale", "mountainEnterChance",
@@ -269,11 +271,18 @@ void validateConfigKeys(const Json& root) {
     const Json& ren = obj("render");
     warnUnknownKeys(ren,
                     {"windowWidth", "windowHeight", "spriteSize", "armyDrawSize", "city",
-                     "capital"},
+                     "capital", "tile"},
                     "render");
     warnUnknownKeys(child(ren, "city"),
-                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "iconScale"},
+                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "iconScale",
+                     "mix"},
                     "render.city");
+    warnUnknownKeys(child(child(ren, "city"), "mix"),
+                    {"primary", "secondary", "black"},
+                    "render.city.mix");
+    warnUnknownKeys(child(ren, "tile"),
+                    {"primary", "secondary", "white"},
+                    "render.tile");
     warnUnknownKeys(child(ren, "capital"),
                     {"minIconSizePx", "lineThickness", "designatedAlpha", "iconScale"},
                     "render.capital");
@@ -288,8 +297,8 @@ void validateConfigKeys(const Json& root) {
                          "periodic",      "periodTicks",       "bulletSpeed",
                          "bulletSpeedJitter", "bulletCount",   "bulletLifespanTicks",
                          "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac"};
-    const V kFactionKeys = {"id", "color", "unitPreference", "speedMultAll", "seaMult",
-                            "bounceMultAll", "pioneerSpeedMult", "extraLaserBeams",
+    const V kFactionKeys = {"id", "color", "secondary", "unitPreference", "speedMultAll",
+                            "seaMult", "bounceMultAll", "pioneerSpeedMult", "extraLaserBeams",
                             "laserDurationMult", "laserLengthMult", "bombRadius",
                             "mineTriggerRadius", "freeArmyChance"};
     const V kShapeKeys = {"level", "w", "h"};
@@ -378,7 +387,6 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.sea.goSeaChanceConst = getNum(seaJson, "goSeaChanceConst", cfg.sea.goSeaChanceConst);
         cfg.sea.goSeaChanceDenominator =
             getNum(seaJson, "goSeaChanceDenominator", cfg.sea.goSeaChanceDenominator);
-        cfg.sea.cyanSeaMult = getNum(seaJson, "cyanSeaMult", cfg.sea.cyanSeaMult);
         cfg.sea.seaSpeedMult = getNum(seaJson, "seaSpeedMult", cfg.sea.seaSpeedMult);
     }
 
@@ -448,6 +456,13 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 fdef.color[0] = factionJson["color"][0].get<int>();
                 fdef.color[1] = factionJson["color"][1].get<int>();
                 fdef.color[2] = factionJson["color"][2].get<int>();
+            }
+            // 双色系统（⑫）：副色（浅灰默认；缺键保持默认）。
+            if (factionJson.contains("secondary") && factionJson["secondary"].is_array()
+                && factionJson["secondary"].size() == 3) {
+                fdef.secondary[0] = factionJson["secondary"][0].get<int>();
+                fdef.secondary[1] = factionJson["secondary"][1].get<int>();
+                fdef.secondary[2] = factionJson["secondary"][2].get<int>();
             }
             // P11 改版：兵种偏好系数（原 costDiv 价格折扣已移除）。
             if (factionJson.contains("unitPreference") && factionJson["unitPreference"].is_object()) {
@@ -583,12 +598,27 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 getNum(rc, "lineThickness", cfg.render.city.lineThickness);
             cfg.render.city.lineDarken = getNum(rc, "lineDarken", cfg.render.city.lineDarken);
             cfg.render.city.iconDarken = getNum(rc, "iconDarken", cfg.render.city.iconDarken);
+            // 双色系统（⑫）：城市图标 主:副:黑 混合比例（render.city.mix）。
+            if (rc.contains("mix") && rc["mix"].is_object()) {
+                const auto& mix = rc["mix"];
+                cfg.render.city.mix.primary = getNum(mix, "primary", cfg.render.city.mix.primary);
+                cfg.render.city.mix.secondary =
+                    getNum(mix, "secondary", cfg.render.city.mix.secondary);
+                cfg.render.city.mix.black = getNum(mix, "black", cfg.render.city.mix.black);
+            }
             // iconScale[]：9 项（下标 = 等级-1，与 data/tower/tower<N>.png 对应）。
             if (rc.contains("iconScale") && rc["iconScale"].is_array())
                 for (std::size_t i = 0; i < cfg.render.city.iconScale.size() && i < rc["iconScale"].size();
                      ++i)
                     if (rc["iconScale"][i].is_number())
                         cfg.render.city.iconScale[i] = rc["iconScale"][i].get<double>();
+        }
+        // 双色系统（⑫）：地块格 主:副:白 混合比例（render.tile）。
+        if (renderJson.contains("tile") && renderJson["tile"].is_object()) {
+            const auto& tile = renderJson["tile"];
+            cfg.render.tileMix.primary = getNum(tile, "primary", cfg.render.tileMix.primary);
+            cfg.render.tileMix.secondary = getNum(tile, "secondary", cfg.render.tileMix.secondary);
+            cfg.render.tileMix.white = getNum(tile, "white", cfg.render.tileMix.white);
         }
         // P15 首都渲染常数（render.capital）。
         if (renderJson.contains("capital") && renderJson["capital"].is_object()) {
@@ -704,7 +734,6 @@ std::string Config::toJson() const {
                 {"goSeaIncrease", sea.goSeaIncrease},
                 {"goSeaChanceConst", sea.goSeaChanceConst},
                 {"goSeaChanceDenominator", sea.goSeaChanceDenominator},
-                {"cyanSeaMult", sea.cyanSeaMult},
                 {"seaSpeedMult", sea.seaSpeedMult}};
 
     j["terrain"] = {{"seaChannelMin", terrain.seaChannelMin},
@@ -740,6 +769,7 @@ std::string Config::toJson() const {
         Json fj;
         fj["id"] = f.id;
         fj["color"] = {f.color[0], f.color[1], f.color[2]};
+        fj["secondary"] = {f.secondary[0], f.secondary[1], f.secondary[2]};
         Json up;
         for (int i = 0; i < kArmyTypeCount; ++i)
             up[unitName(i)] = f.unitPreference[static_cast<size_t>(i)];
@@ -800,11 +830,21 @@ std::string Config::toJson() const {
         {"windowHeight", render.windowHeight},
         {"spriteSize", render.spriteSize},
         {"armyDrawSize", render.armyDrawSize},
+        // 双色系统（⑫）：地块格 主:副:白 混合比例。
+        {"tile",
+         {{"primary", render.tileMix.primary},
+          {"secondary", render.tileMix.secondary},
+          {"white", render.tileMix.white}}},
         {"city",
          {{"lineMinCellPx", render.city.lineMinCellPx},
           {"lineThickness", render.city.lineThickness},
           {"lineDarken", render.city.lineDarken},
           {"iconDarken", render.city.iconDarken},
+          // 双色系统（⑫）：城市图标 主:副:黑 混合比例。
+          {"mix",
+           {{"primary", render.city.mix.primary},
+            {"secondary", render.city.mix.secondary},
+            {"black", render.city.mix.black}}},
           {"iconScale", std::vector<double>(render.city.iconScale.begin(), render.city.iconScale.end())}}},
         {"capital",
          {{"minIconSizePx", render.capital.minIconSizePx},
@@ -849,6 +889,28 @@ std::string Config::toJson() const {
     j["tech"]["techs"] = std::move(techsJ);
 
     return j.dump(2);
+}
+
+std::array<int, 3> Config::factionTileColor(int id) const {
+    // 地块格填色 = 主色:副色:白 加权平均（render.tileMix；⑫）。id 越界 → 中性灰占位。
+    if (id < 0 || id >= static_cast<int>(factions.size()))
+        return weightedMix3({96, 96, 96}, {191, 191, 191}, {255, 255, 255},
+                            render.tileMix.primary, render.tileMix.secondary,
+                            render.tileMix.white);
+    const auto& f = factions[static_cast<size_t>(id)];
+    return weightedMix3(f.color, f.secondary, {255, 255, 255}, render.tileMix.primary,
+                        render.tileMix.secondary, render.tileMix.white);
+}
+
+std::array<int, 3> Config::factionCityColor(int id) const {
+    // 城市图标填色 = 主色:副色:黑 加权平均（render.city.mix；⑫）。id 越界 → 中性灰占位。
+    if (id < 0 || id >= static_cast<int>(factions.size()))
+        return weightedMix3({96, 96, 96}, {191, 191, 191}, {0, 0, 0},
+                            render.city.mix.primary, render.city.mix.secondary,
+                            render.city.mix.black);
+    const auto& f = factions[static_cast<size_t>(id)];
+    return weightedMix3(f.color, f.secondary, {0, 0, 0}, render.city.mix.primary,
+                        render.city.mix.secondary, render.city.mix.black);
 }
 
 }  // namespace lw

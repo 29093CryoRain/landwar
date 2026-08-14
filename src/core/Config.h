@@ -12,6 +12,21 @@
 
 namespace lw {
 
+// 三分量加权平均（双色势力派生色共用，2026-08 视觉工程改进 ⑫）：
+// 逐通道 round(a·wa + b·wb + c·wc)，结果夹到 [0,255]。
+inline std::array<int, 3> weightedMix3(const std::array<int, 3>& a, const std::array<int, 3>& b,
+                                       const std::array<int, 3>& c, double wa, double wb,
+                                       double wc) {
+    std::array<int, 3> out{};
+    for (int i = 0; i < 3; ++i) {
+        const double v = static_cast<double>(a[static_cast<size_t>(i)]) * wa
+                         + static_cast<double>(b[static_cast<size_t>(i)]) * wb
+                         + static_cast<double>(c[static_cast<size_t>(i)]) * wc;
+        out[static_cast<size_t>(i)] = v < 0.0 ? 0 : (v > 255.0 ? 255 : static_cast<int>(v + 0.5));
+    }
+    return out;
+}
+
 struct Config {
     struct Map {
         std::string file = kDefaultMapFile;  // 基线地图（2026-08-02 用户定夺；资产在 data/）
@@ -37,7 +52,8 @@ struct Config {
         double goSeaIncrease = 1.7 / 20000.0;   // 下海概率每 tick 增量 = 1.7/20000
         double goSeaChanceConst = 110.0;        // 下海概率 = (ttime-last+110)*p/17700
         double goSeaChanceDenominator = 17700.0;
-        double cyanSeaMult = 0.666;             // 势力3 下海概率 ×0.666
+        // 2026-08：cyanSeaMult 已删除（旧死键）——势力3 下海概率 ×0.666 统一由
+        // factions[3].seaMult 承担（见 initDefaultFactions 与 config.json）。
         // 海陆速度统一（Phase 9）：下海 speed ×seaSpeedMult，登陆 /seaSpeedMult（互逆）。
         double seaSpeedMult = 0.5;
     } sea;
@@ -100,7 +116,8 @@ struct Config {
 
     struct Faction {
         int id = 0;
-        std::array<int, 3> color = {127, 127, 127};
+        std::array<int, 3> color = {127, 127, 127};   // 主色（双色系统⑫：渲染色主源；旧单色语义保留）
+        std::array<int, 3> secondary = {191, 191, 191};  // 副色（双色系统⑫：旧势力默认浅灰）
         // P11 改版（用户定夺）：势力特色**不再影响兵种价格**（原 costDiv 价格折扣已移除），
         // 改由【兵种偏好系数】unitPreference 驱动默认 AI 的产兵分配（见 ProductionAI）。
         // 值 = 各兵种偏好系数（默认 1.0；>1 → 默认 AI 在该兵种上花费更多）。未来与科技挂钩。
@@ -117,6 +134,13 @@ struct Config {
         double freeArmyChance = 0.0;    // 势力8：攻占城市免费产兵概率 0.6
     };
     std::vector<Faction> factions;  // 下标即 id（0..8）
+
+    // ---- 双色势力渲染派生色（视觉工程改进 ⑫；纯函数，四舍五入）----
+    // 主色 = factions[id].color、副色 = factions[id].secondary。
+    // 地块格填色 = 主:副:白 加权平均（render.tileMix）；城市图标填色 = 主:副:黑 加权（render.city.mix）。
+    // id 越界 → 中性灰。实现见 Config.cpp（含单测）。
+    std::array<int, 3> factionTileColor(int id) const;
+    std::array<int, 3> factionCityColor(int id) const;
 
     struct Effect {
         struct Bomb {
@@ -205,6 +229,13 @@ struct Config {
         int windowHeight = 1425;
         int spriteSize = 32;
         int armyDrawSize = 48;
+        // 双色势力渲染混合比例（视觉工程改进 ⑫；JSON: render.tile）：
+        // 地块格填色 = 主色:副色:白 加权平均（主副比例接近，默认 0.35:0.35:0.30）。
+        struct TileMix {
+            double primary = 0.35;
+            double secondary = 0.35;
+            double white = 0.30;
+        } tileMix;
         // P13 城市渲染常数（render/CityRenderer）：细线围区阈值 / 图标最小尺寸 / 等级图标缩放表 /
         // 细线势力色加深系数。全部外置，mock 相机/缩放可测。
         struct City {
@@ -229,6 +260,13 @@ struct Config {
             // 亮度"×0.8 一致）。城市图标此前用满色势力色，在亮色陆地上对比弱 → 大城看不清
             //（2026-08-07 反馈），加深以提升对比度。0 → 黑，1 → 势力色原色。
             double iconDarken = 0.8;
+            // 双色势力渲染（视觉工程改进 ⑫；JSON: render.city.mix）：城市图标填色 =
+            // 主色:副色:黑 加权平均（主比例显著高，默认 0.60:0.20:0.20）。
+            struct Mix {
+                double primary = 0.60;
+                double secondary = 0.20;
+                double black = 0.20;
+            } mix;
             // 图标中心 = 基建地块几何中心（2026-08-07：移除 offsetY 错开偏移，见 P13 后续修订）。
         } city;
 

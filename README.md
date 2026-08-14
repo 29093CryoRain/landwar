@@ -53,6 +53,7 @@ ctest --preset default            # 单元测试
 | 右键拖拽（>6px） | 平移（2026-08-03：拖动屏幕改右键） |
 | 左键单击 | 点选兵 / 格 / 己方城市（左侧面板显示详情） |
 | `F5` | 重载配置（重建模拟，同种子重启，**破坏当前局面**） |
+| `F7` | 按当前 config 重烘焙双色渲染色（`factions[i].color/secondary` + `render.tile`/`render.city.mix`；不重建模拟，⑫） |
 | `F12` | 截图 `userdata/screenshots/screenshot_N.png` |
 | 窗口关闭 | 退出（ESC 单击不退出） |
 
@@ -164,10 +165,10 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 ```
 new_project_landwar/
   CMakeLists.txt / CMakePresets.json / 构建命令.bat
-  data/                map_*.bmp（地形基图：RGB 概率权重，任一分量<32=海、山概率=ramp(R)、城概率=ramp(G)；map_bigIslands.bmp 基线、map_mountains.bmp 用户手绘山/城图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，色相旋转 tint）、army_special.png（签名兵种特殊版）、ring.png/arrow.png（玩家标记美术图）、mountain.png/city.png（山/城简笔画线条贴图）、config.json
+  data/                map_*.bmp（地形基图：RGB 概率权重，任一分量<32=海、山概率=ramp(R)、城概率=ramp(G)；map_bigIslands.bmp 基线、map_mountains.bmp 用户手绘山/城图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint：红势力成品渲染 → 按各势力主副色反解重烘焙，⑫）、army_special.png（签名兵种特殊版，**双色系统起停用**）、ring.png/arrow.png（玩家标记美术图）、mountain.png/city.png（山/城简笔画线条贴图）、config.json
   userdata/            运行期产物（可写、可丢弃、不进版本库；启动自动创建）：
                        options.json（菜单选项，开始游戏时保存）、maps/gen_*.bmp（随机地图生成物）、
-                       screenshots/（F12 / QA 钩子截图）
+                       screenshots/（F12 / QA 钩子截图）、two_tone_template.png（双色反解模板调试图，⑫）
   src/
     core/              Config（含**未知键校验**，2026-08）、Simulation、MathUtil、Rng、GameDefs、
                        Paths（路径约定单点，2026-08）、FixedTimestep（固定步长累加器，2026-08）
@@ -213,6 +214,10 @@ new_project_landwar/
 `.docs/配置说明.md`。运行中按 `F5` 热加载（重建模拟）。
 **未知键校验（2026-08）**：打错的键名会在启动/重载时记警告（不再静默失效），详见
 `.docs/工程规范.md` §4。
+**双色势力渲染（视觉工程改进 ⑫）**：数据源并入 config —— `factions[i].color`=主色、
+`factions[i].secondary`=副色（旧势力默认浅灰 191；中立 id0 = 深灰 96 + 浅灰）、
+`render.tile`=地块格 主:副:白、`render.city.mix`=城市图标 主:副:黑 混合比例；
+改值后按 **F7** 重烘焙肉眼评美（不重建模拟）；键说明见 `.docs/配置说明.md`。
 
 ## 测试
 

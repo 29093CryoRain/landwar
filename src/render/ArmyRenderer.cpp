@@ -45,10 +45,9 @@ void ArmyRenderer::draw(const Simulation& sim, bool wrap) {
             continue;
         const int sx = cam_.toScreenXi(p.x);
         const int sy = cam_.toScreenYi(p.y);
-        // 签名兵种（该势力特色兵种）用特殊版贴图（原样彩色），其余用该势力色相旋转的基础版。
-        // P9 手枪/霰弹走 army_base.png 行 9/10（unitRect 映射），无特殊版。
-        const bool special = (fid == kSpecialUnitFaction[type]);
-        SDL_Texture* tex = special ? sheet_.specialTexture() : sheet_.texture(fid - 1);
+        // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png（army_special.png 停用，
+        // 用户定夺）→ 势力版 = 该势力 (主色, 副色) 合成纹理。
+        SDL_Texture* tex = sheet_.texture(fid - 1);
         // P9（2026-08-07）：手枪/霰弹兵贴图随运动方向旋转——枪管（图中朝上）朝前。
         // 子弹与其他兵不旋转（drawSpriteCentered）。公式：朝上贴图 = 激光朝下贴图公式 +180°
         //（激光角 = -angle-π/2，见 EffectRenderer；up 贴图反向即 +π）。

@@ -17,6 +17,10 @@
 
 #include <SDL.h>
 
+#include <array>
+#include <vector>
+
+#include "core/GameDefs.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
 #include "render/SpriteSheet.h"
@@ -30,16 +34,25 @@ namespace render {
 class EffectRenderer {
 public:
     EffectRenderer(SDL_Renderer* ren, const SpriteSheet& sheet, const Camera& cam,
-                   int mineDrawSize = 48);
+                   int mineDrawSize = 48,
+                   const std::vector<std::array<int, 3>>& primaryColors = {});
 
     // 绘制全部特效。tt = sim.tickCount() - createdTick。
     void draw(const Simulation& sim);
+
+    // F5/F7 重烘焙：更新主色表（爆炸圆等直接色填充；视觉工程改进 ⑫）。
+    void reloadColors(const std::vector<std::array<int, 3>>& primaryColors) {
+        primaryColors_ = primaryColors;
+    }
 
 private:
     SDL_Renderer* ren_;
     const SpriteSheet& sheet_;
     const Camera& cam_;
     int mineDrawSize_;  // 地雷 sprite 绘制尺寸（config.render.armyDrawSize）
+    // 势力主色表（下标 = 势力 id-1；双色调色板，视觉工程改进 ⑫——爆炸圆等直接色填充用；
+    // 缺省时回退 sim 势力色，保证单测/旧构造可用）。
+    std::vector<std::array<int, 3>> primaryColors_;
 };
 
 }  // namespace lw::render
