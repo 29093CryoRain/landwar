@@ -201,6 +201,7 @@ struct Config {
             int orient = 0;  // 0 = 正三角（六边形/正方形恒 0）；1 = 反三角
         };
         struct Shape {
+            int anchorN = 0;              // 锚点格边数（0=任意；半正/Laves 混合面时限定锚点格类型）
             std::vector<ShapeCell> cells;  // cells[0] = 锚格（(0,0)）
         };
         // 一个密铺的等级集 + 形状表（shapes[i] ↔ levels[i]）。

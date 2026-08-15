@@ -195,6 +195,46 @@ void initDefaultCity(Config::City& c) {
             set.levels = {1.0};
             set.shapes = {single()};
         }
+        // Arch488（4.8.8）完整城市形状表（2026-08-16）。anchorN = 锚点格边数：
+        // 8 = 八边形锚（L2/L3/L4）、4 = 正方形锚（L7/L8）。偏移为“目标格中心−锚格中心”。
+        {
+            const auto shp = [](int anchorN, const std::vector<std::array<double, 3>>& cells) {
+                Shape sh;
+                sh.anchorN = anchorN;
+                for (const auto& cl : cells)
+                    sh.cells.push_back(ShapeCell{cl[0], cl[1], static_cast<int>(cl[2])});
+                return sh;
+            };
+            auto& a488 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Arch488))];
+            a488.levels = {1.6568542494923795, 3.0294372515228583, 4.0, 6.970562748477137,
+                           8.343145750507617};
+            a488.shapes = {
+                shp(8, {{0.0, 0.0, 0}}),
+                shp(8, {{-0.707106781187, -0.707106781187, 0},
+                        {-0.707106781187, 0.707106718813, 0},
+                        {0.0, 0.0, 0},
+                        {0.707106718813, -0.707106781187, 0},
+                        {0.707106718813, 0.707106781187, 0}}),
+                shp(8, {{-0.707106781187, -0.707106781187, 0},
+                        {0.0, -1.4142135, 0},
+                        {0.0, 0.0, 0},
+                        {0.707106718813, -0.707106781187, 0}}),
+                shp(4, {{-0.707106718813, -0.707106718813, 0},
+                        {-0.707106718813, 0.707106781187, 0},
+                        {0.0, 0.0, 0},
+                        {0.707106781187, -0.707106718813, 0},
+                        {0.707106781187, 0.707106781187, 0}}),
+                shp(4, {{-1.4142135, 0.0, 0},
+                        {-0.707106718813, -0.707106718813, 0},
+                        {-0.707106718813, 0.707106781187, 0},
+                        {0.0, -1.4142135, 0},
+                        {0.0, 0.0, 0},
+                        {0.0, 1.4142135, 0},
+                        {0.707106781187, -0.707106718813, 0},
+                        {0.707106781187, 0.707106781187, 0},
+                        {1.4142135, 0.0, 0}}),
+            };
+        }
     }
     c.tri.shapes = {
         tr({{0, 0, 0}}),  // L1
@@ -376,7 +416,7 @@ void validateConfigKeys(const Json& root) {
                             "tilings"},
                     "city");
     const V kShapeKeys = {"level", "w", "h"};
-    const V kHexTriShapeKeys = {"level", "cells"};
+    const V kHexTriShapeKeys = {"level", "anchorN", "cells"};
     // 数组段（units / factions 在根；city.shapes 在 city 下）。unitPreference 键为动态
     // 兵种名（normal/vanguard/…）→ 列在已知集合里自然跳过动态校验。
     const V kUnitKeys = {"type",          "cost",              "speedMult",
@@ -710,6 +750,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
                     const int idx = set.levelIndex(lv);
                     if (idx < 0 || !s.contains("cells") || !s["cells"].is_array()) continue;
                     Config::City::Shape sh;
+                    sh.anchorN = getInt(s, "anchorN", 0);
                     for (const auto& cl : s["cells"]) {
                         if (!cl.is_array() || cl.size() < 2) continue;
                         const int orient = (cl.size() >= 3) ? cl[2].get<int>() : 0;
@@ -999,7 +1040,9 @@ std::string Config::toJson() const {
             Json cells = Json::array();
             for (const auto& c : set.shapes[static_cast<size_t>(i)].cells)
                 cells.push_back({c.dx, c.dy, c.orient});
-            shapes.push_back({{"level", set.levels[static_cast<size_t>(i)]}, {"cells", cells}});
+            shapes.push_back({{"level", set.levels[static_cast<size_t>(i)]},
+                              {"anchorN", set.shapes[static_cast<size_t>(i)].anchorN},
+                              {"cells", cells}});
         }
         return Json{{"levels", set.levels}, {"shapes", std::move(shapes)}};
     };

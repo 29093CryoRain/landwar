@@ -125,6 +125,43 @@ TEST(TilingTable, Laves488MapGenerationAndCapitalPlacement) {
     EXPECT_GE(map.cityCount(), 8);
 }
 
+TEST(TilingTable, Arch488CityShapesResolveToExpectedCellCounts) {
+    const Config cfg = Config::loadFromJson("{}");
+    Config::Map mc = cfg.map;
+    mc.tiling = "arch_488";
+    mc.width = 6;
+    mc.height = 6;
+    Map map;
+    map.configure(mc);
+    map.setCityConfig(cfg.city);
+    const auto& set = cfg.city.sets[static_cast<size_t>(static_cast<int>(TilingType::Arch488))];
+    ASSERT_EQ(set.levels.size(), 5u);
+    const int expectedCells[5] = {1, 5, 4, 5, 9};  // L2/L3/L4/L7/L8
+    for (int i = 0; i < 5; ++i) {
+        const int anchorN = set.shapes[static_cast<size_t>(i)].anchorN;
+        // 找地图中部一个 anchorN 边格。
+        int anchor = -1;
+        for (int idx = 0; idx < map.cellCount(); ++idx) {
+            if (map.geom().neighborCount(idx) == anchorN) {
+                double cx, cy;
+                map.geom().cellCenter(idx, cx, cy);
+                if (cx > 0.2 * map.worldWidth() && cx < 0.8 * map.worldWidth()
+                    && cy > 0.2 * map.worldHeight() && cy < 0.8 * map.worldHeight()) {
+                    anchor = idx;
+                    break;
+                }
+            }
+        }
+        ASSERT_GE(anchor, 0) << "level index " << i;
+        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor);
+        // 过滤界外 -1。
+        int count = 0;
+        for (int c : cells)
+            if (c >= 0) ++count;
+        EXPECT_EQ(count, expectedCells[i]) << "level index " << i;
+    }
+}
+
 TEST(TilingTable, ArchRowColRangeConservative) {
     for (TilingType t : kTableTypes) {
         TilingGeom g{t, 5, 4};

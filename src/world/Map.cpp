@@ -543,6 +543,8 @@ bool Map::canPlaceCity(double level, int index) const {
     if (!sh || sh->cells.empty()) return false;  // 未注册等级 → 拒绝（旧 levelIndex<0 语义）
     if (index < 0 || index >= cellCount()) return false;
     if (!atIndex(index).cityAllowed) return false;  // 锚点须可成城（基图允许该格成城）
+    // 半正/Laves 混合面：形状可限定锚点格类型（按边数 = 多边形顶点数）。
+    if (sh->anchorN != 0 && geom_.neighborCount(index) != sh->anchorN) return false;
     const std::vector<int> cells = shapeCells(level, index);
     for (int idx : cells) {
         if (idx < 0) return false;  // 界内（含环绕图不跨接缝）
