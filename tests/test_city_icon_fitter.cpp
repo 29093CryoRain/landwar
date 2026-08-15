@@ -5,6 +5,8 @@
 #include <array>
 #include <vector>
 
+#include "core/Config.h"
+#include "world/Map.h"
 #include "world/tiling/CityIconFitter.h"
 
 using namespace lw;
@@ -70,6 +72,64 @@ TEST(CityIconFitter, TriangleSquareTextureFitsInside) {
     EXPECT_GT(scale, 0.1);
     EXPECT_TRUE(CityIconFitter::rectangleInside(cells, cx, cy, 1.0, 1.0, scale));
     EXPECT_FALSE(CityIconFitter::rectangleInside(cells, cx, cy, 1.0, 1.0, scale * 1.5));
+}
+
+namespace {
+
+// 用真实六/三角形密铺几何取城市形状的多边形，喂给 CityIconFitter。
+std::vector<FitPoly> polygonsFor(const Map& map, double level, int anchor) {
+    std::vector<FitPoly> cells;
+    const std::vector<int> idxs = map.shapeCells(level, anchor);
+    double vx[12], vy[12];
+    for (int idx : idxs) {
+        if (idx < 0) continue;
+        const int n = map.geom().cellPolygon(idx, vx, vy, 12);
+        if (n < 3) continue;
+        FitPoly poly;
+        for (int k = 0; k < n; ++k) poly.push_back({vx[k], vy[k]});
+        cells.push_back(std::move(poly));
+    }
+    return cells;
+}
+
+}  // namespace
+
+TEST(CityIconFitter, HexLevel7ShapeUsesRealPolygons) {
+    Config cfg = Config::loadFromJson("{}");
+    Config::Map mc = cfg.map;
+    mc.tiling = "hex";
+    mc.width = 8;
+    mc.height = 6;
+    Map map;
+    map.configure(mc);
+    map.setCityConfig(cfg.city);
+    const int anchor = map.cellIndexAt(4, 3);
+    const auto cells = polygonsFor(map, 7.0, anchor);
+    ASSERT_EQ(cells.size(), 7u);
+    double scale = 0.0, cx = 0.0, cy = 0.0;
+    ASSERT_TRUE(CityIconFitter::compute(cells, 1.0, 1.0, scale, cx, cy));
+    EXPECT_GT(scale, 0.1);
+    EXPECT_TRUE(CityIconFitter::rectangleInside(cells, cx, cy, 1.0, 1.0, scale));
+    EXPECT_FALSE(CityIconFitter::rectangleInside(cells, cx, cy, 1.0, 1.0, scale * 1.44));
+}
+
+TEST(CityIconFitter, TriLevel6ShapeUsesRealPolygons) {
+    Config cfg = Config::loadFromJson("{}");
+    Config::Map mc = cfg.map;
+    mc.tiling = "tri";
+    mc.width = 8;
+    mc.height = 6;
+    Map map;
+    map.configure(mc);
+    map.setCityConfig(cfg.city);
+    const int anchor = map.cellIndexAt(2, 3);  // 正三角锚
+    const auto cells = polygonsFor(map, 6.0, anchor);
+    ASSERT_EQ(cells.size(), 6u);
+    double scale = 0.0, cx = 0.0, cy = 0.0;
+    ASSERT_TRUE(CityIconFitter::compute(cells, 1.0, 1.0, scale, cx, cy));
+    EXPECT_GT(scale, 0.1);
+    EXPECT_TRUE(CityIconFitter::rectangleInside(cells, cx, cy, 1.0, 1.0, scale));
+    EXPECT_FALSE(CityIconFitter::rectangleInside(cells, cx, cy, 1.0, 1.0, scale * 2.0));
 }
 
 TEST(CityIconFitter, DegenerateInputs) {

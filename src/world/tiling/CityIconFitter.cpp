@@ -211,59 +211,71 @@ void regionBounds(const std::vector<FitPoly>& cells, double& minX, double& minY,
         }
 }
 
-}  // namespace
+// 预处理后的区域（外边界缓存），避免每次 rectangleInside 重新 O(E²) 找边。
+struct Region {
+    std::vector<FitPoly> cells;
+    std::vector<std::pair<FitPoint, FitPoint>> boundaryEdges;
+    std::vector<FitPoint> boundaryVerts;
+};
 
-bool CityIconFitter::rectangleInside(const std::vector<FitPoly>& cells, double cx, double cy,
-                                     double baseW, double baseH, double scale) {
-    if (cells.empty() || baseW <= 0.0 || baseH <= 0.0 || scale <= 0.0) return false;
+Region makeRegion(const std::vector<FitPoly>& cells) {
+    Region r;
+    r.cells = cells;
+    buildBoundary(cells, r.boundaryEdges, r.boundaryVerts);
+    return r;
+}
+
+bool rectangleInsideRegion(const Region& region, double cx, double cy, double baseW, double baseH,
+                           double scale) {
+    if (region.cells.empty() || baseW <= 0.0 || baseH <= 0.0 || scale <= 0.0) return false;
     const double hw = 0.5 * baseW * scale, hh = 0.5 * baseH * scale;
-    // 矩形四边必须被格子并集覆盖。
     const FitPoint corners[4] = {
         {cx - hw, cy - hh}, {cx + hw, cy - hh}, {cx + hw, cy + hh}, {cx - hw, cy + hh}};
-    for (int i = 0; i < 4; ++i) {
-        const FitPoint& a = corners[i];
-        const FitPoint& b = corners[(i + 1) & 3];
-        if (!segmentCovered(cells, a, b)) return false;
-    }
-    // 并集外边界不得进入矩形内部。
-    std::vector<std::pair<FitPoint, FitPoint>> edges;
-    std::vector<FitPoint> verts;
-    buildBoundary(cells, edges, verts);
-    for (const auto& [a, b] : edges)
+    for (int i = 0; i < 4; ++i)
+        if (!segmentCovered(region.cells, corners[i], corners[(i + 1) & 3])) return false;
+    for (const auto& [a, b] : region.boundaryEdges)
         if (segmentHitsRectInterior(a, b, cx, cy, hw, hh)) return false;
-    for (const auto& v : verts)
+    for (const auto& v : region.boundaryVerts)
         if (pointStrictlyInsideRect(v[0], v[1], cx, cy, hw, hh)) return false;
     return true;
 }
 
-double CityIconFitter::maxScaleAt(const std::vector<FitPoly>& cells, double baseW, double baseH,
-                                  double cx, double cy) {
-    if (cells.empty() || baseW <= 0.0 || baseH <= 0.0) return 0.0;
+double maxScaleAtRegion(const Region& region, double baseW, double baseH, double cx, double cy) {
+    if (region.cells.empty() || baseW <= 0.0 || baseH <= 0.0) return 0.0;
     double minX, minY, maxX, maxY;
-    regionBounds(cells, minX, minY, maxX, maxY);
+    regionBounds(region.cells, minX, minY, maxX, maxY);
     const double maxByBox = std::max(0.0, std::min((maxX - minX) / baseW, (maxY - minY) / baseH));
     double lo = 0.0, hi = maxByBox;
-    if (!rectangleInside(cells, cx, cy, baseW, baseH, hi)) {
-        // 非矩形区域：包围盒上界可能放不下（如三角形），逐半收缩找可行上界。
-        while (hi > 1e-9 && !rectangleInside(cells, cx, cy, baseW, baseH, hi)) hi *= 0.5;
-        if (hi <= 1e-9) return 0.0;  // 该中心无法放入任何正尺寸贴图（中心在区域外/边界）
+    if (!rectangleInsideRegion(region, cx, cy, baseW, baseH, hi)) {
+        while (hi > 1e-9 && !rectangleInsideRegion(region, cx, cy, baseW, baseH, hi)) hi *= 0.5;
+        if (hi <= 1e-9) return 0.0;
     }
-    for (int it = 0; it < 70; ++it) {
+    for (int it = 0; it < 60; ++it) {
         const double mid = 0.5 * (lo + hi);
-        if (rectangleInside(cells, cx, cy, baseW, baseH, mid)) lo = mid;
+        if (rectangleInsideRegion(region, cx, cy, baseW, baseH, mid)) lo = mid;
         else hi = mid;
     }
     return 0.5 * (lo + hi);
 }
 
+}  // namespace
+
+bool CityIconFitter::rectangleInside(const std::vector<FitPoly>& cells, double cx, double cy,
+                                     double baseW, double baseH, double scale) {
+    return rectangleInsideRegion(makeRegion(cells), cx, cy, baseW, baseH, scale);
+}
+
+double CityIconFitter::maxScaleAt(const std::vector<FitPoly>& cells, double baseW, double baseH,
+                                  double cx, double cy) {
+    return maxScaleAtRegion(makeRegion(cells), baseW, baseH, cx, cy);
+}
+
 bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, double baseH,
                              double& scale, double& cx, double& cy) {
     if (cells.empty() || baseW <= 0.0 || baseH <= 0.0) return false;
+    const Region region = makeRegion(cells);
     double minX, minY, maxX, maxY;
     regionBounds(cells, minX, minY, maxX, maxY);
-    std::vector<std::pair<FitPoint, FitPoint>> edges;
-    std::vector<FitPoint> verts;
-    buildBoundary(cells, edges, verts);
 
     std::vector<FitPoint> candidates;
     // 几何中心（各格中心平均）。
@@ -289,11 +301,12 @@ bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, do
         candidates.push_back(avg);
     }
     // 外边界顶点与边中点。
-    for (const auto& v : verts) candidates.push_back(v);
-    for (const auto& [a, b] : edges)
+    for (const auto& v : region.boundaryVerts) candidates.push_back(v);
+    for (const auto& [a, b] : region.boundaryEdges)
         candidates.push_back({0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])});
-    // 包围盒网格（只取区域内的点）。
-    const int kGrid = 16;
+    // 包围盒网格（只取区域内的点）。粗网格先行，精修后足够逼近全局最优；
+    // 外边界/格心候选保证"贴边"或"居格"的局部最优不被漏掉。
+    const int kGrid = 32;
     for (int gy = 0; gy <= kGrid; ++gy) {
         const double y = minY + (maxY - minY) * static_cast<double>(gy) / kGrid;
         for (int gx = 0; gx <= kGrid; ++gx) {
@@ -306,7 +319,7 @@ bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, do
     cx = avg[0];
     cy = avg[1];
     for (const auto& c : candidates) {
-        const double s = maxScaleAt(cells, baseW, baseH, c[0], c[1]);
+        const double s = maxScaleAtRegion(region, baseW, baseH, c[0], c[1]);
         if (s > scale) {
             scale = s;
             cx = c[0];
@@ -314,7 +327,8 @@ bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, do
         }
     }
 
-    // 模式搜索局部精修（8 邻域；步长逐半衰减）。
+    // 模式搜索局部精修（8 邻域；步长逐半衰减）。步长从包围盒/128 起步，
+    // 保证网格候选之间的空洞可被局部爬山覆盖。
     double step = std::max(maxX - minX, maxY - minY) / 32.0;
     while (step > 1e-8) {
         bool improved = false;
@@ -324,7 +338,7 @@ bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, do
                 const double nx = cx + dx * step, ny = cy + dy * step;
                 if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
                 if (!pointInRegion(cells, {nx, ny})) continue;
-                const double s = maxScaleAt(cells, baseW, baseH, nx, ny);
+                const double s = maxScaleAtRegion(region, baseW, baseH, nx, ny);
                 if (s > scale) {
                     scale = s;
                     cx = nx;
