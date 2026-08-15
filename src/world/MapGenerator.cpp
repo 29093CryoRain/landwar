@@ -154,7 +154,14 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
     // P12（2026-08 用户拍板）：三角**列数减半**——width 语义 = 视觉列数（每行三角数），
     // 生成时列对数 = width/2 → cellCount = width×height 与方形一致；并强制列数为偶数
     // （(x/2)&~1：105→52、106→52、108→54）。与 Map::configure 同一公式（lwmap 尺寸匹配）。
-    if (p.tiling == TilingType::Tri) p.width = (p.width / 2) & ~1;
+    if (p.tiling == TilingType::Tri) {
+        p.width = (p.width / 2) & ~1;
+    } else if (static_cast<int>(p.tiling) > static_cast<int>(TilingType::Tri)) {
+        // 半正/Laves：用户长*宽 = 总格数；每周期域 B 个基础格 → 域列数 = 用户长 / B。
+        const TilingGeom probe{p.tiling, 1, 1};
+        const int B = std::max(1, probe.baseCount());
+        p.width = std::max(1, p.width / B);
+    }
 
     if (p.tiling == TilingType::Square) return generateSquare(path, seed, p);
     return generateTiled(path, seed, p);

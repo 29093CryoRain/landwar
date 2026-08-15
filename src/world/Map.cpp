@@ -68,8 +68,16 @@ void Map::configure(const Config::Map& cfg) {
     // MapGenerator::generate 同一公式（否则 lwmap 头尺寸不匹配）；width_/height_ 统一为
     // clamp 后值（width() == geom_.cols、height() == geom_.rows，首都采样等使用点一致）。
     int cols = cfg.width;
-    if (cfg.tilingType() == TilingType::Tri) cols = (cols / 2) & ~1;
     int rows = cfg.height;
+    if (cfg.tilingType() == TilingType::Tri) {
+        cols = (cols / 2) & ~1;
+    } else if (static_cast<int>(cfg.tilingType()) > static_cast<int>(TilingType::Tri)) {
+        // 半正/Laves 表驱动：用户长*宽 = 总格数。每周期域含 B 个基础格，
+        // 故列数 = 用户长 / B（向下取整）。UI 侧已保证用户长为 B 的倍数。
+        const TilingGeom probe{cfg.tilingType(), 1, 1};
+        const int B = std::max(1, probe.baseCount());
+        cols = std::max(1, cfg.width / B);
+    }
     // 六/三角行数须为偶数（垂直环绕闭合）；半正/Laves 表驱动用矩形周期域，任意行数均可。
     if ((cfg.tilingType() == TilingType::Hex || cfg.tilingType() == TilingType::Tri)
         && (rows & 1))

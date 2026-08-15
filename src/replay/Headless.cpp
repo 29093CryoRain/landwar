@@ -84,7 +84,9 @@ int runHeadless(const CliOptions& opts) {
                     spdlog::error("tiled map generate failed");
                     return 1;
                 }
-                if (gp.height & 1) --gp.height;  // 与生成器/Map::configure 一致（偶数行）
+                if ((gp.tiling == TilingType::Hex || gp.tiling == TilingType::Tri)
+                    && (gp.height & 1))
+                    --gp.height;  // 与生成器/Map::configure 一致（六/三角偶数行）
                 cfg.map.width = gp.width;
                 cfg.map.height = gp.height;
                 cfg.map.file = mpath;

@@ -19,6 +19,7 @@
 #include "ui/UiScale.h"
 #include "ui/UiText.h"
 #include "world/MapGenerator.h"
+#include "world/tiling/Tiling.h"
 
 namespace lw::ui {
 
@@ -316,9 +317,15 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
             st.previews.clear();  // 密铺变了 → 预览失效
         }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        // 三角"长"（视觉列数）生成时减半 → "-"/"+" 步进 2 并强制偶（保证列对数整数）；
-        // 方/六/半正长无偶要求，步进 1。
-        const int wStep = (st.tiling == TilingType::Tri) ? 2 : 1;
+        // 三角"长"（视觉列数）生成时减半 → 步进 2 并强制偶；半正/Laves 每周期域含 B 个
+        // 基础格，为保证"长*宽=总格数"，长必须为 B 的倍数 → 步进 B。
+        int wStep = 1;
+        if (st.tiling == TilingType::Tri) {
+            wStep = 2;
+        } else if (static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri)) {
+            const TilingGeom probe{st.tiling, 1, 1};
+            wStep = std::max(1, probe.baseCount());
+        }
         ImGui::InputInt("长", &st.randW, wStep, 8);
         // P12 六/三角：行数强制偶数 → "宽"的 "-"/"+" 步进 2（避免点一次不变/偶奇来回跳）。
         const bool needEvenRows = (st.tiling == TilingType::Hex || st.tiling == TilingType::Tri);
@@ -329,6 +336,8 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         st.randH = std::clamp(st.randH, 32, 200);
         if (needEvenRows && (st.randH & 1)) --st.randH;  // P12：偶数行
         if (st.tiling == TilingType::Tri && (st.randW & 1)) --st.randW;     // 三角：列对数整数
+        if (static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri))
+            st.randW = std::max(wStep, (st.randW / wStep) * wStep);  // 半正/Laves：长为 B 的倍数
         // 强制边缘为海（在陆地占比条上方，用户要求调换位置，2026-08-06）。
         ImGui::Checkbox("强制边缘为海", &st.forceCoast);
         // 陆地占比：显式小数（1.00 = 全陆地；配合强制边缘为海 → 只有一圈海）。此前用 "%.0f%%"

@@ -99,7 +99,7 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
     ASSERT_TRUE(map.loadFromLwmap(path, rng));
     ASSERT_TRUE(map.placeCapitals(rng));
     map.finalize();
-    EXPECT_EQ(map.cellCount(), map.geom().baseCount() * 32 * 32);
+    EXPECT_EQ(map.cellCount(), 32 * 32);  // 用户长*宽 = 总格数
     EXPECT_GE(map.cityCount(), 8);  // 至少 8 个首都城
 }
 
@@ -121,7 +121,7 @@ TEST(TilingTable, Laves488MapGenerationAndCapitalPlacement) {
     ASSERT_TRUE(map.loadFromLwmap(path, rng));
     ASSERT_TRUE(map.placeCapitals(rng));
     map.finalize();
-    EXPECT_EQ(map.cellCount(), map.geom().baseCount() * 32 * 32);
+    EXPECT_EQ(map.cellCount(), 32 * 32);  // 用户长*宽 = 总格数
     EXPECT_GE(map.cityCount(), 8);
 }
 
@@ -129,8 +129,8 @@ TEST(TilingTable, Arch488CityShapesResolveToExpectedCellCounts) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "arch_488";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 16;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -166,8 +166,8 @@ TEST(TilingTable, Laves3636CityShapesResolveToExpectedCellCounts) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "laves_3636";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 48;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -201,8 +201,8 @@ TEST(TilingTable, Laves488CityShapesResolveToExpectedCellCounts) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "laves_488";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 32;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -236,8 +236,8 @@ TEST(TilingTable, Arch3636CityShapesResolveToExpectedCellCounts) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "arch_3636";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 48;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -271,8 +271,8 @@ TEST(TilingTable, Laves3464CityShapesResolveToExpectedCellCounts) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "laves_3464";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 96;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -306,8 +306,8 @@ TEST(TilingTable, Arch3464CityShapesResolveToExpectedCellCounts) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "arch_3464";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 96;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -341,8 +341,8 @@ TEST(TilingTable, Arch4612CityShapesResolveToExpectedCellCountsWithVariants) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "arch_4612";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 96;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -381,8 +381,8 @@ TEST(TilingTable, Arch31212CityShapesResolveToExpectedCellCounts) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "arch_31212";
-    mc.width = 6;
-    mc.height = 6;
+    mc.width = 48;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -416,8 +416,8 @@ TEST(TilingTable, Laves31212CityShapesResolveToExpectedCellCountsWithVariants) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "laves_31212";
-    mc.width = 8;
-    mc.height = 8;
+    mc.width = 96;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
@@ -456,8 +456,8 @@ TEST(TilingTable, Laves4612CityShapesResolveToExpectedCellCountsWithVariants) {
     const Config cfg = Config::loadFromJson("{}");
     Config::Map mc = cfg.map;
     mc.tiling = "laves_4612";
-    mc.width = 8;
-    mc.height = 8;
+    mc.width = 192;
+    mc.height = 12;
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
