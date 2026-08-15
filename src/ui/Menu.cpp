@@ -297,18 +297,21 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         ImGui::TextUnformatted("随机地图参数");
         // P12：密铺模式下拉（六/三角随机图；预装 BMP 恒为方形）。
         // 2026-08-16：加入已接入几何的 5 种阿基米德密铺。
-        static const char* kTilingItems[8] = {"正方形", "六边形", "三角形",
-                                              "3.4.6.4", "3.6.3.6", "3.12.12",
-                                              "4.6.12", "4.8.8"};
-        static const TilingType kTilingValues[8] = {
-            TilingType::Square, TilingType::Hex,      TilingType::Tri,
-            TilingType::Arch3464, TilingType::Arch3636, TilingType::Arch31212,
-            TilingType::Arch4612, TilingType::Arch488};
+        static const char* kTilingItems[13] = {
+            "正方形", "六边形", "三角形", "3.4.6.4", "3.6.3.6", "3.12.12", "4.6.12",
+            "4.8.8", "Laves 3.4.6.4", "Laves 3.6.3.6", "Laves 3.12.12",
+            "Laves 4.6.12", "Laves 4.8.8"};
+        static const TilingType kTilingValues[13] = {
+            TilingType::Square,      TilingType::Hex,       TilingType::Tri,
+            TilingType::Arch3464,    TilingType::Arch3636,  TilingType::Arch31212,
+            TilingType::Arch4612,    TilingType::Arch488,   TilingType::Laves3464,
+            TilingType::Laves3636,   TilingType::Laves31212, TilingType::Laves4612,
+            TilingType::Laves488};
         int tilingIdx = 0;
-        for (int i = 0; i < 8; ++i)
+        for (int i = 0; i < 13; ++i)
             if (st.tiling == kTilingValues[i]) tilingIdx = i;
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        if (ImGui::Combo("密铺模式", &tilingIdx, kTilingItems, 8)) {
+        if (ImGui::Combo("密铺模式", &tilingIdx, kTilingItems, 13)) {
             st.tiling = kTilingValues[tilingIdx];
             st.previews.clear();  // 密铺变了 → 预览失效
         }

@@ -103,6 +103,21 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
         return nullptr;
     }
     if (!root.contains(name)) {
+        // Laves 数据在独立文件。
+        ifs.close();
+        ifs.open("data/tiling_specs_laves.json");
+        if (!ifs.is_open()) {
+            spdlog::warn("TilingTable: no spec for '{}'", name);
+            return nullptr;
+        }
+        try {
+            ifs >> root;
+        } catch (const std::exception& e) {
+            spdlog::error("TilingTable: laves JSON parse failed: {}", e.what());
+            return nullptr;
+        }
+    }
+    if (!root.contains(name)) {
         spdlog::warn("TilingTable: no spec for '{}'", name);
         return nullptr;
     }

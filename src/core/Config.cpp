@@ -188,7 +188,9 @@ void initDefaultCity(Config::City& c) {
         };
         for (const TilingType t :
              {TilingType::Arch3464, TilingType::Arch3636, TilingType::Arch31212,
-              TilingType::Arch4612, TilingType::Arch488}) {
+              TilingType::Arch4612, TilingType::Arch488, TilingType::Laves3464,
+              TilingType::Laves3636, TilingType::Laves31212, TilingType::Laves4612,
+              TilingType::Laves488}) {
             auto& set = c.sets[static_cast<size_t>(static_cast<int>(t))];
             set.levels = {1.0};
             set.shapes = {single()};
