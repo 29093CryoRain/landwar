@@ -375,7 +375,10 @@ void Map::finalize() {
 // 形状 → 基建格下标（level 查密铺形状表；锚点 index 为形状原点）。P12。
 std::vector<int> Map::shapeCells(double level, int anchorIndex) const {
     std::vector<int> out;
-    const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, level);
+    const auto& set = cityConfig_.setFor(geom_.type);
+    const int vc = set.variantCount(level);
+    const int variant = (vc > 1) ? (std::abs(anchorIndex) % vc) : 0;  // 确定性选变体
+    const Config::City::Shape* sh = set.shapeFor(level, variant);
     if (!sh || anchorIndex < 0 || anchorIndex >= cellCount()) return out;
     out.reserve(sh->cells.size());
     if (geom_.type == TilingType::Square) {
@@ -490,7 +493,10 @@ void Map::recomputeCityGeometry() {
 }
 
 int Map::addCity(double level, int index) {
-    const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, level);
+    const auto& set = cityConfig_.setFor(geom_.type);
+    const int vc = set.variantCount(level);
+    const int variant = (vc > 1) ? (std::abs(index) % vc) : 0;
+    const Config::City::Shape* sh = set.shapeFor(level, variant);
     if (!sh || index < 0 || index >= cellCount()) return -1;
     const int id = static_cast<int>(cities_.size());
     City c;
@@ -539,20 +545,58 @@ int Map::addCity(double level, int index) {
 }
 
 bool Map::canPlaceCity(double level, int index) const {
-    const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, level);
-    if (!sh || sh->cells.empty()) return false;  // 未注册等级 → 拒绝（旧 levelIndex<0 语义）
     if (index < 0 || index >= cellCount()) return false;
     if (!atIndex(index).cityAllowed) return false;  // 锚点须可成城（基图允许该格成城）
-    // 半正/Laves 混合面：形状可限定锚点格类型（按边数 = 多边形顶点数）。
-    if (sh->anchorN != 0 && geom_.neighborCount(index) != sh->anchorN) return false;
-    const std::vector<int> cells = shapeCells(level, index);
-    for (int idx : cells) {
-        if (idx < 0) return false;  // 界内（含环绕图不跨接缝）
-        const MapCell& c = atIndex(idx);
-        if (!c.land) return false;          // 基建格全须陆地（含山）
-        if (c.cityId != -1) return false;   // 无重叠
+    const auto& set = cityConfig_.setFor(geom_.type);
+    const int vc = set.variantCount(level);
+    if (vc <= 0) return false;  // 未注册等级 → 拒绝（旧 levelIndex<0 语义）
+    for (int v = 0; v < vc; ++v) {
+        const Config::City::Shape* sh = set.shapeFor(level, v);
+        if (!sh || sh->cells.empty()) continue;
+        // 半正/Laves 混合面：形状可限定锚点格类型（按边数 = 多边形顶点数）。
+        if (sh->anchorN != 0 && geom_.neighborCount(index) != sh->anchorN) continue;
+        // 用该变体解析形状格（shapeCells 按锚点取第一变体，这里需逐变体直接解析）。
+        std::vector<int> cells;
+        cells.reserve(sh->cells.size());
+        if (geom_.type == TilingType::Square) {
+            const int ax = index % geom_.cols, ay = index / geom_.cols;
+            for (const auto& sc : sh->cells) {
+                const int x = ax + static_cast<int>(sc.dx);
+                const int y = ay + static_cast<int>(sc.dy);
+                if (x < 0 || x >= geom_.cols || y < 0 || y >= geom_.rows) {
+                    cells.push_back(-1);
+                } else {
+                    cells.push_back(y * geom_.cols + x);
+                }
+            }
+        } else {
+            double ax, ay;
+            cellCenter(index, ax, ay);
+            const bool anchorUp = (geom_.type == TilingType::Tri) ? ((index & 1) == 0) : true;
+            for (const auto& sc : sh->cells) {
+                double wx, wy;
+                if (geom_.type == TilingType::Hex) {
+                    wx = ax + TilingGeom::kHexColSpacing * (sc.dx + 0.5 * sc.dy);
+                    wy = ay + TilingGeom::kHexRowSpacing * sc.dy;
+                } else if (geom_.type == TilingType::Tri) {
+                    wx = ax + sc.dx * TilingGeom::kTriSide;
+                    wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
+                } else {
+                    wx = ax + sc.dx;
+                    wy = ay + sc.dy;
+                }
+                cells.push_back(geom_.worldToCell(wx, wy));
+            }
+        }
+        bool ok = true;
+        for (int idx : cells) {
+            if (idx < 0) { ok = false; break; }  // 界内（含环绕图不跨接缝）
+            const MapCell& c = atIndex(idx);
+            if (!c.land || c.cityId != -1) { ok = false; break; }  // 陆地且无重叠
+        }
+        if (ok) return true;
     }
-    return true;
+    return false;
 }
 
 MapCell& Map::atIndex(int idx) {
