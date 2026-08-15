@@ -147,4 +147,28 @@ TEST(Config, MissingFileFallsBackToDefaults) {
     EXPECT_EQ(cfg.factions.size(), 9u);
 }
 
+TEST(Config, NewTilingCitySetsRoundTrip) {
+    // 2026-08-16：city.tilings.<tilingName> 段（半正/Laves 形状表）JSON 往返无损。
+    lw::Config cfg = lw::Config::loadFromJson("{}");
+    auto& set = cfg.city.sets[static_cast<size_t>(static_cast<int>(lw::TilingType::Arch3636))];
+    set.levels = {2.25, 5.25, 8.25};
+    set.shapes.resize(3);
+    set.shapes[0].cells = {{0.0, 0.0, 0}};
+    set.shapes[1].cells = {{0.0, 0.0, 0}, {1.5, 0.0, 0}};
+    set.shapes[2].cells = {{0.0, 0.0, 0}, {1.5, 0.0, 0}, {0.0, 1.5, 1}};
+
+    const std::string json = cfg.toJson();
+    ASSERT_NE(json.find("arch_3636"), std::string::npos);  // 新段已写入
+    const lw::Config back = lw::Config::loadFromJson(json);
+    const auto& backSet =
+        back.city.sets[static_cast<size_t>(static_cast<int>(lw::TilingType::Arch3636))];
+    ASSERT_EQ(backSet.levels.size(), 3u);
+    EXPECT_NEAR(backSet.levels[0], 2.25, 1e-12);
+    EXPECT_NEAR(backSet.levels[2], 8.25, 1e-12);
+    ASSERT_EQ(backSet.shapes.size(), 3u);
+    ASSERT_EQ(backSet.shapes[2].cells.size(), 3u);
+    EXPECT_NEAR(backSet.shapes[2].cells[1].dx, 1.5, 1e-12);
+    EXPECT_EQ(backSet.shapes[2].cells[2].orient, 1);
+}
+
 }  // namespace

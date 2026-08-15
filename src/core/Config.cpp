@@ -354,7 +354,8 @@ void validateConfigKeys(const Json& root) {
                     "render.capital");
     // city（顶层，P13 城市系统 + P12 按密铺形状表）。
     const Json& cityJ = obj("city");
-    warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri"},
+    warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri",
+                            "tilings"},
                     "city");
     const V kShapeKeys = {"level", "w", "h"};
     const V kHexTriShapeKeys = {"level", "cells"};
@@ -401,6 +402,19 @@ void validateConfigKeys(const Json& root) {
         if (cityJ["tri"].contains("shapes") && cityJ["tri"]["shapes"].is_array()) {
             for (const auto& s : cityJ["tri"]["shapes"])
                 warnUnknownKeys(s, kHexTriShapeKeys, "city.tri.shapes[" + std::to_string(idx++) + "]");
+        }
+    }
+    // 2026-08-16：city.tilings.<tilingName>（半正/Laves 形状表，键动态）。
+    if (cityJ.contains("tilings") && cityJ["tilings"].is_object()) {
+        for (auto it = cityJ["tilings"].begin(); it != cityJ["tilings"].end(); ++it) {
+            const std::string path = "city.tilings." + it.key();
+            if (!it.value().is_object()) continue;
+            warnUnknownKeys(it.value(), {"levels", "shapes"}, path);
+            if (it.value().contains("shapes") && it.value()["shapes"].is_array()) {
+                int si = 0;
+                for (const auto& s : it.value()["shapes"])
+                    warnUnknownKeys(s, kHexTriShapeKeys, path + ".shapes[" + std::to_string(si++) + "]");
+            }
         }
     }
     // tech：阈值键 + techs 数组（含 levels）。
@@ -670,6 +684,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 for (const auto& l : sub["levels"])
                     if (l.is_number()) set.levels.push_back(l.get<double>());
             }
+            if (set.shapes.size() != set.levels.size()) set.shapes.resize(set.levels.size());
             if (sub.contains("shapes") && sub["shapes"].is_array()) {
                 for (const auto& s : sub["shapes"]) {
                     if (!s.is_object()) continue;
