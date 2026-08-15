@@ -29,8 +29,11 @@ std::string cliUsage() {
            "  --no-menu          窗口模式：跳过菜单直接开始（P1）\n"
            "  --wrap             地图边界贯通（环绕，P10）：兵碰边界传送对侧，速度方向不变\n"
            "                      （headless 用；窗口模式在菜单「选择地图」勾选，存 options.json）\n"
-           "  --tiling T         P12 密铺（square|hex|tri；headless 用。非方 → 自动生成随机\n"
-           "                      lwmap（种子 = 主种子）；窗口模式在菜单「选择地图」下拉选择）\n";
+           "  --tiling T         密铺类型：square | hex | tri | arch_33336 | arch_33434 |\n"
+           "                      arch_3464 | arch_3636 | arch_31212 | arch_4612 | arch_488 |\n"
+           "                      laves_3636 | laves_31212 | laves_4612 | laves_488 |\n"
+           "                      laves_33434 | laves_33336 | laves_3464（headless 用；\n"
+           "                      非方 → 自动生成随机 lwmap，种子 = 主种子）\n";
 }
 
 CliOptions parseCli(int argc, char* argv[]) {
