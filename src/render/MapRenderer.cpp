@@ -112,7 +112,7 @@ void MapRenderer::drawTiled(const Map& map,
         SDL_RenderGeometry(ren_, nullptr, verts.data(), static_cast<int>(verts.size()), nullptr, 0);
         verts.clear();
     };
-    double wx[6], wy[6];
+    double wx[12], wy[12];
     for (int rr = r0; rr <= r1; ++rr) {
         g.colRange(vx0, vx1, rr, c0, c1);
         for (int cc = c0; cc <= c1; ++cc) {
@@ -122,7 +122,7 @@ void MapRenderer::drawTiled(const Map& map,
                                                             : rr * g.cols + cc;
                 const MapCell& cell = map.atIndex(idx);
                 if (!cell.land) continue;
-                const int n = g.cellPolygon(idx, wx, wy, 6);
+                const int n = g.cellPolygon(idx, wx, wy, 12);
                 const SDL_Color col = groupColorArr[std::clamp(static_cast<int>(cell.belongi), 0,
                                                                kColorGroups - 1)];
                 // 扇形三角化：0-1-2, 0-2-3, ...（凸多边形有效）。

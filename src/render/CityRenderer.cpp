@@ -148,10 +148,10 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
             // P12 六/三角：视野剔除用形状世界 AABB（屏幕）。
             const std::vector<int> cells = map.shapeCells(c.level, c.baseIndex);
             double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
-            double wx[6], wy[6];
+            double wx[12], wy[12];
             for (int ci : cells) {
                 if (ci < 0) continue;
-                const int n = map.geom().cellPolygon(ci, wx, wy, 6);
+                const int n = map.geom().cellPolygon(ci, wx, wy, 12);
                 for (int k = 0; k < n; ++k) {
                     minX = std::min(minX, wx[k]);
                     maxX = std::max(maxX, wx[k]);

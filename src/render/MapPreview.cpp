@@ -127,8 +127,8 @@ SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
             }
         }
         const Uint32 col = SDL_MapRGBA(surf->format, r, gg, b, 255);
-        double vx[6], vy[6];
-        const int n = tg.cellPolygon(idx, vx, vy, 6);
+        double vx[12], vy[12];
+        const int n = tg.cellPolygon(idx, vx, vy, 12);
         if (n >= 3) fillPoly(vx, vy, n, col);
     }
     SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
