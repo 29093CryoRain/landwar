@@ -143,10 +143,12 @@ bool Application::init() {
                  scale);
 
     // 屏幕坐标变换（toscreenx/y，y 翻转）来自 config；相机（缩放/平移）基于它。
+    // P12：密铺世界范围（六/三角非整数；方 = 格数）由 config tiling + 尺寸推导。
     const auto& mcfg = uiConfig_.map;
+    const TilingGeom tg{tilingFromName(mcfg.tiling), mcfg.width, mcfg.height};
     tf_ = math::ScreenTransform{static_cast<double>(mcfg.blockSize), mcfg.panelWidth,
-                                mcfg.height};
-    camera_.configure(tf_, rcfg.windowWidth, rcfg.windowHeight, mcfg.width, mcfg.height);
+                                tg.worldHeight()};
+    camera_.configure(tf_, rcfg.windowWidth, rcfg.windowHeight, tg.worldWidth(), tg.worldHeight());
 
     // 双色势力渲染（视觉工程改进 ⑫）：主副色与混合比例全部来自 config.json
     //（factions[i].color/secondary + render.tile / render.city.mix；F7 重烘焙肉眼评美）。
@@ -364,8 +366,8 @@ void Application::pickSelection() {
     const bool wrapSel = sim_.options().map.wrap;
     int spanX = 0, spanY = 0;
     if (wrapSel) {
-        spanX = camera_.toScreenXi(static_cast<double>(sim_.map().width())) - camera_.toScreenXi(0.0);
-        spanY = camera_.toScreenYi(0.0) - camera_.toScreenYi(static_cast<double>(sim_.map().height()));
+        spanX = camera_.toScreenXi(sim_.map().worldWidth()) - camera_.toScreenXi(0.0);
+        spanY = camera_.toScreenYi(0.0) - camera_.toScreenYi(sim_.map().worldHeight());
     }
     for (auto e : reg.view<comp::Position, comp::FactionId, comp::UnitType>()) {
         if (reg.all_of<comp::Dead>(e)) continue;
@@ -406,11 +408,16 @@ void Application::pickSelection() {
     // 2) 城市/陆地格（点选到海或界外 → 清空）。
     const double wx = camera_.toWorldX(clickX);
     const double wy = camera_.toWorldY(clickY);
-    const int gx = static_cast<int>(std::floor(wx));
-    const int gy = static_cast<int>(std::floor(wy));
-    if (gx >= 0 && gx < sim_.map().width() && gy >= 0 && gy < sim_.map().height()) {
-        const MapCell& cell = sim_.map().at(gx, gy);
+    // P12：密铺取格（方 = floor；六/三 = worldToCell）。
+    const int cellIdx = sim_.map().geom().worldToCell(wx, wy);
+    if (cellIdx >= 0) {
+        const MapCell& cell = sim_.map().atIndex(cellIdx);
         if (cell.land) {
+            // 格坐标（列, 行）供显示。
+            const int gx = (sim_.map().tiling() == TilingType::Square)
+                               ? cellIdx % sim_.map().width()
+                               : cellIdx % sim_.map().geom().cols;
+            const int gy = cellIdx / sim_.map().geom().cols;
             selection_.kind = app::Selection::Kind::Cell;
             selection_.cellX = gx;
             selection_.cellY = gy;
@@ -839,14 +846,17 @@ void Application::resolveMapSelection(Config& cfg) {
         return;
     }
     if (options_.map.kind == MapSelection::Kind::Random) {
-        // P6：生成地形基图 BMP → 走现有 loadFromBmp（单一加载路径）。确定性：(seed, 参数)。
+        // P6：生成地形基图 → 走现有加载路径（单一加载路径；P12：六/三 = lwmap）。
+        // 确定性：(seed, 参数 + 密铺)。
         const MapGenParams p{options_.map.width,   options_.map.height,
                              options_.map.seaRatio, options_.map.mountainDensity,
-                             options_.map.cityDensity, options_.map.forceCoast};
+                             options_.map.cityDensity, options_.map.forceCoast,
+                             tilingFromName(options_.map.tiling)};
         const std::string path = MapGenerator::defaultPath(options_.map.randomSeed, p);
         if (MapGenerator::generate(path, options_.map.randomSeed, p)) {
             cfg.map.width = p.width;  // 只在生成成功后覆盖尺寸/文件（失败保底可启动）
             cfg.map.height = p.height;
+            cfg.map.tiling = options_.map.tiling;  // P12：密铺
             cfg.map.file = path;
             return;
         }
@@ -879,8 +889,11 @@ void Application::syncCameraToMap() {
     // （tf_.mapHeight、camera mapW/mapH 参与屏幕变换与平移钳制，旧值会让大图边缘够不到）。
     const auto& mcfg = uiConfig_.map;
     const auto& rcfg = uiConfig_.render;
-    tf_ = math::ScreenTransform{static_cast<double>(mcfg.blockSize), mcfg.panelWidth, mcfg.height};
-    camera_.configure(tf_, rcfg.windowWidth, rcfg.windowHeight, mcfg.width, mcfg.height);
+    // P12：相机按当前地图世界范围配置（随机图尺寸可能 ≠ 默认 → 重配屏幕变换与相机）。
+    const TilingGeom tg = sim_.map().geom();
+    tf_ = math::ScreenTransform{static_cast<double>(mcfg.blockSize), mcfg.panelWidth,
+                                tg.worldHeight()};
+    camera_.configure(tf_, rcfg.windowWidth, rcfg.windowHeight, tg.worldWidth(), tg.worldHeight());
 }
 
 void Application::takeScreenshot() {

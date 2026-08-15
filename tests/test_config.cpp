@@ -136,8 +136,8 @@ TEST(Config, LoadsDataFile) {
     EXPECT_EQ(cfg.factions[0].color, (std::array<int, 3>{96, 96, 96}));
     EXPECT_EQ(cfg.factions[0].secondary, (std::array<int, 3>{191, 191, 191}));
     EXPECT_EQ(cfg.factions[1].secondary, (std::array<int, 3>{191, 191, 191}));
-    EXPECT_NEAR(cfg.render.tileMix.primary, 0.35, 1e-9);
-    EXPECT_NEAR(cfg.render.city.mix.primary, 0.6, 1e-9);
+    EXPECT_NEAR(cfg.render.tileMix.primary, 0.5, 1e-9);   // 数据文件（用户 2026-08 调值：主0.5/副0.3/白0.2）
+    EXPECT_NEAR(cfg.render.city.mix.primary, 0.7, 1e-9);  // 数据文件（用户调值：主0.7/副0.1/黑0.2）
     EXPECT_NEAR(cfg.units[7].bulletSpreadPIFrac, 2.0 / 9.0, 1e-5);  // 数据文件 0.222222 ≈ 2/9
 }
 

@@ -230,4 +230,57 @@ TEST(MapGen, LoadableAndParamsHeld) {
     }
 }
 
+// ---- P12：六/三角 forceCoast（外圈恒海，多边形顶点贴边判定，2026-08 修复）----
+
+// 生成 lwmap → Map 加载（六/三角）。
+lw::Map loadGeneratedTiled(std::uint32_t seed, const lw::MapGenParams& p, const std::string& path) {
+    EXPECT_TRUE(lw::MapGenerator::generate(path, seed, p));
+    lw::Config cfg = lwtest::loadCfg();
+    cfg.map.width = p.width;
+    cfg.map.height = p.height;
+    cfg.map.tiling = lw::tilingName(p.tiling);
+    cfg.map.file = path;
+    lw::Map map;
+    map.configure(cfg.map);
+    map.setTerrain(cfg.terrain);
+    lw::Rng rng(seed);  // 地图骰子用同一地图种子
+    EXPECT_TRUE(map.loadFromLwmap(path, rng));
+    return map;
+}
+
+// 规范：勾选"强制边缘为海"且陆地比例 100%（seaRatio=0）时，**只有最外围一圈是海**——
+// 外圈 = 密铺**行/列索引**到边界距离 == 0（与方形 d==0 语义一致；含六边形凹进的偶数行
+// 最右列、三角最外对）。48×40 与 120×120（用户 GUI 尺寸）两组。
+// 回归 2026-08：曾用"格中心/多边形到边界世界距离"判定——hex 左第二列与右最列同距
+// 无法两全，导致六偶数行最右列、三角最外对漏判为陆。
+TEST(MapGen, TiledForceCoastZeroSeaIsExactlyOuterRing) {
+    const lw::TilingType tilings[2] = {lw::TilingType::Hex, lw::TilingType::Tri};
+    for (const lw::TilingType t : tilings) {
+        for (const int sz : {48, 120}) {
+            const lw::MapGenParams p{sz, sz, 0.0, 0.05, 0.02, true, t};
+            const std::string path = std::string("build/_gen_fc_") +
+                                     (t == lw::TilingType::Hex ? "hex" : "tri") + "_" +
+                                     std::to_string(sz) + ".lwmap";
+            const lw::Map map = loadGeneratedTiled(42, p, path);
+            const lw::TilingGeom& g = map.geom();
+            for (int r = 0; r < g.rows; ++r) {
+                for (int c = 0; c < g.cols; ++c) {
+                    const bool outer =
+                        (r == 0 || r == g.rows - 1 || c == 0 || c == g.cols - 1);
+                    const int oCount = (t == lw::TilingType::Tri) ? 2 : 1;
+                    for (int o = 0; o < oCount; ++o) {
+                        const int idx = (t == lw::TilingType::Tri) ? 2 * (r * g.cols + c) + o
+                                                                   : r * g.cols + c;
+                        const bool sea = !map.atIndex(idx).land;
+                        EXPECT_EQ(sea, outer)
+                            << "tiling=" << static_cast<int>(t) << " sz=" << sz
+                            << " r=" << r << " c=" << c << " o=" << o
+                            << " (外圈索引格应海、内圈应陆)";
+                    }
+                }
+            }
+        }
+    }
+}
+
 }  // namespace

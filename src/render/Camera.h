@@ -19,9 +19,10 @@ public:
     // 默认：逻辑视口 2175×1425、整张地图（配置 init 后立即 configure 覆盖）。
     Camera() = default;
 
-    // 以屏幕变换 + 逻辑视口尺寸 + 地图尺寸初始化。
-    void configure(const math::ScreenTransform& tf, int windowW, int windowH, int mapWidth,
-                   int mapHeight) {
+    // 以屏幕变换 + 逻辑视口尺寸 + 地图尺寸（世界单位）初始化。
+    // P12：mapWidth/mapHeight 为世界范围（六/三角非整数；方 = 格数），环绕 span/剔除用。
+    void configure(const math::ScreenTransform& tf, int windowW, int windowH, double mapWidth,
+                   double mapHeight) {
         tf_ = tf;
         windowW_ = windowW;
         windowH_ = windowH;
@@ -95,9 +96,9 @@ public:
     double panY() const { return panY_; }
     int windowWidth() const { return windowW_; }
     int windowHeight() const { return windowH_; }
-    // P10：地图格尺寸（渲染器/点选算环绕副本的屏幕跨度用）。
-    int mapWidth() const { return mapW_; }
-    int mapHeight() const { return mapH_; }
+    // P10：地图世界范围（渲染器/点选算环绕副本的屏幕跨度用；世界单位）。
+    double mapWidth() const { return mapW_; }
+    double mapHeight() const { return mapH_; }
 
     static constexpr double kMinZoom = 0.25;
     static constexpr double kMaxZoom = 4.0;
@@ -106,7 +107,7 @@ private:
     // 平移夹取：保证地图至少有一部分留在视口内；地图小于视口时居中。
     void clampPan() {
         const double mapLeft = tf_.toXf(0.0);             // = panelWidth
-        const double mapRight = tf_.toXf(static_cast<double>(mapW_));
+        const double mapRight = tf_.toXf(mapW_);
         const double mapBottom = tf_.toYf(0.0);           // = mapH*blockSize
         // X：视口与地图需有重叠 → 地图右缘 ≥ 0 且地图左缘 ≤ windowW。
         const double minPanX = -mapRight * zoom_;
@@ -129,8 +130,8 @@ private:
     math::ScreenTransform tf_;
     int windowW_ = 2175;
     int windowH_ = 1425;
-    int mapW_ = 105;
-    int mapH_ = 95;
+    double mapW_ = 105.0;   // P12：世界宽（六/三角非整数；方 = 列数）
+    double mapH_ = 95.0;    // P12：世界高
     double zoom_ = 1.0;
     double panX_ = 0.0;
     double panY_ = 0.0;

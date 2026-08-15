@@ -49,6 +49,18 @@ inline void conquerAt(MoveContext& ctx, int x, int y, int factionId, int unitTyp
     if (ctx.stats && unitType >= 0 && landChanged) ctx.stats->recordLand(factionId, unitType);
 }
 
+// P12：按格下标征服（密铺路径；六/三角格 ≠ floor 坐标，征服统一走下标）。
+inline void conquerAtIndex(MoveContext& ctx, int index, int factionId, int unitType = -1) {
+    ConquerContext cc{ctx.map, ctx.factions, ctx.rng, ctx.pendingSpawns,
+                      /*freeArmyEnabled=*/true,
+                      /*tick=*/static_cast<std::uint64_t>(ctx.ttime)};
+    const bool landChanged =
+        index >= 0 && index < ctx.map.cellCount() && ctx.map.atIndex(index).land
+        && ctx.map.atIndex(index).belongi != factionId;
+    ctx.factions[static_cast<size_t>(factionId)].conquerIndex(cc, index);
+    if (ctx.stats && unitType >= 0 && landChanged) ctx.stats->recordLand(factionId, unitType);
+}
+
 // 标记死亡 + 记录死亡事件（tick 末由 DeathSystem 销毁并生成死亡效果）。
 // P11：killerFactionId/killerUnitType = 击杀者 credit（>=0 才记录击杀；战斗互杀/特效 Creator/
 // 子弹发射兵；无击杀者（如子弹消亡）不记录）。

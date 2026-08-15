@@ -17,6 +17,7 @@
 
 #include "core/Paths.h"
 #include "core/Random.h"
+#include "world/tiling/Tiling.h"
 
 namespace lw {
 
@@ -113,11 +114,21 @@ void writeHeader(std::vector<unsigned char>& data, int w, int h) {
 
 }  // namespace
 
+// 前向声明（generate 分派用；实现见文件后部）。
+static bool generateSquare(const std::string& path, std::uint32_t seed, const MapGenParams& p);
+static bool generateTiled(const std::string& path, std::uint32_t seed, const MapGenParams& p);
+
 std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p) {
-    char buf[160];
+    char buf[192];
     // 2026-08 工程改进：生成物入 userdata/maps/（运行期产物，不进版本库）。
-    std::snprintf(buf, sizeof(buf), "%s/gen_%u_%dx%d_%.2f_%.2f_%.2f.bmp", kGeneratedMapDir, seed,
-                  p.width, p.height, p.seaRatio, p.mountainDensity, p.cityDensity);
+    if (p.tiling == TilingType::Square) {
+        std::snprintf(buf, sizeof(buf), "%s/gen_%u_%dx%d_%.2f_%.2f_%.2f.bmp", kGeneratedMapDir, seed,
+                      p.width, p.height, p.seaRatio, p.mountainDensity, p.cityDensity);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%s/gen_%u_%s_%dx%d_%.2f_%.2f_%.2f.lwmap",
+                      kGeneratedMapDir, seed, tilingName(p.tiling), p.width, p.height, p.seaRatio,
+                      p.mountainDensity, p.cityDensity);
+    }
     return buf;
 }
 
@@ -136,7 +147,19 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
     p.seaRatio = std::clamp(p.seaRatio, 0.0, 0.90);  // 0 = 全陆地；0.9 = 陆地占比下界 0.1（2026-08-06）
     p.mountainDensity = std::clamp(p.mountainDensity, 0.0, 0.9);
     p.cityDensity = std::clamp(p.cityDensity, 0.0, 0.9);
+    // P12：六/三角行数 clamp 到偶数（垂直环绕闭合必需，见开发计划 P12 §2.3）。
+    if (p.tiling != TilingType::Square && (p.height & 1)) --p.height;
+    // P12（2026-08 用户拍板）：三角**列数减半**——width 语义 = 视觉列数（每行三角数），
+    // 生成时列对数 = width/2 → cellCount = width×height 与方形一致；并强制列数为偶数
+    // （(x/2)&~1：105→52、106→52、108→54）。与 Map::configure 同一公式（lwmap 尺寸匹配）。
+    if (p.tiling == TilingType::Tri) p.width = (p.width / 2) & ~1;
 
+    if (p.tiling == TilingType::Square) return generateSquare(path, seed, p);
+    return generateTiled(path, seed, p);
+}
+
+// 正方形密铺（现状路径，零改动）：生成 BMP。文件局部，不导出。
+static bool generateSquare(const std::string& path, std::uint32_t seed, const MapGenParams& p) {
     const int w = p.width, h = p.height;
     Rng rng(seed);
     ValueNoise2D noise(rng);
@@ -331,6 +354,196 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
     }
     spdlog::info("MapGenerator: '{}' written ({}x{}, sea {:.2f}, mtn {:.2f}, city {:.2f})", path, w,
                  h, p.seaRatio, p.mountainDensity, p.cityDensity);
+    return true;
+}
+
+// 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
+// 后处理；2026-08-15 用户拍板回退，先以纯净基线定位"横纹/同向三角"现象），其余流程与
+// 方形一致（分位数切海陆 + 内陆山 + 城权重），输出 lwmap（BGR 通道，与 Map::loadFromLwmap
+// 逐格对齐）。文件局部。
+static bool generateTiled(const std::string& path, std::uint32_t seed, const MapGenParams& p) {
+    const TilingGeom g{p.tiling, p.width, p.height};
+    const int cellCount = g.cellCount();
+    Rng rng(seed);
+    ValueNoise2D noise(rng);
+    const double baseCell = std::max(g.worldWidth(), g.worldHeight()) / 6.0;
+
+    // ① 海拔场（最朴素：每格中心独立采样同一张连续 fbm 噪声场，格间无任何耦合/后处理）。
+    std::vector<double> height(static_cast<size_t>(cellCount), 0.0);
+    for (int idx = 0; idx < cellCount; ++idx) {
+        double wx, wy;
+        g.cellCenter(idx, wx, wy);
+        height[static_cast<size_t>(idx)] = noise.fbm(wx / baseCell, wy / baseCell);
+    }
+    // ①a 坡度场（山脉分量）：边邻海拔差最大。
+    std::vector<double> grad(static_cast<size_t>(cellCount), 0.0);
+    for (int idx = 0; idx < cellCount; ++idx) {
+        const double hv = height[static_cast<size_t>(idx)];
+        double gr = 0.0;
+        for (int k = 0; k < g.neighborCount(); ++k) {
+            const int nb = g.neighbor(idx, k);
+            if (nb < 0) continue;
+            gr = std::max(gr, std::fabs(hv - height[static_cast<size_t>(nb)]));
+        }
+        grad[static_cast<size_t>(idx)] = gr;
+    }
+
+    // ①b 强制边缘为海（决策 11：任意密铺生效）：按格**真实世界坐标**到地图矩形边缘的
+    //   欧氏距离削减海拔；外圈恒海。2026-08 修正：旧实现按格索引 (r,c) 估距离，在六/三角
+    //   上失真——三角正/反格共享同一 (r,c) 却被减同一衰减（趋海被拉平、成片同向三角），
+    //   且削减带沿整行/整列垂直延伸，经阈值量化后横贯整行成直线海陆边（"横纹"）。
+    //   改用 cellCenter 世界坐标 → d = min(wx, worldW-wx, wy, worldH-wy)，贴合直边布局；
+    //   edgeBand 由"格数"改以 baseCell（世界尺度）为单位。
+    const double ebandW = std::max(4.0, std::min(g.worldWidth(), g.worldHeight()) / 12.0);
+    constexpr double kEdgeStrength = 0.5;
+    if (p.forceCoast) {
+        for (int idx = 0; idx < cellCount; ++idx) {
+            double wx, wy;
+            g.cellCenter(idx, wx, wy);
+            const double d = std::min({wx, g.worldWidth() - wx, wy, g.worldHeight() - wy});
+            if (d < ebandW) {
+                const double atten = kEdgeStrength * (1.0 - d / ebandW);
+                height[static_cast<size_t>(idx)] =
+                    std::max(0.0, height[static_cast<size_t>(idx)] - atten);
+            }
+        }
+    }
+
+    // ② 海/陆阈值（排序分位数）+ 外圈恒海。
+    std::vector<double> sorted = height;
+    std::sort(sorted.begin(), sorted.end());
+    const size_t k = std::min(static_cast<size_t>(static_cast<double>(sorted.size()) * p.seaRatio),
+                              sorted.size() - 1);
+    const double threshold = sorted[k];
+    std::vector<bool> land(static_cast<size_t>(cellCount), false);
+    for (size_t i = 0; i < land.size(); ++i) land[i] = height[i] >= threshold;
+    // ②b 外圈恒海：按密铺**行/列索引**到边界距离 == 0（与方形 d==0 语义一致——用户
+    //   规范"勾选强制为海且 100% 陆地时，只有最外围一圈是海"）。
+    //   hex：r==0||r==rows-1||c==0||c==cols-1——含**凹进的偶数行最右列**（其右顶点距
+    //   右缘 √3a/2 不贴边，但视觉上属最右列带）；世界坐标距离判定会把 hex 左第二列
+    //   （距左缘同样 √3a/2）与右最列混为一谈，无法两全，索引语义才与方形一致。
+    //   tri：r==0||r==rows-1||i==0||i==cols-1（每行 cols 个三角对；最左/最右对 =
+    //   视觉最外列带，含右缘尖出对与左缘 j=0 贴边对）。
+    if (p.forceCoast) {
+        for (int r = 0; r < g.rows; ++r) {
+            for (int c = 0; c < g.cols; ++c) {
+                const bool outer = (r == 0 || r == g.rows - 1 || c == 0 || c == g.cols - 1);
+                if (!outer) continue;
+                for (int o = 0; o < (g.type == TilingType::Tri ? 2 : 1); ++o) {
+                    const int idx = (g.type == TilingType::Tri) ? 2 * (r * g.cols + c) + o
+                                                                : r * g.cols + c;
+                    land[static_cast<size_t>(idx)] = false;
+                }
+            }
+        }
+    }
+
+    // ③ 山（内陆：边邻无海 → 确定性山 R=255）。
+    const auto adjacentSea = [&](int idx) {
+        for (int k = 0; k < g.neighborCount(); ++k) {
+            const int nb = g.neighbor(idx, k);
+            if (nb >= 0 && !land[static_cast<size_t>(nb)]) return true;
+        }
+        return false;
+    };
+    std::vector<size_t> orderH, orderG;
+    size_t eligibleCount = 0;
+    for (int idx = 0; idx < cellCount; ++idx)
+        if (land[static_cast<size_t>(idx)] && !adjacentSea(idx)) {
+            orderH.push_back(static_cast<size_t>(idx));
+            orderG.push_back(static_cast<size_t>(idx));
+            ++eligibleCount;
+        }
+    std::sort(orderH.begin(), orderH.end(), [&](size_t a, size_t b) {
+        if (height[a] != height[b]) return height[a] > height[b];
+        return a < b;
+    });
+    std::sort(orderG.begin(), orderG.end(), [&](size_t a, size_t b) {
+        if (grad[a] != grad[b]) return grad[a] > grad[b];
+        return a < b;
+    });
+    std::vector<bool> isMountain(land.size(), false);
+    constexpr double kPlateauShare = 0.4;
+    const size_t mtnCount = static_cast<size_t>(std::llround(p.mountainDensity * orderH.size()));
+    const size_t nPlateau = static_cast<size_t>(std::llround(mtnCount * kPlateauShare));
+    const size_t nRange = mtnCount - nPlateau;
+    for (size_t kk = 0; kk < nPlateau && kk < orderH.size(); ++kk) isMountain[orderH[kk]] = true;
+    for (size_t kk = 0; kk < nRange && kk < orderG.size(); ++kk) isMountain[orderG[kk]] = true;
+
+    // ④ 城权重（沿海×2 × 山顶×0.15 × 低地偏好），归一化到期望 Σp = cityDensity×陆格数。
+    size_t landCount = 0;
+    double maxLandH = threshold;
+    for (size_t idx = 0; idx < land.size(); ++idx) {
+        if (!land[idx]) continue;
+        ++landCount;
+        maxLandH = std::max(maxLandH, height[idx]);
+    }
+    const double hSpan = std::max(1e-9, maxLandH - threshold);
+    std::vector<double> cityWeight(land.size(), 0.0);
+    double cityWeightSum = 0.0;
+    for (int idx = 0; idx < cellCount; ++idx) {
+        if (!land[static_cast<size_t>(idx)]) continue;
+        double wgt = 1.0;
+        if (adjacentSea(idx)) wgt *= 2.0;
+        if (isMountain[static_cast<size_t>(idx)]) {
+            wgt *= 0.15;
+        } else {
+            const double hNorm = std::clamp(
+                (height[static_cast<size_t>(idx)] - threshold) / hSpan, 0.0, 1.0);
+            wgt *= (1.3 - 0.6 * hNorm);
+        }
+        cityWeight[static_cast<size_t>(idx)] = wgt;
+        cityWeightSum += wgt;
+    }
+
+    // ⑤ 编码 → 写 lwmap（magic "LWMP" + ver1 + tiling + cols + rows + 逐格 BGR 通道）。
+    std::vector<unsigned char> data;
+    data.reserve(static_cast<size_t>(10 + cellCount * 3));
+    data.insert(data.end(), {'L', 'W', 'M', 'P'});
+    data.push_back(1);  // version
+    data.push_back(p.tiling == TilingType::Hex ? 1u : 2u);
+    const auto push32 = [&](int v) {
+        data.push_back(static_cast<unsigned char>(v & 0xFF));
+        data.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+        data.push_back(static_cast<unsigned char>((v >> 16) & 0xFF));
+        data.push_back(static_cast<unsigned char>((v >> 24) & 0xFF));
+    };
+    push32(g.cols);
+    push32(g.rows);
+    const auto enc = [](double pp) -> unsigned char {
+        int v = 128 + static_cast<int>(std::lround(127.0 * pp));
+        return static_cast<unsigned char>(std::clamp(v, 128, 255));
+    };
+    for (int idx = 0; idx < cellCount; ++idx) {
+        unsigned char R, G, B;
+        if (!land[static_cast<size_t>(idx)]) {
+            R = G = B = 0;  // 任一分量 <32 → 海（确定性）
+        } else {
+            R = isMountain[static_cast<size_t>(idx)] ? 255u : 32u;
+            double pCity = 0.0;
+            if (cityWeightSum > 0.0)
+                pCity = p.cityDensity * static_cast<double>(landCount)
+                        * cityWeight[static_cast<size_t>(idx)] / cityWeightSum;
+            G = enc(std::min(pCity, 1.0));
+            B = 32;  // 闲置通道；须 ≥ seaChannelMin(32) 才不判海
+        }
+        data.push_back(B);
+        data.push_back(G);
+        data.push_back(R);
+    }
+    std::ofstream ofs(path, std::ios::binary);
+    if (!ofs.is_open()) {
+        spdlog::error("MapGenerator: cannot open '{}' for write", path);
+        return false;
+    }
+    ofs.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    if (!ofs) {
+        spdlog::error("MapGenerator: write to '{}' failed", path);
+        return false;
+    }
+    spdlog::info("MapGenerator: '{}' written ({} {}x{}, sea {:.2f}, mtn {:.2f}, city {:.2f})", path,
+                 tilingName(p.tiling), g.cols, g.rows, p.seaRatio, p.mountainDensity,
+                 p.cityDensity);
     return true;
 }
 

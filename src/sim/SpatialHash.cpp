@@ -7,17 +7,31 @@
 
 namespace lw {
 
-void SpatialHash::build(entt::registry& reg, int width, int height) {
-    width_ = width;
-    height_ = height;
-    // 桶数组只按尺寸变化时重排一次；每轮只清空上一轮触及过的桶（touched_），
-    // 避免每 tick 重建 9975 个空 vector（Phase 5 浸泡测试定位到的热点）。
-    const size_t cellCount = static_cast<size_t>(width) * height;
+// 位置 → 桶下标（界外/贴界 → 内缩兜底）。方形 = floor（原语义）；六/三 = worldToCell。
+int SpatialHash::bucketIndex(double x, double y) const {
+    if (geom_.type == TilingType::Square) {
+        const int cx = std::clamp(static_cast<int>(x), 0, geom_.cols - 1);
+        const int cy = std::clamp(static_cast<int>(y), 0, geom_.rows - 1);
+        return cy * geom_.cols + cx;
+    }
+    int idx = geom_.worldToCell(x, y);
+    if (idx < 0) {  // 贴界（如 y = worldHeight）：内缩 ε 再取
+        idx = geom_.worldToCell(std::clamp(x, 0.0, geom_.worldWidth() - kEps),
+                                std::clamp(y, 0.0, geom_.worldHeight() - kEps));
+    }
+    return std::max(0, idx);
+}
+
+void SpatialHash::build(entt::registry& reg, const TilingGeom& g) {
+    geom_ = g;
+    const size_t cellCount = static_cast<size_t>(g.cellCount());
     if (buckets_.size() != cellCount) {
         buckets_.clear();
         buckets_.resize(cellCount);
     }
-    for (const size_t idx : touched_) buckets_[idx].clear();
+    // 防御：touched_ 可能是上一轮不同几何（如方/密铺切换）留下的越界下标 → 先按新尺寸过滤。
+    for (const size_t idx : touched_)
+        if (idx < buckets_.size()) buckets_[idx].clear();
     touched_.clear();
 
     auto view = reg.view<comp::Position, comp::Collider>();
@@ -31,13 +45,14 @@ void SpatialHash::build(entt::registry& reg, int width, int height) {
     for (auto e : ents) {
         if (reg.all_of<comp::Dead>(e)) continue;
         const auto& pos = view.get<comp::Position>(e);
-        // 位置可夹到 [0, width]/[0, height]（移动末尾 clamp），落到最近的格桶。
-        const int cx = std::clamp(static_cast<int>(pos.x), 0, width_ - 1);
-        const int cy = std::clamp(static_cast<int>(pos.y), 0, height_ - 1);
-        const size_t idx = static_cast<size_t>(cy) * width_ + cx;
+        const size_t idx = static_cast<size_t>(bucketIndex(pos.x, pos.y));
         if (buckets_[idx].empty()) touched_.push_back(idx);  // 本轮首次触达才记录
         buckets_[idx].push_back(e);
     }
+}
+
+void SpatialHash::build(entt::registry& reg, int width, int height) {
+    build(reg, TilingGeom{TilingType::Square, width, height});
 }
 
 // reg 仅用于 queryCircle 的精确过滤；queryAABB 只查桶，不需要 reg（保留签名对称）。
@@ -45,14 +60,22 @@ std::vector<entt::entity> SpatialHash::queryAABB([[maybe_unused]] const entt::re
                                                  double x0, double y0, double x1, double y1) const {
     std::vector<entt::entity> result;
     if (buckets_.empty()) return result;
-    const int cx0 = std::clamp(static_cast<int>(std::floor(x0)), 0, width_ - 1);
-    const int cx1 = std::clamp(static_cast<int>(std::floor(x1)), 0, width_ - 1);
-    const int cy0 = std::clamp(static_cast<int>(std::floor(y0)), 0, height_ - 1);
-    const int cy1 = std::clamp(static_cast<int>(std::floor(y1)), 0, height_ - 1);
-    for (int cy = cy0; cy <= cy1; ++cy) {
-        for (int cx = cx0; cx <= cx1; ++cx) {
-            const auto& bucket = buckets_[static_cast<size_t>(cy) * width_ + cx];
-            result.insert(result.end(), bucket.begin(), bucket.end());
+    int r0, r1, c0, c1;
+    geom_.rowRange(y0, y1, r0, r1);
+    if (r0 > r1) return result;
+    for (int r = r0; r <= r1; ++r) {
+        geom_.colRange(x0, x1, r, c0, c1);
+        if (c0 > c1) continue;
+        for (int c = c0; c <= c1; ++c) {
+            if (geom_.type == TilingType::Tri) {
+                for (int o = 0; o < 2; ++o) {
+                    const auto& bucket = buckets_[static_cast<size_t>(2 * (r * geom_.cols + c) + o)];
+                    result.insert(result.end(), bucket.begin(), bucket.end());
+                }
+            } else {
+                const auto& bucket = buckets_[static_cast<size_t>(r * geom_.cols + c)];
+                result.insert(result.end(), bucket.begin(), bucket.end());
+            }
         }
     }
     return result;
@@ -62,18 +85,30 @@ std::vector<entt::entity> SpatialHash::queryCircle(const entt::registry& reg, do
                                                    double radius) const {
     std::vector<entt::entity> result;
     if (buckets_.empty()) return result;
-    const int x0 = std::max(0, static_cast<int>(std::floor(x - radius)));
-    const int x1 = std::min(width_ - 1, static_cast<int>(std::floor(x + radius)));
-    const int y0 = std::max(0, static_cast<int>(std::floor(y - radius)));
-    const int y1 = std::min(height_ - 1, static_cast<int>(std::floor(y + radius)));
+    int r0, r1, c0, c1;
+    geom_.rowRange(y - radius, y + radius, r0, r1);
+    if (r0 > r1) return result;
     const double r2 = radius * radius;
-    for (int cy = y0; cy <= y1; ++cy) {
-        for (int cx = x0; cx <= x1; ++cx) {
-            for (auto e : buckets_[static_cast<size_t>(cy) * width_ + cx]) {
-                const auto& pos = reg.get<comp::Position>(e);
-                const double dx = pos.x - x;
-                const double dy = pos.y - y;
-                if (dx * dx + dy * dy < r2) result.push_back(e);
+    for (int r = r0; r <= r1; ++r) {
+        geom_.colRange(x - radius, x + radius, r, c0, c1);
+        if (c0 > c1) continue;
+        for (int c = c0; c <= c1; ++c) {
+            if (geom_.type == TilingType::Tri) {
+                for (int o = 0; o < 2; ++o) {
+                    for (auto e : buckets_[static_cast<size_t>(2 * (r * geom_.cols + c) + o)]) {
+                        const auto& pos = reg.get<comp::Position>(e);
+                        const double dx = pos.x - x;
+                        const double dy = pos.y - y;
+                        if (dx * dx + dy * dy < r2) result.push_back(e);
+                    }
+                }
+            } else {
+                for (auto e : buckets_[static_cast<size_t>(r * geom_.cols + c)]) {
+                    const auto& pos = reg.get<comp::Position>(e);
+                    const double dx = pos.x - x;
+                    const double dy = pos.y - y;
+                    if (dx * dx + dy * dy < r2) result.push_back(e);
+                }
             }
         }
     }

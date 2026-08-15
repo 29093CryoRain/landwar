@@ -55,6 +55,29 @@ void Renderer::fillCircle(int cx, int cy, int radius, const SDL_Color& c) {
     }
 }
 
+// 粗线段：沿线段法向外扩 thick/2 得四角 → 三角化填充（实心、无接缝）。
+void Renderer::fillThickSegment(int x0, int y0, int x1, int y1, int thick, const SDL_Color& c) {
+    if (thick <= 0) return;
+    const double dx = static_cast<double>(x1 - x0), dy = static_cast<double>(y1 - y0);
+    const double len = std::hypot(dx, dy);
+    const double hw = thick * 0.5;
+    double nx = 0.0, ny = 0.0;
+    if (len > 1e-9) {
+        nx = -dy / len * hw;
+        ny = dx / len * hw;
+    }
+    // 四角（外扩后的矩形）。
+    const float ax = static_cast<float>(x0 + nx), ay = static_cast<float>(y0 + ny);
+    const float bx = static_cast<float>(x1 + nx), by = static_cast<float>(y1 + ny);
+    const float cx2 = static_cast<float>(x1 - nx), cy2 = static_cast<float>(y1 - ny);
+    const float dx2 = static_cast<float>(x0 - nx), dy2 = static_cast<float>(y0 - ny);
+    SDL_Vertex verts[6] = {
+        {{ax, ay}, c, {0.0f, 0.0f}}, {{bx, by}, c, {0.0f, 0.0f}}, {{cx2, cy2}, c, {0.0f, 0.0f}},
+        {{ax, ay}, c, {0.0f, 0.0f}}, {{cx2, cy2}, c, {0.0f, 0.0f}}, {{dx2, dy2}, c, {0.0f, 0.0f}},
+    };
+    SDL_RenderGeometry(ren_, nullptr, verts, 6, nullptr, 0);
+}
+
 void Renderer::drawSpriteCentered(SDL_Texture* tex, const SDL_Rect& src, int cx, int cy, int size,
                                   int alpha) {
     if (!tex) return;

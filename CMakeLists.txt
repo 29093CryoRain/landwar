@@ -62,6 +62,7 @@ add_library(landwar_core STATIC
     src/world/Faction.cpp
     src/world/Map.cpp
     src/world/MapGenerator.cpp
+    src/world/tiling/Tiling.cpp
     src/sim/Buff.cpp
     src/sim/SpatialHash.cpp
     src/sim/ai/ProductionAI.cpp
@@ -187,6 +188,7 @@ add_executable(landwar_tests
     tests/test_snapshot.cpp
     tests/test_stats.cpp
     tests/test_tech.cpp
+    tests/test_tiling.cpp
     tests/test_tint.cpp
     tests/test_wrapdraw.cpp)
 target_include_directories(landwar_tests PRIVATE src)

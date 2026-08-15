@@ -25,6 +25,8 @@ struct CliOptions {
     bool noMenu = false;         // 窗口模式：跳过菜单直接开始（P1）
     bool wrap = false;           // P10：边界贯通（环绕）——兵碰边界传送对侧（headless；窗口走菜单/options.json）
     bool wrapSet = false;        // 是否显式指定 --wrap（未指定 → wrap=false，默认基线不变）
+    std::string tiling;          // P12：--tiling square|hex|tri（tilingSet=true 时生效；非方自动生成 lwmap）
+    bool tilingSet = false;      // 是否显式指定 --tiling
 };
 
 // 解析 argv。任何模拟控制参数（--seed/--ticks/--speed/--summary/--save/--load/--replay）都视作无头。

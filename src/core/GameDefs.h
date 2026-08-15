@@ -79,6 +79,28 @@ inline constexpr int kArmyTypeCount = static_cast<int>(ArmyType::count);
 inline constexpr double kPi = 3.14159265358979323846;
 inline constexpr double kEps = 0.000001;
 
+// 密铺类型（P12 异种地图；类型定义放公共头，几何在 world/tiling/Tiling.h）。
+enum class TilingType : int {
+    Square = 0,
+    Hex = 1,  // 正六边形（尖顶：顶点在正上下方）
+    Tri = 2,  // 正三角形（正向/反向两种朝向）
+};
+
+inline const char* tilingName(TilingType t) {
+    switch (t) {
+        case TilingType::Square: return "square";
+        case TilingType::Hex: return "hex";
+        case TilingType::Tri: return "tri";
+    }
+    return "square";
+}
+
+inline TilingType tilingFromName(const std::string& name) {
+    if (name == "hex") return TilingType::Hex;
+    if (name == "tri") return TilingType::Tri;
+    return TilingType::Square;
+}
+
 // 签名兵种：该兵种使用"特殊版"贴图的势力 id（0=无特殊版）。army_gray.png 第 1 列存特殊版。
 // 目前仅下列势力特色兵种有特殊版（青先锋/蓝开拓/绿激光/橙爆炸/紫地雷）；P8 科技后可作为高级兵。
 // P9 手枪/霰弹暂无特殊版（占位形状渲染，不走 sprite 行）。

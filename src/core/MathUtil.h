@@ -21,10 +21,11 @@ unsigned mixColor(unsigned color1, unsigned color2, double rate);
 // 2026-08 收敛：f 版（连续 double）为唯一实现，int 版 = f 版显式截断（语义与旧版逐位一致）。
 // 规则：新代码一律用 f 版（ScreenTransform::toXf / Camera::toScreenX），保留小数；
 // 绘制取整走 Camera::toScreenXi/Yi（lround）。int 版仅供历史逐像素对齐路径。
+// P12：mapHeight 为世界高度（六/三角非整数；方 = 行数）。
 double toScreenXf(double x, double blockSize, int panelWidth);
-double toScreenYf(double y, double blockSize, int mapHeight);
+double toScreenYf(double y, double blockSize, double mapHeight);
 int toScreenX(double x, double blockSize, int panelWidth);
-int toScreenY(double y, double blockSize, int mapHeight);
+int toScreenY(double y, double blockSize, double mapHeight);
 
 // 原版 find_next_xy：网格穿越，返回先撞到的边界方向并更新位置/余长。
 // 返回值：0/2 = 水平边界(x1/x2)、1/3 = 垂直边界(y1/y2)；-2 = 走完本段；-3 = 撞角/两向相等（已反向）。
@@ -41,7 +42,7 @@ double pointDistanceFromSegment(double px, double py, double startX, double star
 struct ScreenTransform {
     double blockSize = 15.0;
     int panelWidth = 600;
-    int mapHeight = 95;
+    double mapHeight = 95.0;  // P12：世界高度（六/三角非整数；方 = 行数）
 
     // 连续版（唯一实现）：保留小数。整数世界坐标下与 int 版一致；城市中心等非整数坐标
     //（baseX+w/2）若走 int 版会在缩放前被抹掉 0.5 格 → 图标比地块中心恒偏左/上 0.5×zoom px

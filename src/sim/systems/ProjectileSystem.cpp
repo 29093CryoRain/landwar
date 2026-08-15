@@ -70,39 +70,95 @@ void solveProjectile(MoveContext& ctx, entt::entity e, std::vector<entt::entity>
     if (hitEnemyAt(ctx, e, pos, col, fid)) return;
 
     double rem = speed.value;
-    while (rem > 0) {
-        const int boundaryCode = math::findNextXY(pos.x, pos.y, vel.angle, rem, ctx.rng);
-        if (boundaryCode == -3) continue;  // 撞角：已反向，继续本 tick 移动
-        if (boundaryCode == 0 && pos.x <= 0) { toDestroy.push_back(e); return; }
-        if (boundaryCode == 1 && pos.y <= 0) { toDestroy.push_back(e); return; }
-        if (boundaryCode == 2 && pos.x >= ctx.map.width()) { toDestroy.push_back(e); return; }
-        if (boundaryCode == 3 && pos.y >= ctx.map.height()) { toDestroy.push_back(e); return; }
-        if (boundaryCode < 0) {
-            // -1/-2：走完本段，夹取到界内 + 终点击杀判定。
-            pos.x = std::clamp(pos.x, 0.0, static_cast<double>(ctx.map.width()));
-            pos.y = std::clamp(pos.y, 0.0, static_cast<double>(ctx.map.height()));
+    if (ctx.map.tiling() == TilingType::Square) {
+        while (rem > 0) {
+            const int boundaryCode = math::findNextXY(pos.x, pos.y, vel.angle, rem, ctx.rng);
+            if (boundaryCode == -3) continue;  // 撞角：已反向，继续本 tick 移动
+            if (boundaryCode == 0 && pos.x <= 0) { toDestroy.push_back(e); return; }
+            if (boundaryCode == 1 && pos.y <= 0) { toDestroy.push_back(e); return; }
+            if (boundaryCode == 2 && pos.x >= ctx.map.width()) { toDestroy.push_back(e); return; }
+            if (boundaryCode == 3 && pos.y >= ctx.map.height()) { toDestroy.push_back(e); return; }
+            if (boundaryCode < 0) {
+                // -1/-2：走完本段，夹取到界内 + 终点击杀判定。
+                pos.x = std::clamp(pos.x, 0.0, static_cast<double>(ctx.map.width()));
+                pos.y = std::clamp(pos.y, 0.0, static_cast<double>(ctx.map.height()));
+                if (hitEnemyAt(ctx, e, pos, col, fid)) return;
+                break;
+            }
+            // 目标格（沿穿越方向 ±eps 取整，同 MovementSystem §2.3）。
+            const MapCell* goalCell = nullptr;
+            if (boundaryCode == 0)
+                goalCell = &ctx.map.at(static_cast<int>(pos.x - kEps), static_cast<int>(pos.y));
+            if (boundaryCode == 1)
+                goalCell = &ctx.map.at(static_cast<int>(pos.x), static_cast<int>(pos.y - kEps));
+            if (boundaryCode == 2)
+                goalCell = &ctx.map.at(static_cast<int>(pos.x + kEps), static_cast<int>(pos.y));
+            if (boundaryCode == 3)
+                goalCell = &ctx.map.at(static_cast<int>(pos.x), static_cast<int>(pos.y + kEps));
+            // 陆→山：子弹消失（山地中继续飞，仅留存惩罚）。
+            if (goalCell->mountain && !proj.inMountain) { toDestroy.push_back(e); return; }
+            proj.inMountain = goalCell->mountain;
+            // 不占领途经领地（P9 改版：子弹只击杀敌兵，不改变领土归属）。
+            // 进入格后击杀判定。
             if (hitEnemyAt(ctx, e, pos, col, fid)) return;
-            break;
         }
-        // 目标格（沿穿越方向 ±eps 取整，同 MovementSystem §2.3）。
-        const MapCell* goalCell = nullptr;
-        if (boundaryCode == 0)
-            goalCell = &ctx.map.at(static_cast<int>(pos.x - kEps), static_cast<int>(pos.y));
-        if (boundaryCode == 1)
-            goalCell = &ctx.map.at(static_cast<int>(pos.x), static_cast<int>(pos.y - kEps));
-        if (boundaryCode == 2)
-            goalCell = &ctx.map.at(static_cast<int>(pos.x + kEps), static_cast<int>(pos.y));
-        if (boundaryCode == 3)
-            goalCell = &ctx.map.at(static_cast<int>(pos.x), static_cast<int>(pos.y + kEps));
-        // 陆→山：子弹消失（山地中继续飞，仅留存惩罚）。
-        if (goalCell->mountain && !proj.inMountain) { toDestroy.push_back(e); return; }
-        proj.inMountain = goalCell->mountain;
-        // 不占领途经领地（P9 改版：子弹只击杀敌兵，不改变领土归属）。
-        // 进入格后击杀判定。
-        if (hitEnemyAt(ctx, e, pos, col, fid)) return;
+        pos.x = std::clamp(pos.x, 0.0, static_cast<double>(ctx.map.width()));
+        pos.y = std::clamp(pos.y, 0.0, static_cast<double>(ctx.map.height()));
+    } else {
+        // P12 密铺：crossEdge 逐格穿越 + **世界范围**夹取（方 width/height 是列/行数，非世界单位
+        // ——旧路径会把子弹夹死在 x=width 内，且山地判定取错格 → 穿山/莫名被拦）。
+        const TilingGeom& g = ctx.map.geom();
+        const double ww = ctx.map.worldWidth(), wh = ctx.map.worldHeight();
+        int cellIdx = g.worldToCell(pos.x, pos.y);
+        if (cellIdx < 0) {
+            pos.x = std::clamp(pos.x, kEps, ww - kEps);
+            pos.y = std::clamp(pos.y, kEps, wh - kEps);
+            cellIdx = g.worldToCell(pos.x, pos.y);
+        }
+        while (rem > 0) {
+            const int crossed =
+                (cellIdx >= 0) ? g.crossEdge(cellIdx, pos.x, pos.y, vel.angle, rem) : -1;
+            if (crossed == -2) {
+                // 走完本段：夹取 + 终点击杀判定。
+                pos.x = std::clamp(pos.x, 0.0, ww);
+                pos.y = std::clamp(pos.y, 0.0, wh);
+                if (hitEnemyAt(ctx, e, pos, col, fid)) return;
+                break;
+            }
+            if (crossed == -1) {
+                // 顶点/贴边：nudge 穿越；出界 → 销毁。
+                pos.x += kEps * std::cos(vel.angle);
+                pos.y += kEps * std::sin(vel.angle);
+                cellIdx = g.worldToCell(pos.x, pos.y);
+                if (cellIdx < 0) {
+                    toDestroy.push_back(e);
+                    return;
+                }
+                continue;
+            }
+            int nr, nc;
+            g.neighborRaw(cellIdx, crossed, nr, nc);
+            if (nr < 0 || nr >= g.rows || nc < 0 || nc >= g.cols) {
+                toDestroy.push_back(e);  // 出界销毁
+                return;
+            }
+            const int nb = g.neighbor(cellIdx, crossed);
+            if (nb < 0) {
+                toDestroy.push_back(e);
+                return;
+            }
+            cellIdx = nb;
+            const MapCell& goalCell = ctx.map.atIndex(cellIdx);
+            if (goalCell.mountain && !proj.inMountain) {
+                toDestroy.push_back(e);
+                return;
+            }
+            proj.inMountain = goalCell.mountain;
+            if (hitEnemyAt(ctx, e, pos, col, fid)) return;
+        }
+        pos.x = std::clamp(pos.x, 0.0, ww);
+        pos.y = std::clamp(pos.y, 0.0, wh);
     }
-    pos.x = std::clamp(pos.x, 0.0, static_cast<double>(ctx.map.width()));
-    pos.y = std::clamp(pos.y, 0.0, static_cast<double>(ctx.map.height()));
 }
 
 }  // namespace
@@ -110,7 +166,7 @@ void solveProjectile(MoveContext& ctx, entt::entity e, std::vector<entt::entity>
 void ProjectileSystem::update(Simulation& sim) {
     MoveContext ctx = MovementSystem::makeContext(sim);
     // 重建空间哈希：UnitActionSystem 刚发射的子弹与已移动的兵都要参与本 tick 查询。
-    ctx.spatialHash.build(ctx.registry, ctx.map.width(), ctx.map.height());
+    ctx.spatialHash.build(ctx.registry, ctx.map.geom());  // P12：按密铺格分桶
     auto view = ctx.registry.view<comp::Projectile, comp::Position, comp::Velocity, comp::Speed,
                                   comp::FactionId, comp::Collider>();
     // P9 确定性：按实体 id 降序迭代（与存储序无关 → 读档后 RNG/命中顺序与直跑一致）。

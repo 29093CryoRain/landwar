@@ -74,6 +74,8 @@ public:
 
     // 征服（原版 conquer，见翻新计划 §2.8）。势力8 攻占城市时按概率记待产兵请求。
     void conquer(ConquerContext& ctx, int x, int y);
+    // P12：按格下标征服（密铺统一路径；方 = 等价 conquer(ctx, x, y)）。含整城易主。
+    void conquerIndex(ConquerContext& ctx, int index);
 
     // ---- 运行时状态 ----
     int id = 0;

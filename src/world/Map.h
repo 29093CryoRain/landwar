@@ -9,6 +9,7 @@
 
 #include "core/Config.h"
 #include "core/Random.h"
+#include "world/tiling/Tiling.h"
 
 namespace lw {
 
@@ -16,18 +17,20 @@ class Snapshot;  // replay/Snapshot.h：读档需重建网格/首都/城市（Ph
 
 // 城市（P13 多格重构）：注册表存于 Map，cityId = 注册表下标，全图唯一、永不回收
 // （城市一经放置整局存在，仅易主不销毁 → 下标稳定，无需空闲列表）。
-// 基建格集合由 (baseX, baseY, w, h) 隐式导出（for dy in [0,h) for dx in [0,w)），不存格列表。
+// P12：基建格集合由 锚点格（baseIndex）+ 形状（level 查 cfg.city.setFor(tiling)）隐式导出
+// （形状 = 相对锚格中心的世界偏移格集，见 Config::City::Shape），取代矩形 (baseX, baseY, w, h)。
 struct City {
     int id = -1;               // cityId（Map 注册表下标）
     int ownerId = 0;           // 归属势力 id（0 = 中立/未占）
-    int level = 1;             // 等级 {1,2,4,6,9}
-    int baseX = 0, baseY = 0;  // 锚点（形状左上格，世界坐标；固定朝向，不旋转）
-    int w = 1, h = 1;          // 形状 列×行（由 level 查 config.shapes 推导）
+    int level = 1;             // 等级（按密铺的等级集）
+    int baseX = 0, baseY = 0;  // 锚点坐标（方：(x,y)；六/三：(c,r)；快照序列化）
+    int baseIndex = -1;        // 锚点格下标（P12；快照序列化）
+    int w = 1, h = 1;          // 形状 AABB 格数（方：w×h 语义不变；六/三：AABB 列/行，显示用）
     int lastProduceArmyN = 0;  // 产兵计数（保留原语义；公平调度 least-recent 排序键）
     std::uint64_t lastCapturedTick = 0;  // 最近一次整城易主/建立 tick（P15 首都"最久未被攻破"）
-    // 城市中心（产兵/玩家指示锚点）。
-    double centerX() const { return baseX + w / 2.0; }
-    double centerY() const { return baseY + h / 2.0; }
+    double centerX_ = 0, centerY_ = 0;   // 形状几何中心（世界坐标；产兵/玩家指示锚点）
+    double centerX() const { return centerX_; }
+    double centerY() const { return centerY_; }
 };
 
 // 单个网格单元（原版 Map 类）。
@@ -70,6 +73,11 @@ public:
     // ramp(x) = clamp((x - probFloor) / probScale, 0, 1)。海/陆确定性、山/城概率性（种子相关）。
     // 失败返回 false。
     bool loadFromBmp(const std::string& path, Rng& rng);
+    // P12：lwmap 加载（六/三角地形基图；自描述格式，见 MapGenerator）。通道语义与 BMP
+    // 一致 → 与 loadFromBmp 共用第二遍（掷骰/放置城市）。失败返回 false。
+    bool loadFromLwmap(const std::string& path, Rng& rng);
+    // 格坐标 (c, r) → 格下标（P12；方 = r*width+c；六 = r*cols+c；三 = 正三角锚）。
+    int cellIndexAt(int c, int r) const;
 
     // 邻海修正（P5）：任何山格 8 邻域（含对角）有海格 → 置为普通陆。纯循环、无 RNG、确定性。
     void correctMountainCoast();
@@ -87,6 +95,16 @@ public:
 
     MapCell& at(int x, int y);
     const MapCell& at(int x, int y) const;
+    // P12：按格下标取格（平铺数组下标，见 Tiling.h 头注；非方形路径统一用）。
+    MapCell& atIndex(int idx);
+    const MapCell& atIndex(int idx) const;
+    // P12：密铺几何（世界范围/中心/取格/邻接/穿越）。
+    TilingType tiling() const { return geom_.type; }
+    const TilingGeom& geom() const { return geom_; }
+    double worldWidth() const { return geom_.worldWidth(); }
+    double worldHeight() const { return geom_.worldHeight(); }
+    int cellCount() const { return geom_.cellCount(); }
+    void cellCenter(int idx, double& wx, double& wy) const { geom_.cellCenter(idx, wx, wy); }
 
     int width() const { return width_; }
     int height() const { return height_; }
@@ -98,23 +116,51 @@ public:
     int blockSize() const { return blockSize_; }
     int panelWidth() const { return panelWidth_; }
 
-    // ---- 城市注册表（P13）----
+    // ---- 城市注册表（P13/P12）----
     // 等级采样（幂律，思路 9.1）：s = alpha + beta，P(L=1)=1-2^-s; P(L=2)=2^-s-4^-s; ...
     // u = rng.unit()（1 次 RNG）按累计概率定等级。纯函数，公开以便单测各分支。
-    static int sampleCityLevel(const Config::City& cc, Rng& rng);
+    // set = 该密铺的等级集（cfg.city.setFor(tiling)）。
+    static int sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set,
+                               Rng& rng);
+    // 兼容重载：正方形等级集（旧签名，测试用）。
+    static int sampleCityLevel(const Config::City& cc, Rng& rng) {
+        return sampleCityLevel(cc, cc.square, rng);
+    }
     int cityCount() const { return static_cast<int>(cities_.size()); }
     const std::vector<City>& cities() const { return cities_; }
     const City& city(int id) const { return cities_[static_cast<size_t>(id)]; }
     City& city(int id) { return cities_[static_cast<size_t>(id)]; }
-    // 注册新城市（锚点格 baseX/baseY，形状由 level 查 cityConfig_ 推导）。占用/陆地/可成城
-    // 校验由调用方先行完成（loadFromBmp 经 canPlaceCity；placeCapitals 自身保证）。返回新 cityId。
-    int addCity(int level, int baseX, int baseY);
-    // 锚点 (baseX,baseY) 处放置 level 级城的形状占用检查：界内 ∧ 锚点可成城 ∧ 全部基建格
-    // 陆地（含山）∧ 无重叠（cityId==-1）。
-    bool canPlaceCity(int level, int baseX, int baseY) const;
+    // P12：城市基建格下标集合（形状 = 锚点 + level 查密铺形状表，经世界偏移解析）。
+    std::vector<int> cityCells(const City& c) const;
+    // P12：形状 → 基建格下标（level + 锚点格 index；界外格 = -1）。公开供放置/渲染/测试。
+    std::vector<int> shapeCells(int level, int anchorIndex) const;
+    // P12：城市形状几何中心（世界坐标；= 全部基建格中心平均；方 = baseX+w/2 同旧式）。
+    void cityCenter(const City& c, double& wx, double& wy) const;
+    // P12：重算全部城市的 baseIndex/AABB/几何中心（快照读档后调用）。
+    void recomputeCityGeometry();
+    // 注册新城市（锚点格 index，形状由 level + tiling 推导）。占用/陆地/可成城校验由
+    // 调用方先行完成（loadFromBmp 经 canPlaceCity；placeCapitals 自身保证）。返回新 cityId。
+    int addCity(int level, int index);
+    // 兼容重载：正方形 (baseX, baseY) 锚点（旧签名，测试用；等价 index = baseY*width+baseX）。
+    int addCity(int level, int baseX, int baseY) { return addCity(level, baseY * width_ + baseX); }
+    // 锚点 (index) 处放置 level 级城的形状占用检查：界内 ∧ 锚点可成城 ∧ 全部基建格
+    // 陆地（含山）∧ 无重叠（cityId==-1）。P12：形状不可跨环绕接缝（界内即含此约束）。
+    bool canPlaceCity(int level, int index) const;
+    // 兼容重载：正方形 (baseX, baseY) 锚点（旧签名，测试用）。
+    bool canPlaceCity(int level, int baseX, int baseY) const {
+        return canPlaceCity(level, baseY * width_ + baseX);
+    }
 
 private:
+    // 每格概率通道（地形基图：海/陆确定性 + 山 R / 城 G 概率通道）。方/六/三共用。
+    struct CellChannels {
+        bool sea;
+        int g;
+        int r;
+    };
     void clear();
+    // 第二遍（方/六/三共用）：按格下标序掷山/城骰 + 放置城市（RNG 顺序 = 格下标序）。
+    void finishTerrain(const std::vector<CellChannels>& ch, Rng& rng);
 
     int width_ = 105;
     int height_ = 95;
@@ -122,7 +168,8 @@ private:
     int panelWidth_ = 600;
     int capitalMinDistance_ = 28;
     Config::Terrain terrain_;   // 地形基图参数（P5 改版）
-    Config::City cityConfig_;   // 城市等级形状表（P13；setCityConfig 设置）
+    Config::City cityConfig_;   // 城市等级形状表（P13/P12；setCityConfig 设置）
+    TilingGeom geom_;           // 密铺几何（P12；configure 设置）
 
     std::vector<MapCell> cells_;  // index = y*width_ + x
     std::vector<int> capitalX_;

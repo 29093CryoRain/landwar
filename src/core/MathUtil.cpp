@@ -43,7 +43,7 @@ double toScreenXf(double x, double blockSize, int panelWidth) {
     return x * blockSize + panelWidth;
 }
 
-double toScreenYf(double y, double blockSize, int mapHeight) {
+double toScreenYf(double y, double blockSize, double mapHeight) {
     return (mapHeight - y) * blockSize;
 }
 
@@ -51,7 +51,7 @@ int toScreenX(double x, double blockSize, int panelWidth) {
     return static_cast<int>(toScreenXf(x, blockSize, panelWidth));
 }
 
-int toScreenY(double y, double blockSize, int mapHeight) {
+int toScreenY(double y, double blockSize, double mapHeight) {
     return static_cast<int>(toScreenYf(y, blockSize, mapHeight));
 }
 

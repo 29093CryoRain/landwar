@@ -23,7 +23,7 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 5;  // v5：P15 首都系统（Faction.capitalState）；v4 作废（v4 为 P13 城市多格重构）
+constexpr int kSnapshotVersion = 6;  // v6：P12 异种地图（cells 按密铺格序 + 城市 baseIndex + config tiling）；v5 作废（P15 首都）
 
 void setErr(std::string* err, const std::string& msg) {
     if (err) *err = msg;
@@ -66,6 +66,8 @@ std::string Snapshot::serialize(const Simulation& sim) {
     root["mapSeed"] = sim.mapSeed();
 
     // ---- map：网格 + 首都 + 城市注册表（P13：cityId 取代 city bool，注册表单列）----
+    // P12：cells 按**格下标序**序列化（方 = y*width+x 同旧序；六/三 = 密铺格序）；密铺类型
+    // 由 config.map.tiling（快照自带 config）决定；城市增 baseIndex（形状锚点，权威）。
     const auto& map = sim.map();
     root["map"]["width"] = map.width();
     root["map"]["height"] = map.height();
@@ -79,13 +81,11 @@ std::string Snapshot::serialize(const Simulation& sim) {
     for (const auto& c : map.cities())
         root["map"]["cities"].push_back(
             {c.id, c.ownerId, c.level, c.baseX, c.baseY, c.w, c.h, c.lastProduceArmyN,
-             c.lastCapturedTick});
+             c.lastCapturedTick, c.baseIndex});
     root["map"]["cells"] = Json::array();
-    for (int y = 0; y < map.height(); ++y) {
-        for (int x = 0; x < map.width(); ++x) {
-            const MapCell& c = map.at(x, y);
-            root["map"]["cells"].push_back({c.belongi, c.land, c.mountain, c.cityId});
-        }
+    for (int idx = 0; idx < map.cellCount(); ++idx) {
+        const MapCell& c = map.atIndex(idx);
+        root["map"]["cells"].push_back({c.belongi, c.land, c.mountain, c.cityId});
     }
 
     // ---- factions ----
@@ -226,11 +226,13 @@ bool Snapshot::deserialize(Simulation& sim, const std::string& json, std::string
     // P6：地图种子值恢复（主面板显示；mapRng_ 仅在 init 时消费，读档后无需重建状态）。
     sim.mapSeed_ = root.value("mapSeed", 0u);
 
-    // ---- map：网格 + 首都 + 城市注册表（P13）----
+    // ---- map：网格 + 首都 + 城市注册表（P13/P12）----
     const auto& mj = root.at("map");
     Map& m = sim.map_;
     m.width_ = mj.at("width").get<int>();
     m.height_ = mj.at("height").get<int>();
+    // P12：密铺几何（来自快照 config；默认 square → 旧档兼容）。
+    m.geom_ = TilingGeom{tilingFromName(sim.config_.map.tiling), m.width_, m.height_};
     m.capitalX_ = mj.at("capitalsX").get<std::vector<int>>();
     m.capitalY_ = mj.at("capitalsY").get<std::vector<int>>();
     m.cityConfig_ = sim.config_.city;  // 城市形状表与快照 config 保持一致
@@ -247,10 +249,17 @@ bool Snapshot::deserialize(Simulation& sim, const std::string& json, std::string
             c.h = cj[6].get<int>();
             c.lastProduceArmyN = cj[7].get<int>();
             c.lastCapturedTick = cj[8].get<std::uint64_t>();
+            // P12：baseIndex（权威锚点；旧档无该键 → 由 baseX/baseY 按密铺重推）。
+            if (cj.size() > 9)
+                c.baseIndex = cj[9].get<int>();
+            else
+                c.baseIndex = m.cellIndexAt(c.baseX, c.baseY);
             m.cities_.push_back(c);
         }
     }
-    const size_t cellCount = static_cast<size_t>(m.width_) * m.height_;
+    m.recomputeCityGeometry();  // P12：baseIndex/几何中心/AABB（方 = 旧式同值）
+    // P12：cells 按密铺格序（方 = width*height 同旧；六/三 = 密铺 cellCount）。
+    const size_t cellCount = static_cast<size_t>(m.geom_.cellCount());
     const auto& cells = mj.at("cells");
     if (cells.size() != cellCount) {
         setErr(err, "snapshot: map cells size mismatch");
@@ -260,8 +269,16 @@ bool Snapshot::deserialize(Simulation& sim, const std::string& json, std::string
     for (size_t i = 0; i < cellCount; ++i) {
         const auto& c = cells[i];
         MapCell& out = m.cells_[i];
-        out.x = static_cast<int>(i % static_cast<size_t>(m.width_));
-        out.y = static_cast<int>(i / static_cast<size_t>(m.width_));
+        if (m.geom_.type == TilingType::Tri) {  // 格坐标 (i 对, r 行)
+            out.x = static_cast<int>((i >> 1) % static_cast<size_t>(m.geom_.cols));
+            out.y = static_cast<int>((i >> 1) / static_cast<size_t>(m.geom_.cols));
+        } else if (m.geom_.type == TilingType::Hex) {
+            out.x = static_cast<int>(i % static_cast<size_t>(m.geom_.cols));
+            out.y = static_cast<int>(i / static_cast<size_t>(m.geom_.cols));
+        } else {
+            out.x = static_cast<int>(i % static_cast<size_t>(m.width_));
+            out.y = static_cast<int>(i / static_cast<size_t>(m.width_));
+        }
         out.belongi = c[0].get<int>();
         out.land = c[1].get<bool>();
         out.mountain = c[2].get<bool>();

@@ -8,12 +8,12 @@
 namespace lw {
 
 namespace {
-// P13：城市全部基建地块是否同属 factionId（整城易主判定）。
+// P13/P12：城市全部基建格（形状按密铺解析）是否同属 factionId（整城易主判定）。
 // 注意调用点在 land 归属（cell.belongi）已改为本势力之后，故刚征服的格已计入。
 bool allBaseCellsOwned(const Map& map, const City& city, int factionId) {
-    for (int dy = 0; dy < city.h; ++dy)
-        for (int dx = 0; dx < city.w; ++dx)
-            if (map.at(city.baseX + dx, city.baseY + dy).belongi != factionId) return false;
+    const std::vector<int> cells = map.cityCells(city);
+    for (int idx : cells)
+        if (idx < 0 || map.atIndex(idx).belongi != factionId) return false;
     return true;
 }
 }  // namespace
@@ -90,8 +90,14 @@ void Faction::removeCity(int cityId) {
 }
 
 void Faction::conquer(ConquerContext& ctx, int x, int y) {
+    // 保持旧 (x,y) 边界语义（x=width 或 y=height 须拒绝；转下标会落到别行）。
     if (x < 0 || x >= ctx.map.width() || y < 0 || y >= ctx.map.height()) return;
-    MapCell& cell = ctx.map.at(x, y);
+    conquerIndex(ctx, y * ctx.map.width() + x);
+}
+
+void Faction::conquerIndex(ConquerContext& ctx, int index) {
+    if (index < 0 || index >= ctx.map.cellCount()) return;
+    MapCell& cell = ctx.map.atIndex(index);
     Faction& oldOwner = ctx.factions[static_cast<size_t>(cell.belongi)];
     if (&oldOwner == this) return;  // 同势力忽略
 

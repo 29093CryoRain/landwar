@@ -1,17 +1,22 @@
 // SpatialHash.h — 以地图格为桶的空间哈希（翻新计划 §3.3）。
 // 每 tick 重建一次（军队阶段与特效阶段各一次）；战斗/爆炸/地雷用 queryCircle，
 // 激光用 queryAABB（包围盒候选 + pointDistanceFromSegment 精确过滤）。
+// P12：桶下标按密铺格（worldToCell；六/三角的格 ≠ floor 坐标），build 接收 TilingGeom。
 #pragma once
 
 #include <entt/entt.hpp>
 
 #include <vector>
 
+#include "world/tiling/Tiling.h"
+
 namespace lw {
 
 class SpatialHash {
 public:
     // 重建桶索引：桶内为「有 Position+Collider 且非 Dead」的实体（即活兵）。
+    void build(entt::registry& reg, const TilingGeom& g);
+    // 兼容重载：正方形（旧签名；等价 build(reg, {Square, w, h})）。
     void build(entt::registry& reg, int width, int height);
 
     // 圆查询：返回与 (x,y) 距离 < radius 的候选实体（精确过滤）。
@@ -24,10 +29,11 @@ public:
                                         double x1, double y1) const;
 
 private:
-    std::vector<std::vector<entt::entity>> buckets_;  // index = cy*width_ + cx
+    // 位置 → 桶下标（界外/边界 → 内缩兜底）。
+    int bucketIndex(double x, double y) const;
+    std::vector<std::vector<entt::entity>> buckets_;  // index = 格下标（cellCount 个）
     std::vector<std::size_t> touched_;  // 本轮触及过的桶下标（build 时只清这些，避免全量重建）
-    int width_ = 0;
-    int height_ = 0;
+    TilingGeom geom_;
 };
 
 }  // namespace lw

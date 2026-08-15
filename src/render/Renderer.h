@@ -36,6 +36,10 @@ public:
     // 实心圆（扫描线填充，等价 DxLib DrawCircle FillFlag=TRUE）。radius<=0 时跳过。
     void fillCircle(int cx, int cy, int radius, const SDL_Color& c);
 
+    // P12：粗线段（实心四边形：线段两端外扩 thickness/2，三角化填充）——无接缝、无噪点，
+    // 边界灰线/城市外廓细线统一用（替代逐线偏移绘制的毛边方案）。
+    void fillThickSegment(int x0, int y0, int x1, int y1, int thick, const SDL_Color& c);
+
     // ---- 纹理 ----
     // 以中心 (cx,cy) 绘制 src 子图，拉伸到 size×size（原版 DrawExtendGraph 行为）。
     // alpha 经 SDL_SetTextureAlphaMod 施加（地雷闪烁用）。

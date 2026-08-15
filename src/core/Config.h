@@ -35,6 +35,10 @@ struct Config {
         int blockSize = 15;
         int panelWidth = 600;
         int capitalMinDistance = 28;
+        // P12：密铺类型（square/hex/tri）。默认 square → 基线不变；非方形地图由随机图
+        // 生成器产出（预装 BMP 恒为方形）。进快照（config 序列化 → 基线变更，已接受）。
+        std::string tiling = "square";
+        TilingType tilingType() const { return tilingFromName(tiling); }
     } map;
 
     struct Army {
@@ -183,32 +187,55 @@ struct Config {
     } economy;
 
     // P13 城市系统（多格基建地块 + 等级 + 幂律分布，思路 9.1）。
-    // 等级形状表：正方形格网暂时仅 1/2/4/6/9 级；levels[i] ↔ shapes[i] 一一对应，
-    // shapes[i] = {w, h}，w = 列数、h = 行数（存储语义；思路 9.1 表格记作"行数×列数"，如
-    // 2 级 = 2 行×1 列 → {w:1,h:2}）。固定朝向、不旋转，锚点 = 形状左上格。
+    // P12 改版：等级形状表**按密铺**（正方形沿用 w×h 语义；六边形轴向偏移；
+    // 三角形世界偏移 + 朝向）。等级集按密铺（方 {1,2,4,6,9}、六 {1,3,4,6,7,9}、
+    // 三 {1,2,4,6,8}）；**性质：各形状格数恰 = 等级数**（单测锁定）。
+    // 形状格 = 相对锚格中心的**世界单位偏移**（ShapeCell{dx,dy,orient}，
+    // orient：0=正/up、1=反/down；方/六恒 0）——parity-free，放置时经 worldToCell 解析。
     struct City {
+        // 形状格（世界单位相对锚格中心的偏移 + 朝向）。
+        struct ShapeCell {
+            double dx = 0.0;
+            double dy = 0.0;
+            int orient = 0;  // 0 = 正三角（六边形/正方形恒 0）；1 = 反三角
+        };
+        struct Shape {
+            std::vector<ShapeCell> cells;  // cells[0] = 锚格（(0,0)）
+        };
+        // 一个密铺的等级集 + 形状表（shapes[i] ↔ levels[i]）。
+        struct TilingSet {
+            std::vector<int> levels;
+            std::vector<Shape> shapes;
+            int levelIndex(int level) const {
+                for (int i = 0; i < static_cast<int>(levels.size()); ++i)
+                    if (levels[static_cast<size_t>(i)] == level) return i;
+                return -1;
+            }
+        };
         // alpha：n 级城经济收入 = n^alpha × 1 级城（>=1，数值待实验；P14 经济重构读取）。
         double levelIncomeExponent = 1.0;
         // beta：等级幂律指数增量（>0，思路默认 0.5）。等级分布 P(L>=n) ∝ n^{-(alpha+beta)}。
         double levelRankExponent = 0.5;
-        std::array<int, 5> levels = {1, 2, 4, 6, 9};
-        std::array<std::array<int, 2>, 5> shapes = {{{1, 1}, {1, 2}, {2, 2}, {2, 3}, {3, 3}}};
+        // 各密铺等级/形状表（默认值内置，JSON 覆盖；square 段兼容旧 {level,w,h} 格式）。
+        TilingSet square;  // 默认 1/2/4/6/9：1×1 / 1×2 / 2×2 / 2×3 / 3×3
+        TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，轴向偏移在 Config.cpp 转世界偏移）
+        TilingSet tri;     // 默认 1/2/4/6/8（P12 形状表，世界偏移）
+        // 默认构造：填充三密铺内置等级/形状表（裸 City{} 即可用，Map::cityConfig_ 等）。
+        City();
         // 幂律总指数 s = alpha + beta（P(L>=n) = n^-s）。纯函数。
         double rankExponent() const { return levelIncomeExponent + levelRankExponent; }
-        // 等级 → 形状下标（找不到返回 -1）。纯函数。
-        int levelIndex(int level) const {
-            for (int i = 0; i < static_cast<int>(levels.size()); ++i)
-                if (levels[static_cast<size_t>(i)] == level) return i;
-            return -1;
+        const TilingSet& setFor(TilingType t) const {
+            switch (t) {
+                case TilingType::Hex: return hex;
+                case TilingType::Tri: return tri;
+                default: return square;
+            }
         }
-        // 等级 → 形状宽/高（找不到返回 0）。纯函数。
-        int levelWidth(int level) const {
-            const int i = levelIndex(level);
-            return i < 0 ? 0 : shapes[static_cast<size_t>(i)][0];
-        }
-        int levelHeight(int level) const {
-            const int i = levelIndex(level);
-            return i < 0 ? 0 : shapes[static_cast<size_t>(i)][1];
+        // 等级 → 形状（找不到返回 nullptr）。纯函数。
+        const Shape* shapeFor(TilingType t, int level) const {
+            const TilingSet& s = setFor(t);
+            const int i = s.levelIndex(level);
+            return i < 0 ? nullptr : &s.shapes[static_cast<size_t>(i)];
         }
     } city;
 

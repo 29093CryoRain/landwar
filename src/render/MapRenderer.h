@@ -34,6 +34,12 @@ public:
     void draw(const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
 
 private:
+    void drawSquare(const Map& map,
+                    const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
+    void drawTiled(const Map& map,
+                   const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
+    // P12 决策 3：一圈灰线描出地图边界（任意密铺；实心粗线段）。
+    void drawBoundaryOutline(const Map& map);
     SDL_Renderer* ren_;
     const Camera& cam_;
     TintCache mountain_;  // 山线条贴图（近黑）

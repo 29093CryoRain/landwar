@@ -13,6 +13,7 @@
 #include "replay/Cli.h"
 #include "replay/Snapshot.h"
 #include "sim/components.h"
+#include "world/MapGenerator.h"
 
 namespace lw {
 
@@ -71,6 +72,24 @@ int runHeadless(const CliOptions& opts) {
     } else {
         Config cfg = opts.configPath.empty() ? Config::loadFromFile(kDefaultConfigPath)
                                              : Config::loadFromFile(opts.configPath);
+        // P12：--tiling 覆盖密铺；非方（且未指定 --map）→ 自动生成随机 lwmap（种子 = 主种子）。
+        if (opts.tilingSet) {
+            cfg.map.tiling = opts.tiling;
+            if (opts.mapPath.empty()
+                && cfg.map.tilingType() != TilingType::Square) {
+                MapGenParams gp{cfg.map.width, cfg.map.height, 0.40, 0.08, 0.02, false,
+                                cfg.map.tilingType()};
+                const std::string mpath = MapGenerator::defaultPath(seed, gp);
+                if (!MapGenerator::generate(mpath, seed, gp)) {
+                    spdlog::error("tiled map generate failed");
+                    return 1;
+                }
+                if (gp.height & 1) --gp.height;  // 与生成器/Map::configure 一致（偶数行）
+                cfg.map.width = gp.width;
+                cfg.map.height = gp.height;
+                cfg.map.file = mpath;
+            }
+        }
         if (!opts.mapPath.empty()) cfg.map.file = opts.mapPath;
         // P6 RNG 分离：主种子 seed；地图种子默认 = 主种子，可用 --map-seed 覆盖。
         sim = Simulation(cfg, seed, opts.mapSeedSet ? opts.mapSeed : seed);

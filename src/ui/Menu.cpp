@@ -70,6 +70,8 @@ void commitDrafts(MenuState& st, Options& options) {
     }
     // P10：边界贯通开关对预装/随机图通用（放 common 段）。
     options.map.wrap = st.wrap;
+    // P12：密铺（随机图生成用；预装 BMP 恒方形）。
+    options.map.tiling = tilingName(st.tiling);
 }
 
 // 首次进入选图页：从 options 初始化草稿；地图种子未设置（0）→ 自动随机（用户定夺 2026-08）。
@@ -87,6 +89,7 @@ void initDrafts(MenuState& st, const Options& options) {
     st.cityT = squareDensityToT(st.cityDensity, kCityLo, kCityHi);
     st.forceCoast = options.map.forceCoast;
     st.wrap = options.map.wrap;
+    st.tiling = tilingFromName(options.map.tiling);  // P12：密铺（默认 square）
     st.seededOnce = true;
     st.previews.clear();
 }
@@ -109,10 +112,10 @@ SDL_Texture* filePreview(MenuState& st, SDL_Renderer* ren, const Config& cfg,
     return st.previews.get(ren, key, map, kPreviewW, outW, outH);
 }
 
-// 生成随机图 BMP（确定性：seed+params）；成功返回 true。失败信息写 st.genError。
+// 生成随机图（确定性：seed+params；方 = BMP，六/三 = lwmap）；成功返回 true。
 bool generateRandomMap(MenuState& st, const Config& cfg, SDL_Renderer* ren) {
     const MapGenParams p{st.randW, st.randH, st.seaRatio, st.mtnDensity, st.cityDensity,
-                         st.forceCoast};
+                         st.forceCoast, st.tiling};
     st.genPath = MapGenerator::defaultPath(st.draftSeed, p);
     st.genError.clear();
     if (!MapGenerator::generate(st.genPath, st.draftSeed, p)) {
@@ -122,12 +125,16 @@ bool generateRandomMap(MenuState& st, const Config& cfg, SDL_Renderer* ren) {
     Config c = cfg;
     c.map.width = st.randW;
     c.map.height = st.randH;
+    c.map.tiling = tilingName(st.tiling);  // P12：密铺（load 分发 + 预览几何）
     c.map.file = st.genPath;
     Map map;
     map.configure(c.map);
     map.setTerrain(c.terrain);
     Rng r(st.draftSeed);
-    if (!map.loadFromBmp(st.genPath, r)) {
+    const bool ok = (st.tiling == TilingType::Square)
+                        ? map.loadFromBmp(st.genPath, r)
+                        : map.loadFromLwmap(st.genPath, r);
+    if (!ok) {
         st.genError = "随机图加载失败";
         return false;
     }
@@ -272,8 +279,10 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
             int tw = 0, th = 0;
             SDL_Texture* t = filePreview(st, ren, cfg, file, &tw, &th);
             if (t) {
-                ImGui::Image(reinterpret_cast<ImTextureID>(t), ImVec2(static_cast<float>(tw),
-                                                                       static_cast<float>(th)));
+                // 预览随 UI 缩放（2026-08 修：此前恒按纹理原生尺寸显示）。
+                ImGui::Image(reinterpret_cast<ImTextureID>(t),
+                             ImVec2(static_cast<float>(tw) * uiScale,
+                                    static_cast<float>(th) * uiScale));
                 ImGui::SameLine();
             }
             char label[256];
@@ -286,12 +295,27 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
     } else {
         // ---- 随机地图参数 ----
         ImGui::TextUnformatted("随机地图参数");
+        // P12：密铺模式下拉（六/三角随机图；预装 BMP 恒为方形）。
+        static const char* kTilingItems[3] = {"正方形", "六边形", "三角形"};
+        int tilingIdx = static_cast<int>(st.tiling);
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        ImGui::InputInt("长", &st.randW, 1, 8);
+        if (ImGui::Combo("密铺模式", &tilingIdx, kTilingItems, 3)) {
+            st.tiling = static_cast<TilingType>(tilingIdx);
+            st.previews.clear();  // 密铺变了 → 预览失效
+        }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        ImGui::InputInt("宽", &st.randH, 1, 8);
+        // 三角"长"（视觉列数）生成时减半 → "-"/"+" 步进 2 并强制偶（保证列对数整数）；
+        // 方/六长无偶要求，步进 1。
+        const int wStep = (st.tiling == TilingType::Tri) ? 2 : 1;
+        ImGui::InputInt("长", &st.randW, wStep, 8);
+        // P12 六/三角：行数强制偶数 → "宽"的 "-"/"+" 步进 2（避免点一次不变/偶奇来回跳）。
+        const int hStep = (st.tiling == TilingType::Square) ? 1 : 2;
+        ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
+        ImGui::InputInt("宽", &st.randH, hStep, 8);
         st.randW = std::clamp(st.randW, 32, 200);
         st.randH = std::clamp(st.randH, 32, 200);
+        if (st.tiling != TilingType::Square && (st.randH & 1)) --st.randH;  // P12：偶数行
+        if (st.tiling == TilingType::Tri && (st.randW & 1)) --st.randW;     // 三角：列对数整数
         // 强制边缘为海（在陆地占比条上方，用户要求调换位置，2026-08-06）。
         ImGui::Checkbox("强制边缘为海", &st.forceCoast);
         // 陆地占比：显式小数（1.00 = 全陆地；配合强制边缘为海 → 只有一圈海）。此前用 "%.0f%%"
@@ -315,8 +339,9 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
 
         int tw = 0, th = 0;
         if (SDL_Texture* t = st.previews.lookup(st.genPath, &tw, &th)) {
+            // 预览随 UI 缩放（2026-08 修：此前恒按纹理原生尺寸显示）。
             ImGui::Image(reinterpret_cast<ImTextureID>(t),
-                         ImVec2(static_cast<float>(tw), static_cast<float>(th)));
+                         ImVec2(static_cast<float>(tw) * uiScale, static_cast<float>(th) * uiScale));
         }
         if (!st.genError.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
@@ -362,9 +387,17 @@ SDL_Texture* PreviewCache::get(SDL_Renderer* ren, const std::string& key, const 
     e.key = key;
     e.tex = render::renderMapPreview(ren, map, previewW);
     if (!e.tex) return nullptr;
-    e.w = std::max(1, static_cast<int>(std::lround(static_cast<double>(previewW) / map.width()))) *
-          map.width();
-    e.h = e.w * map.height() / map.width();  // 与 renderMapPreview 同 cell 逻辑
+    // P12：六/三角按世界范围（非列/行数）推导预览纵横比。
+    if (map.tiling() == TilingType::Square) {
+        e.w = std::max(1, static_cast<int>(std::lround(static_cast<double>(previewW) / map.width()))) *
+              map.width();
+        e.h = e.w * map.height() / map.width();  // 与 renderMapPreview 同 cell 逻辑
+    } else {
+        const TilingGeom& tg = map.geom();
+        const double cell = std::max(1.0, static_cast<double>(previewW) / tg.worldWidth());
+        e.w = std::max(1, static_cast<int>(std::lround(tg.worldWidth() * cell)));
+        e.h = std::max(1, static_cast<int>(std::lround(tg.worldHeight() * cell)));
+    }
     // 注：cell 由 previewW 定，w/cell = width、h/cell = height；按 cell 补齐，避免整除偏差。
     items.push_back(e);
     if (outW) *outW = e.w;

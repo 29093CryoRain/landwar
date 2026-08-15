@@ -66,10 +66,17 @@ entt::entity SpawnSystem::spawnProjectile(Simulation& sim, double x, double y, i
 
     const auto& udef = cfg.units[static_cast<size_t>(static_cast<int>(sourceType))];
     // 子弹出生在山格（发射兵在山内开火）→ inMountain=true（山地留存惩罚；陆→山仍会消失）。
-    const int gx = static_cast<int>(x), gy = static_cast<int>(y);
-    const bool inMountain =
-        (gx >= 0 && gx < sim.map().width() && gy >= 0 && gy < sim.map().height())
-        && sim.map().at(gx, gy).mountain;
+    // P12：密铺按格下标判定山（方 floor 坐标在六/三角下取错格）。
+    const Map& map = sim.map();
+    int inMountainCell = -1;
+    if (map.tiling() == TilingType::Square) {
+        const int gx = static_cast<int>(x), gy = static_cast<int>(y);
+        if (gx >= 0 && gx < map.width() && gy >= 0 && gy < map.height())
+            inMountainCell = gy * map.width() + gx;
+    } else {
+        inMountainCell = map.geom().worldToCell(x, y);
+    }
+    const bool inMountain = inMountainCell >= 0 && map.atIndex(inMountainCell).mountain;
 
     reg.emplace<comp::Position>(e, x, y);
     reg.emplace<comp::Velocity>(e, angle);
@@ -86,9 +93,14 @@ entt::entity SpawnSystem::spawnEffect(Simulation& sim, double x, double y, int f
     auto& reg = sim.registry();
     const auto& map = sim.map();
     entt::entity e = sim.createEntity();  // 单调 id
-    // 原版 add_effect：x,y 夹取到 [0, Map_x]×[0, Map_y]。
-    reg.emplace<comp::Position>(e, std::clamp(x, 0.0, static_cast<double>(map.width())),
-                                std::clamp(y, 0.0, static_cast<double>(map.height())));
+    // 原版 add_effect：x,y 夹取到 [0, Map_x]×[0, Map_y]（P12：六/三角用世界范围）。
+    const double ex = (sim.map().tiling() == TilingType::Square)
+                          ? static_cast<double>(map.width())
+                          : map.worldWidth();
+    const double ey = (sim.map().tiling() == TilingType::Square)
+                          ? static_cast<double>(map.height())
+                          : map.worldHeight();
+    reg.emplace<comp::Position>(e, std::clamp(x, 0.0, ex), std::clamp(y, 0.0, ey));
     reg.emplace<comp::FactionId>(e, factionId);
     reg.emplace<comp::EffectTypeId>(e, type);
     reg.emplace<comp::EffectTimer>(e, static_cast<int>(sim.tickCount()));

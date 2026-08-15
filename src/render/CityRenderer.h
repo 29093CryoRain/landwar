@@ -58,6 +58,11 @@ public:
         int x, y, w, h;
         int colorIndex;   // 势力色下标（= City.ownerId）
     };
+    // P12：六/三角基建地块外廓 = 形状边界线段集合（邻格不在形状内的边段）。
+    struct Hull {
+        int colorIndex;
+        std::vector<std::array<int, 4>> segs;  // {x0,y0,x1,y1} 屏幕像素
+    };
     // 图标（城市中心；尺寸按基建地块框适配，dstW 已含 minIconSizePx 下限，dstH 已按源纵横比
     // 算好——长/宽均 ≤ 框尺寸 × iconScale）。等级塔用 towers_[level-1]；首都/候补用 capital_。
     struct Icon {
@@ -72,6 +77,8 @@ public:
     struct Frame {
         std::vector<Outline> outlines;        // 普通城市细线（render.city.lineThickness）
         std::vector<Outline> capitalOutlines; // 正式首都细线（render.capital.lineThickness 更粗）
+        std::vector<Hull> hulls;              // P12：六/三角普通城市边界线段
+        std::vector<Hull> capitalHulls;       // P12：六/三角正式首都边界线段
         std::vector<Icon> icons;              // 普通城市等级塔图标
         std::vector<Icon> capitalIcons;       // 正式首都图标（data/tower/capital.png，全不透明）
         std::vector<Icon> designatedIcons;    // 候补指定新都（虚化首都图标，designatedAlpha）

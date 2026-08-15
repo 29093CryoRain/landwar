@@ -3,10 +3,13 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 
 #include <nlohmann/json.hpp>
+
+#include "world/tiling/Tiling.h"
 
 namespace lw {
 
@@ -128,6 +131,68 @@ BuffType buffTypeFromName(const std::string& s) {
     return BuffType::UnitSpeedMult;
 }
 
+// 内置默认城市表（P13 + P12）：等级/形状按密铺。
+// ShapeCell 偏移语义（Config.h 注）：方 = 格 (dx,dy)；六 = 轴向 (dq,dr)；三 = (b,h) 单位 + 朝向。
+void initDefaultCity(Config::City& c) {
+    using Shape = Config::City::Shape;
+    using ShapeCell = Config::City::ShapeCell;
+    const auto sq = [](int w, int h) {
+        Shape sh;
+        for (int dy = 0; dy < h; ++dy)
+            for (int dx = 0; dx < w; ++dx)
+                sh.cells.push_back(ShapeCell{static_cast<double>(dx), static_cast<double>(dy), 0});
+        return sh;
+    };
+    const auto hx = [](const std::vector<std::pair<int, int>>& ax) {
+        Shape sh;
+        for (const auto& p : ax)
+            sh.cells.push_back(ShapeCell{static_cast<double>(p.first),
+                                         static_cast<double>(p.second), 0});
+        return sh;
+    };
+    const auto tr = [](const std::vector<std::array<double, 3>>& cells) {
+        Shape sh;
+        for (const auto& c0 : cells)
+            sh.cells.push_back(ShapeCell{c0[0], c0[1], static_cast<int>(c0[2])});
+        return sh;
+    };
+    // 正方形：1/2/4/6/9（旧 w×h：1×1 / 1×2 / 2×2 / 2×3 / 3×3）。
+    c.square.levels = {1, 2, 4, 6, 9};
+    c.square.shapes = {sq(1, 1), sq(1, 2), sq(2, 2), sq(2, 3), sq(3, 3)};
+    // 六边形：1/3/4/6/7/9（轴向偏移表，P12 §3.2 定稿；锚 = (0,0)）。
+    c.hex.levels = {1, 3, 4, 6, 7, 9};
+    c.hex.shapes = {
+        hx({{0, 0}}),
+        hx({{0, 0}, {0, -1}, {1, -1}}),
+        hx({{0, 0}, {0, -1}, {1, -1}, {1, -2}}),
+        hx({{0, 0}, {0, -1}, {1, -1}, {1, -2}, {0, -2}, {2, -2}}),
+        hx({{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}}),
+        hx({{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}, {-1, 2}, {1, -2}}),
+    };
+    // 三角形：1/2/4/6/8（世界偏移以 b/h 计 + 朝向 0 正/1 反；**正锚模式**——表按"锚 =
+    // 正三角"定义；锚为反三角时解析端对 dy 垂直镜像、orient 翻转，即该等级的朝向变体）。
+    // 语义（用户 2026-08 定稿）：
+    //   L1 = 1 格（锚正→正、锚反→反，2 种模式）
+    //   L2 = 一正一反，公共边**水平**（正底边 = 反底边，同列上下相邻）
+    //   L4 = 边长 2b 大三角含 4 小三角（锚正→尖朝上、锚反→尖朝下，2 种模式）
+    //   L6 = 6 格正六边形（左右顶点、上下平边；3 正 3 反；锚镜像同形，1 种模式）
+    //   L8 = L6 + 顶上正 + 底下反（≡ 两个 4 级城拼接；锚镜像旋转 180° 同构，1 种模式）
+    c.tri.levels = {1, 2, 4, 6, 8};
+    c.tri.shapes = {
+        tr({{0, 0, 0}}),  // L1
+        // L2：正格 + 同列下方反格（共水平底边 y = r·h；偏移 (0, −2h/3)）
+        tr({{0, 0, 0}, {0, -2.0 / 3.0, 1}}),
+        // L4：正大三角 [0,2b]×[0,2h] = 正(i,r) + 正(i+1,r) + 反(i,r) + 正(i,r+1)
+        tr({{0, 0, 0}, {1, 0, 0}, {0.5, 1.0 / 3.0, 1}, {0.5, 1, 0}}),
+        // L6：6 格正六边形（中心 = 锚上尖顶点；左右顶点、上下平边）
+        tr({{0, 0, 0}, {0, 4.0 / 3.0, 1}, {0.5, 1, 0}, {-0.5, 1, 0}, {-0.5, 1.0 / 3.0, 1},
+            {0.5, 1.0 / 3.0, 1}}),
+        // L8：L6 + 顶上正 (0, 2h) + 底下反 (0, −2h/3)（紧贴六边形下平边的同列下方反格）
+        tr({{0, 0, 0}, {0, 4.0 / 3.0, 1}, {0.5, 1, 0}, {-0.5, 1, 0}, {-0.5, 1.0 / 3.0, 1},
+            {0.5, 1.0 / 3.0, 1}, {0, 2, 0}, {0, -2.0 / 3.0, 1}}),
+    };
+}
+
 // 内置默认势力表（0..8，下标即 id），与翻新计划 §2.7/§2.8 一致。
 void initDefaultFactions(std::vector<Config::Faction>& v) {
     v.clear();
@@ -231,7 +296,8 @@ void validateConfigKeys(const Json& root) {
     };
     // 纯键值段。
     warnUnknownKeys(obj("map"),
-                    {"file", "width", "height", "blockSize", "panelWidth", "capitalMinDistance"},
+                    {"file", "width", "height", "blockSize", "panelWidth", "capitalMinDistance",
+                     "tiling"},
                     "map");
     warnUnknownKeys(obj("army"),
                     {"baseSpeed", "baseSize", "bounceJitterHalfRange", "bounceJitterDenominator"},
@@ -286,9 +352,12 @@ void validateConfigKeys(const Json& root) {
     warnUnknownKeys(child(ren, "capital"),
                     {"minIconSizePx", "lineThickness", "designatedAlpha", "iconScale"},
                     "render.capital");
-    // city（顶层，P13 城市系统）。
+    // city（顶层，P13 城市系统 + P12 按密铺形状表）。
     const Json& cityJ = obj("city");
-    warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes"}, "city");
+    warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri"},
+                    "city");
+    const V kShapeKeys = {"level", "w", "h"};
+    const V kHexTriShapeKeys = {"level", "cells"};
     // 数组段（units / factions 在根；city.shapes 在 city 下）。unitPreference 键为动态
     // 兵种名（normal/vanguard/…）→ 列在已知集合里自然跳过动态校验。
     const V kUnitKeys = {"type",          "cost",              "speedMult",
@@ -297,11 +366,10 @@ void validateConfigKeys(const Json& root) {
                          "periodic",      "periodTicks",       "bulletSpeed",
                          "bulletSpeedJitter", "bulletCount",   "bulletLifespanTicks",
                          "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac"};
-    const V kFactionKeys = {"id", "color", "secondary", "unitPreference", "speedMultAll",
+    const V kFactionKeys = {"id", "name", "color", "secondary", "unitPreference", "speedMultAll",
                             "seaMult", "bounceMultAll", "pioneerSpeedMult", "extraLaserBeams",
                             "laserDurationMult", "laserLengthMult", "bombRadius",
                             "mineTriggerRadius", "freeArmyChance"};
-    const V kShapeKeys = {"level", "w", "h"};
     const V kTechKeys = {"id", "name", "desc", "levels", "preferenceUnits"};
     const V kLevelKeys = {"type", "param", "magnitude"};
     auto arrayOf = [&root](const char* name) -> const Json& {
@@ -318,6 +386,22 @@ void validateConfigKeys(const Json& root) {
     if (cityJ.contains("shapes") && cityJ["shapes"].is_array()) {
         for (const auto& s : cityJ["shapes"])
             warnUnknownKeys(s, kShapeKeys, "city.shapes[" + std::to_string(idx++) + "]");
+    }
+    idx = 0;
+    if (cityJ.contains("hex") && cityJ["hex"].is_object()) {
+        warnUnknownKeys(cityJ["hex"], {"levels", "shapes"}, "city.hex");
+        if (cityJ["hex"].contains("shapes") && cityJ["hex"]["shapes"].is_array()) {
+            for (const auto& s : cityJ["hex"]["shapes"])
+                warnUnknownKeys(s, kHexTriShapeKeys, "city.hex.shapes[" + std::to_string(idx++) + "]");
+        }
+    }
+    idx = 0;
+    if (cityJ.contains("tri") && cityJ["tri"].is_object()) {
+        warnUnknownKeys(cityJ["tri"], {"levels", "shapes"}, "city.tri");
+        if (cityJ["tri"].contains("shapes") && cityJ["tri"]["shapes"].is_array()) {
+            for (const auto& s : cityJ["tri"]["shapes"])
+                warnUnknownKeys(s, kHexTriShapeKeys, "city.tri.shapes[" + std::to_string(idx++) + "]");
+        }
     }
     // tech：阈值键 + techs 数组（含 levels）。
     const Json& tech = obj("tech");
@@ -343,6 +427,10 @@ void validateConfigKeys(const Json& root) {
 
 }  // namespace
 
+// 默认构造：内置城市等级/形状表（P12 三密铺），保证裸 City{} 即可用
+//（Map::cityConfig_、单测直接构造等；Config 自身成员亦由本构造填充）。
+Config::City::City() { initDefaultCity(*this); }
+
 Config Config::loadFromJson(const std::string& jsonText) {
     Config cfg;
     initDefaultFactions(cfg.factions);
@@ -365,6 +453,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.map.panelWidth = getInt(mapJson, "panelWidth", cfg.map.panelWidth);
         cfg.map.capitalMinDistance =
             getInt(mapJson, "capitalMinDistance", cfg.map.capitalMinDistance);
+        // P12：密铺类型（square/hex/tri）。预装 BMP 恒为方形；非方形由随机图生成器产出。
+        cfg.map.tiling = getStr(mapJson, "tiling", cfg.map.tiling);
     }
 
     // ---- army ----
@@ -547,25 +637,64 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.economy.capitalBase = getNum(economyJson, "capitalBase", cfg.economy.capitalBase);
     }
 
-    // ---- city（P13 城市系统：等级幂律指数 + 形状表）----
+    // ---- city（P13 城市系统：等级幂律指数 + 按密铺形状表）----
     if (root.contains("city") && root["city"].is_object()) {
         const auto& cityJson = root["city"];
         cfg.city.levelIncomeExponent =
             getNum(cityJson, "levelIncomeExponent", cfg.city.levelIncomeExponent);
         cfg.city.levelRankExponent =
             getNum(cityJson, "levelRankExponent", cfg.city.levelRankExponent);
-        // shapes 覆盖（可选）：[{level, w, h}, ...]；缺省保持内置表。按 level 匹配定位。
+        // 正方形 shapes 覆盖（可选）：[{level, w, h}, ...]（旧格式）；缺省保持内置表。
         if (cityJson.contains("shapes") && cityJson["shapes"].is_array()) {
             for (const auto& s : cityJson["shapes"]) {
                 if (!s.is_object()) continue;
                 const int lv = getInt(s, "level", -1);
-                const int idx = cfg.city.levelIndex(lv);
+                const int idx = cfg.city.square.levelIndex(lv);
                 if (idx < 0) continue;
-                cfg.city.shapes[static_cast<size_t>(idx)] = {
-                    getInt(s, "w", cfg.city.shapes[static_cast<size_t>(idx)][0]),
-                    getInt(s, "h", cfg.city.shapes[static_cast<size_t>(idx)][1])};
+                const int w = getInt(s, "w", 1);
+                const int h = getInt(s, "h", 1);
+                Config::City::Shape sh;
+                for (int dy = 0; dy < h; ++dy)
+                    for (int dx = 0; dx < w; ++dx)
+                        sh.cells.push_back({static_cast<double>(dx), static_cast<double>(dy), 0});
+                cfg.city.square.shapes[static_cast<size_t>(idx)] = std::move(sh);
             }
         }
+        // P12：六/三角形状表（可选）。hex cells = [dq, dr] 轴向偏移；tri cells = [x, y, o]
+        // （x 以 b 计、y 以 h 计、o 朝向 0 正/1 反）。均为**配置空间**值（toJson 原样回吐，
+        // 往返无损）；世界转换在 Map 放置时经 TilingGeom 完成。
+        const auto parseTilingSet = [](const Json& sub, Config::City::TilingSet& set, bool tri) {
+            if (sub.contains("levels") && sub["levels"].is_array()) {
+                set.levels.clear();
+                for (const auto& l : sub["levels"])
+                    if (l.is_number_integer()) set.levels.push_back(l.get<int>());
+            }
+            if (sub.contains("shapes") && sub["shapes"].is_array()) {
+                for (const auto& s : sub["shapes"]) {
+                    if (!s.is_object()) continue;
+                    const int lv = getInt(s, "level", -1);
+                    const int idx = set.levelIndex(lv);
+                    if (idx < 0 || !s.contains("cells") || !s["cells"].is_array()) continue;
+                    Config::City::Shape sh;
+                    for (const auto& cl : s["cells"]) {
+                        if (!cl.is_array()) continue;
+                        if (tri) {
+                            if (cl.size() < 3) continue;
+                            sh.cells.push_back({cl[0].get<double>(), cl[1].get<double>(),
+                                                cl[2].get<int>()});
+                        } else {
+                            if (cl.size() < 2) continue;
+                            sh.cells.push_back({cl[0].get<double>(), cl[1].get<double>(), 0});
+                        }
+                    }
+                    set.shapes[static_cast<size_t>(idx)] = std::move(sh);
+                }
+            }
+        };
+        if (cityJson.contains("hex") && cityJson["hex"].is_object())
+            parseTilingSet(cityJson["hex"], cfg.city.hex, false);
+        if (cityJson.contains("tri") && cityJson["tri"].is_object())
+            parseTilingSet(cityJson["tri"], cfg.city.tri, true);
     }
 
     // ---- capital（P15 迁都状态机）----
@@ -723,7 +852,8 @@ std::string Config::toJson() const {
                 {"height", map.height},
                 {"blockSize", map.blockSize},
                 {"panelWidth", map.panelWidth},
-                {"capitalMinDistance", map.capitalMinDistance}};
+                {"capitalMinDistance", map.capitalMinDistance},
+                {"tiling", map.tiling}};
 
     j["army"] = {{"baseSpeed", army.baseSpeed},
                  {"baseSize", army.baseSize},
@@ -811,14 +941,32 @@ std::string Config::toJson() const {
                     {"capitalBase", economy.capitalBase}};
 
     Json shapesJ = Json::array();
-    for (int i = 0; i < static_cast<int>(city.levels.size()); ++i) {
-        shapesJ.push_back({{"level", city.levels[static_cast<size_t>(i)]},
-                           {"w", city.shapes[static_cast<size_t>(i)][0]},
-                           {"h", city.shapes[static_cast<size_t>(i)][1]}});
+    for (int i = 0; i < static_cast<int>(city.square.levels.size()); ++i) {
+        // 正方形：{level, w, h}（旧格式；w/h = 形状 AABB）。
+        int w = 0, h = 0;
+        for (const auto& c : city.square.shapes[static_cast<size_t>(i)].cells) {
+            w = std::max(w, static_cast<int>(c.dx) + 1);
+            h = std::max(h, static_cast<int>(c.dy) + 1);
+        }
+        shapesJ.push_back({{"level", city.square.levels[static_cast<size_t>(i)]}, {"w", w},
+                           {"h", h}});
     }
+    // P12：六/三角形状表（cells 原样回吐配置空间值 → 往返无损）。
+    const auto tilingSetJ = [](const Config::City::TilingSet& set) {
+        Json shapes = Json::array();
+        for (int i = 0; i < static_cast<int>(set.levels.size()); ++i) {
+            Json cells = Json::array();
+            for (const auto& c : set.shapes[static_cast<size_t>(i)].cells)
+                cells.push_back({c.dx, c.dy, c.orient});
+            shapes.push_back({{"level", set.levels[static_cast<size_t>(i)]}, {"cells", cells}});
+        }
+        return Json{{"levels", set.levels}, {"shapes", std::move(shapes)}};
+    };
     j["city"] = {{"levelIncomeExponent", city.levelIncomeExponent},
                  {"levelRankExponent", city.levelRankExponent},
-                 {"shapes", std::move(shapesJ)}};
+                 {"shapes", std::move(shapesJ)},
+                 {"hex", tilingSetJ(city.hex)},
+                 {"tri", tilingSetJ(city.tri)}};
 
     j["capital"] = {{"relocationDelayTicks", capital.relocationDelayTicks}};
 

@@ -49,18 +49,21 @@ bool Simulation::init() {
     map_.setCityConfig(config_.city);  // 城市等级形状表（P13，思路 9.1）
     // P6 RNG 分离：山/城骰子走 mapRng_（地图种子）；首都与后续走 rng_（主种子）。
     mapRng_ = std::make_unique<Rng>(mapSeed_);
-    if (!map_.loadFromBmp(config_.map.file, *mapRng_)) return false;  // 每陆地格 2 次 chance
+    // P12：正方形走 BMP（预装图/现状）；六/三角走 lwmap（随机图生成器产出）。
+    const bool mapOk = (config_.map.tilingType() == TilingType::Square)
+                           ? map_.loadFromBmp(config_.map.file, *mapRng_)
+                           : map_.loadFromLwmap(config_.map.file, *mapRng_);
+    if (!mapOk) return false;  // 每陆地格 2 次 chance
     if (!map_.placeCapitals(*rng_)) return false;                     // 每 attempt get(w-1)+get(h-1)
     map_.finalize();                                               // 清理海上城市 + 统计
     initFactions();  // 征服 8 个首都（势力8 无开局免费兵，见 §1.4）
     // 中立势力0 landCount 初始 = 无主领地数（2026-08 用户定夺）：随征服递减，全图被占完恰好归 0
     // （原版从 0 起一路减负）。仅 1..8 参与排行榜，不影响模拟逻辑。
     factions_[0].landCount = 0;
-    for (int y = 0; y < map_.height(); ++y)
-        for (int x = 0; x < map_.width(); ++x) {
-            const MapCell& c = map_.at(x, y);
-            if (c.land && c.belongi == kNeutralFaction) ++factions_[0].landCount;
-        }
+    for (int idx = 0; idx < map_.cellCount(); ++idx) {
+        const MapCell& c = map_.atIndex(idx);
+        if (c.land && c.belongi == kNeutralFaction) ++factions_[0].landCount;
+    }
     processPendingSpawns();  // init 阶段无势力8 免费兵 → 本阶段恒为空
     return true;
 }
@@ -96,25 +99,26 @@ void Simulation::initFactions() {
         const int capIdx = turnOrder_[static_cast<size_t>(i)];
         const int capX = map_.capitalX(capIdx);
         const int capY = map_.capitalY(capIdx);
-        conquer(capX, capY, i + 1, /*freeArmyEnabled=*/false);
+        // P12：首都格按密铺格下标（方 = y*width+x；六/三 = cellIndexAt，三角锚恒为正）。
+        const int capCell = map_.cellIndexAt(capX, capY);
+        conquerIndex(capCell, i + 1, /*freeArmyEnabled=*/false);
         // P15：初始首都 = 初始城（征服后该格所属城市 id）。首都语义本阶段起生效。
         const int fid = i + 1;
         Faction& f = factions_[static_cast<size_t>(fid)];
-        const int capCityId = map_.at(capX, capY).cityId;
+        const int capCityId = map_.atIndex(capCell).cityId;
         f.capitalState.capitalCityId = capCityId;
         // 回归（用户反馈）：初始首都是**多格城**（锚点落在既有 2/4/6/9 级城）时，单格征服只改
         // 一格 belongi → 城市不整块转移（其余基建格仍中立）→ 势力 cityCount=0 → 立即灭亡。
         // 修复：把首都城其余基建格也逐格征服（末格触发整城转移，ownerId 归本势力、
         // lastCapturedTick=0）。init 阶段 freeArmyEnabled=false → 这些征服**不消耗 RNG**，
         // 且单格首都（常见）零额外调用 → 基线/确定性不变。
+        // P12：基建格集合按密铺形状解析（cityCells；六/三角矩形循环会越界/越形状）。
         if (capCityId >= 0 && map_.city(capCityId).ownerId != fid) {
             const City& city = map_.city(capCityId);
-            for (int dy = 0; dy < city.h; ++dy)
-                for (int dx = 0; dx < city.w; ++dx) {
-                    const int cx = city.baseX + dx, cy = city.baseY + dy;
-                    if (map_.at(cx, cy).belongi != fid)
-                        conquer(cx, cy, fid, /*freeArmyEnabled=*/false);
-                }
+            for (int cellIdx : map_.cityCells(city)) {
+                if (cellIdx >= 0 && map_.atIndex(cellIdx).belongi != fid)
+                    conquerIndex(cellIdx, fid, /*freeArmyEnabled=*/false);
+            }
         }
     }
 }
@@ -166,6 +170,12 @@ bool Simulation::choosePlayerTech(int techIndex) {
 void Simulation::conquer(int x, int y, int factionId, bool freeArmyEnabled) {
     ConquerContext ctx{map_, factions_, *rng_, pendingSpawns_, freeArmyEnabled, tickCount_};
     factions_[static_cast<size_t>(factionId)].conquer(ctx, x, y);
+}
+
+// P12：按格下标征服（密铺统一路径；首都多格城逐格征服用）。
+void Simulation::conquerIndex(int index, int factionId, bool freeArmyEnabled) {
+    ConquerContext ctx{map_, factions_, *rng_, pendingSpawns_, freeArmyEnabled, tickCount_};
+    factions_[static_cast<size_t>(factionId)].conquerIndex(ctx, index);
 }
 
 void Simulation::processPendingSpawns() {

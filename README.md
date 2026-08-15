@@ -76,13 +76,18 @@ ctest --preset default            # 单元测试
 > 128/64/32/16 预烘焙**，缩放小时按屏上格大小选档避免糊成一团）。现有地图已等效转换
 > （`tools/gen_probability_maps.py`）。首都只落在可产城格（基图允许成城的格），不会在"必然无城"
 > 的格子出现。调色板见 `.docs/配置说明.md`。
-> **随机地图（P6）**：菜单「选择地图…」→「随机地图」填参数（长/宽/陆地占比/山/城密度/
-> 强制边缘为海 + 地图种子）实时预览；**RNG 分离**——地图种子（`mapSeed`）驱动随机图生成与
+> **随机地图（P6/P12）**：菜单「选择地图…」→「随机地图」填参数（长/宽/陆地占比/山/城密度/
+> 强制边缘为海 + 地图种子 + **密铺模式**（正方形/六边形/三角形，P12））实时预览；**RNG 分离**——
+> 地图种子（`mapSeed`）驱动随机图生成与
 > 所有地图的山/城骰子，主种子
 > （`seed`）驱动首都与游戏后续，两套独立（CLI 可用 `--map-seed` 指定地图种子）。地图种子字段
 > 在选图页可编辑（首开自动随机）。生成器 `world/MapGenerator` 用 value-noise fBm 造海拔→切海陆→
-> 编码概率基图 BMP（生成物 `userdata/maps/gen_<seed>_<w>x<h>_...bmp`，2026-08 起入 userdata/）→ 走现有加载路径开局，确定性
+> 编码概率基图（方 = BMP，生成物 `userdata/maps/gen_<seed>_<w>x<h>_...bmp`；六/三角 = lwmap
+> `gen_<seed>_<hex|tri>_<w>x<h>_...lwmap`，2026-08 起入 userdata/）→ 走对应加载路径开局，确定性
 > `(mapSeed, mainSeed, config, map, options)` 唯一决定整局。主面板同时显示地图种子与主种子。
+> **异种密铺（P12）**：六边形（尖顶、偶数行、边界灰线）与三角形（顶/底平、左右互补）随机地图；
+> 边长按面积与正方形一致推导（六 √(2/(3√3))、三 2·3^(−1/4)）；城市等级/基建形状按密铺
+> （六 1/3/4/6/7/9、三 1/2/4/6/8；格数 = 等级）；先锋连占全部边邻格；山渲染大小不变。
 > **增益系统（P7）**：势力特色统一为"增益"（`sim/Buff`）——`Config::Faction` 的修饰符字段
 > （速度/下海/反弹/激光/地雷等）在 `initFromDef` 翻译为初始 buff（`source="faction"`），各系统
 > 只读聚合面 `Faction.mods`（`FactionMods`，纯函数 `computeMods` 聚合、无 RNG）；绝对基数
@@ -119,7 +124,7 @@ ctest --preset default            # 单元测试
 ```
 landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--speed X]
         [--config PATH] [--map PATH] [--save PATH] [--load PATH] [--summary]
-        [--screenshot PATH] [--no-menu] [--wrap]
+        [--screenshot PATH] [--no-menu] [--wrap] [--tiling T]
 ```
 
 | 参数 | 说明 |
@@ -138,6 +143,7 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 | `--screenshot PATH` | 窗口模式：跑到 tick=`--ticks` 时截图保存并退出（QA 钩子） |
 | `--no-menu` | 窗口模式：跳过菜单直接开始（P1；`--load`/`--screenshot` 自动跳过菜单） |
 | `--wrap` | 地图边界贯通（环绕，P10）：兵碰边界传送对侧，速度/方向不变（headless 用；窗口走菜单勾选，存 options.json） |
+| `--tiling T` | 密铺（P12）：`square|hex|tri`（headless 用；非方自动生成随机 lwmap。窗口走菜单「随机地图」下拉，存 options.json） |
 
 > **菜单（P1/P6）**：窗口模式默认先进入主菜单，可配置势力出场/产兵 AI；点「选择地图…」
 > 进入**二级选图界面**——若干预装地图（`data/map_*.bmp`，**每张带预览缩略图**：按当前地图种子
@@ -167,12 +173,14 @@ new_project_landwar/
   CMakeLists.txt / CMakePresets.json / 构建命令.bat
   data/                map_*.bmp（地形基图：RGB 概率权重，任一分量<32=海、山概率=ramp(R)、城概率=ramp(G)；map_bigIslands.bmp 基线、map_mountains.bmp 用户手绘山/城图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint：红势力成品渲染 → 按各势力主副色反解重烘焙，⑫）、army_special.png（签名兵种特殊版，**双色系统起停用**）、ring.png/arrow.png（玩家标记美术图）、mountain.png/city.png（山/城简笔画线条贴图）、config.json
   userdata/            运行期产物（可写、可丢弃、不进版本库；启动自动创建）：
-                       options.json（菜单选项，开始游戏时保存）、maps/gen_*.bmp（随机地图生成物）、
+                       options.json（菜单选项，开始游戏时保存）、maps/gen_*.bmp + gen_*_hex|tri_*.lwmap
+                       （随机地图生成物）、
                        screenshots/（F12 / QA 钩子截图）、two_tone_template.png（双色反解模板调试图，⑫）
   src/
     core/              Config（含**未知键校验**，2026-08）、Simulation、MathUtil、Rng、GameDefs、
                        Paths（路径约定单点，2026-08）、FixedTimestep（固定步长累加器，2026-08）
-    world/             Map、Faction、MapGenerator（P6 随机地图生成 → 概率基图 BMP）
+    world/             Map、Faction、MapGenerator（P6 随机地图生成 → 概率基图 BMP / P12 lwmap）
+    world/tiling/      Tiling（P12 密铺几何：方/六/三——边长、中心、取格、边邻、边穿越、行/列范围）
     sim/               entt 组件 + ECS 系统（移动/战斗/特效/经济/产兵/死亡/生成）
                        Buff（P7 增益：BuffType/Buff/FactionMods/computeMods/initialFactionBuffs）
     sim/systems/       CombatSystem、MovementSystem、EffectSystem、EconomySystem、
