@@ -20,6 +20,8 @@
 #pragma once
 
 #include <array>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <SDL.h>
@@ -100,6 +102,14 @@ private:
     double capitalAspect_ = 0.0;          // 首都图标源图纵横比 高/宽（0 → 按 1.0）
     std::array<TintCache, 9> towers_;      // 9 级塔贴图（data/tower/tower<N>.png，下标 = 等级-1）
     TintCache capital_;                    // 首都图标贴图（data/tower/capital.png，P15）
+    // CityIconFitter 缓存：键 = tiling|texLevel|aspect‰|orient，值 = (scale, offX, offY)。
+    // offX/offY 是贴图中心相对城市几何中心的世界偏移（允许平移）。
+    struct FitEntry {
+        double scale = 0.0;
+        double offX = 0.0;
+        double offY = 0.0;
+    };
+    mutable std::unordered_map<std::string, FitEntry> fitCache_;
 };
 
 }  // namespace lw::render
