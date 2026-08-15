@@ -23,11 +23,10 @@ std::string towerPath(int level) {
     return "data/tower/tower" + std::to_string(level) + ".png";
 }
 
-// 城市等级（实数）→ 贴图等级（1..9）。四舍五入；10 级及以上统一用一张贴图
-//（新贴图未就绪前先用 9 级城贴图）。
+// 城市等级（实数）→ 贴图等级（1..10）。四舍五入；10 级及以上统一用 tower10 贴图。
 int textureLevelFor(double level) {
-    if (level >= 10.0) return 9;
-    return std::clamp(static_cast<int>(std::lround(level)), 1, kTowerCount);
+    if (level >= 10.0) return 10;
+    return std::clamp(static_cast<int>(std::lround(level)), 1, 10);
 }
 
 // 首都图标源图路径（P15：data/tower/capital.png，白色前景透明背景，与其他城市贴图同类）。
@@ -36,10 +35,12 @@ std::string capitalPath() { return "data/tower/capital.png"; }
 // 绘制一批图标（等级塔：towers_[level-1]；首都/候补：capital_）。alpha 施加于纹理（虚化候补）。
 // 共用 TintCache::pickSizeIndex LOD 选档 + 按该档实际纹理尺寸采样（塔图非方形，2026-08-07 偏移修复）。
 void drawIcons(const std::vector<CityRenderer::Icon>& icons,
-               const std::array<TintCache, 9>& towers, const TintCache& capital,
-               bool useCapitalTex, Renderer& r, int alpha) {
+               const std::array<TintCache, 9>& towers, const TintCache& tower10,
+               const TintCache& capital, bool useCapitalTex, Renderer& r, int alpha) {
     for (const auto& ic : icons) {
-        const TintCache& cache = useCapitalTex ? capital : towers[static_cast<size_t>(ic.level - 1)];
+        const TintCache& cache = useCapitalTex ? capital
+                                  : (ic.level == 10) ? tower10
+                                                     : towers[static_cast<size_t>(ic.level - 1)];
         if (cache.count() == 0) continue;
         const int ci = std::clamp(ic.colorIndex, 0, cache.count() - 1);
         const int si = cache.pickSizeIndex(ic.dstW);
@@ -109,6 +110,11 @@ void CityRenderer::bake(const Config& cfg, double iconDarken) {
             srcAspect_[static_cast<size_t>(lv - 1)] =
                 static_cast<double>(cache.height()) / static_cast<double>(cache.width());
     }
+    // 10 级及以上统一贴图（data/tower/tower10.png，新贴图未就绪时由用户提供）。
+    tower10_.load(ren_, towerPath(10), iconCols, TintMode::Multiply,
+                  /*grayscaleFirst=*/false, /*preserveWhite=*/0, lodSizes);
+    if (tower10_.width() > 0)
+        tower10Aspect_ = static_cast<double>(tower10_.height()) / static_cast<double>(tower10_.width());
     // P15：首都图标贴图（data/tower/capital.png，同塔管线）。
     capital_.load(ren_, capitalPath(), iconCols, TintMode::Multiply,
                   /*grayscaleFirst=*/false, /*preserveWhite=*/0, lodSizes);
@@ -117,7 +123,12 @@ void CityRenderer::bake(const Config& cfg, double iconDarken) {
 }
 
 void CityRenderer::setTowerSourceSize(int level, int srcW, int srcH) {
-    if (level < 1 || level > kTowerCount || srcW <= 0 || srcH <= 0) return;
+    if (srcW <= 0 || srcH <= 0) return;
+    if (level == 10) {
+        tower10Aspect_ = static_cast<double>(srcH) / static_cast<double>(srcW);
+        return;
+    }
+    if (level < 1 || level > kTowerCount) return;
     srcAspect_[static_cast<size_t>(level - 1)] =
         static_cast<double>(srcH) / static_cast<double>(srcW);
 }
@@ -220,9 +231,10 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
 
         // 图标尺寸按基建地块框自适应。方：AABB 框（与旧版一致）；六/三/半正/Laves：
         // 用 CityIconFitter 求"贴图不越界且尽量大、允许平移"的缩放与中心（缓存）。
-        const std::size_t lvi = static_cast<size_t>(texLevel - 1);
+        const std::size_t lvi = static_cast<size_t>(texLevel <= 9 ? texLevel - 1 : 8);
         const double cellPx = cam_.cellPx();
-        double A = isCapital ? capitalAspect_ : srcAspect_[lvi];
+        double A = isCapital ? capitalAspect_
+                             : (texLevel == 10 ? tower10Aspect_ : srcAspect_[lvi]);
         if (A <= 0.0) A = 1.0;  // 未烘焙/未知 → 按方形
         const double scaleFactor = isCapital ? rc.capital.iconScale[lvi] : rc.city.iconScale[lvi];
         double fitW = 0.0;
@@ -295,12 +307,12 @@ void CityRenderer::draw(const Map& map, const Config::Render& rc,
 
     // 绘制顺序（层级）：普通城市塔图标 → 正式首都图标 → 候补指定虚化图标 → 普通细线 → 首都粗线。
     // 1) 普通城市等级塔图标（城市中心，LOD；尺寸 compute 已按源纵横比算好 dstW/dstH）。
-    drawIcons(f.icons, towers_, capital_, /*useCapitalTex=*/false, r, 255);
+    drawIcons(f.icons, towers_, tower10_, capital_, /*useCapitalTex=*/false, r, 255);
     // 2) 正式首都图标（首都贴图，全不透明）。
-    drawIcons(f.capitalIcons, towers_, capital_, /*useCapitalTex=*/true, r, 255);
+    drawIcons(f.capitalIcons, towers_, tower10_, capital_, /*useCapitalTex=*/true, r, 255);
     // 3) 候补指定新都：虚化首都图标（alpha = designatedAlpha）。
     if (rc.capital.designatedAlpha > 0.0)
-        drawIcons(f.designatedIcons, towers_, capital_, /*useCapitalTex=*/true, r,
+        drawIcons(f.designatedIcons, towers_, tower10_, capital_, /*useCapitalTex=*/true, r,
                   static_cast<int>(std::lround(255.0 * rc.capital.designatedAlpha)));
     // 4) 细线：普通城市薄线 + 正式首都粗线（颜色 = 该城归属势力色 × lineDarken）。
     drawOutlines(f.outlines, rc.city.lineThickness, rc.city.lineDarken, factionColors_, r);

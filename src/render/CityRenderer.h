@@ -101,6 +101,8 @@ private:
     std::array<double, 9> srcAspect_{};   // 各等级塔源图纵横比 高/宽（下标 = 等级-1；0 → 按 1.0）
     double capitalAspect_ = 0.0;          // 首都图标源图纵横比 高/宽（0 → 按 1.0）
     std::array<TintCache, 9> towers_;      // 9 级塔贴图（data/tower/tower<N>.png，下标 = 等级-1）
+    TintCache tower10_;                    // 10级+统一贴图（data/tower/tower10.png）
+    double tower10Aspect_ = 0.0;           // tower10 源纵横比 高/宽（0 → 按 1.0）
     TintCache capital_;                    // 首都图标贴图（data/tower/capital.png，P15）
     // CityIconFitter 缓存：键 = tiling|texLevel|aspect‰|orient，值 = (scale, offX, offY)。
     // offX/offY 是贴图中心相对城市几何中心的世界偏移（允许平移）。
