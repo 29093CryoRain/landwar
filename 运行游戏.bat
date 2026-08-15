@@ -7,3 +7,4 @@ if not exist "build\landwar.exe" (
   exit /b 1
 )
 build\landwar.exe
+pause
