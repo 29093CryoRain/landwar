@@ -6,7 +6,10 @@
 #include <cmath>
 #include <vector>
 
+#include "core/Config.h"
 #include "core/GameDefs.h"
+#include "world/Map.h"
+#include "world/MapGenerator.h"
 #include "world/tiling/Tiling.h"
 
 namespace {
@@ -74,6 +77,28 @@ TEST(TilingTable, ArchCellPolygonMatchesCellEdge) {
             }
         }
     }
+}
+
+TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
+    const Config cfg = Config::loadFromJson("{}");
+    MapGenParams gp{32, 32, 0.4, 0.1, 0.02, false, TilingType::Arch488};
+    const std::string path = "userdata/maps/utest_arch488.lwmap";
+    ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
+    Config::Map mc = cfg.map;
+    mc.tiling = "arch_488";
+    mc.width = 32;
+    mc.height = 32;
+    mc.file = path;
+    Map map;
+    map.configure(mc);
+    map.setTerrain(cfg.terrain);
+    map.setCityConfig(cfg.city);
+    Rng rng(42);
+    ASSERT_TRUE(map.loadFromLwmap(path, rng));
+    ASSERT_TRUE(map.placeCapitals(rng));
+    map.finalize();
+    EXPECT_EQ(map.cellCount(), map.geom().baseCount() * 32 * 32);
+    EXPECT_GE(map.cityCount(), 8);  // 至少 8 个首都城
 }
 
 TEST(TilingTable, ArchRowColRangeConservative) {

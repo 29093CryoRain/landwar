@@ -50,17 +50,12 @@ void Map::clear() {
     for (int idx = 0; idx < cellCount(); ++idx) {
         MapCell& c = cells_[static_cast<size_t>(idx)];
         c = MapCell{};
-        // P12：格坐标语义 = (列, 行)。方：(x,y)；六：(c,r)；三：(i 对, r 行)。
-        if (geom_.type == TilingType::Square) {
-            c.x = idx % width_;
-            c.y = idx / width_;
-        } else if (geom_.type == TilingType::Tri) {
-            c.x = (idx >> 1) % geom_.cols;
-            c.y = (idx >> 1) / geom_.cols;
-        } else {
-            c.x = idx % geom_.cols;
-            c.y = idx / geom_.cols;
-        }
+        // P12：格坐标语义 = (列, 行)。方：(x,y)；六：(c,r)；三：(i 对, r 行)；
+        // 半正/Laves：表驱动 (r*cols+c)*B+b。
+        int rr, cc, bb;
+        geom_.indexToRowCol(idx, rr, cc, bb);
+        c.x = cc;
+        c.y = rr;
     }
     capitalX_.clear();
     capitalY_.clear();
@@ -75,7 +70,10 @@ void Map::configure(const Config::Map& cfg) {
     int cols = cfg.width;
     if (cfg.tilingType() == TilingType::Tri) cols = (cols / 2) & ~1;
     int rows = cfg.height;
-    if (cfg.tilingType() != TilingType::Square && (rows & 1)) --rows;
+    // 六/三角行数须为偶数（垂直环绕闭合）；半正/Laves 表驱动用矩形周期域，任意行数均可。
+    if ((cfg.tilingType() == TilingType::Hex || cfg.tilingType() == TilingType::Tri)
+        && (rows & 1))
+        --rows;
     cols = std::max(1, cols);
     rows = std::max(1, rows);
     width_ = cols;
@@ -360,9 +358,12 @@ bool Map::placeCapitals(Rng& rng) {
     return true;
 }
 
-// 格坐标 (c, r) → 格下标（P12；方 = r*width+c；六 = r*cols+c；三 = 正三角锚 2*(r*cols+c)）。
+// 格坐标 (c, r) → 格下标（P12；方 = r*width+c；六 = r*cols+c；三 = 正三角锚 2*(r*cols+c)；
+// 半正/Laves = (r*cols+c)*B（基础格 0））。
 int Map::cellIndexAt(int c, int r) const {
     if (geom_.type == TilingType::Tri) return 2 * (r * geom_.cols + c);
+    if (static_cast<int>(geom_.type) > static_cast<int>(TilingType::Tri))
+        return (r * geom_.cols + c) * geom_.baseCount();
     return r * geom_.cols + c;
 }
 

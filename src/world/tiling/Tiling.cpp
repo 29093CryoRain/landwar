@@ -236,6 +236,60 @@ int TilingGeom::neighborCount(int index) const {
     }
 }
 
+int TilingGeom::baseCount() const {
+    switch (type) {
+        case TilingType::Square:
+        case TilingType::Hex: return 1;
+        case TilingType::Tri: return 2;
+        default: {
+            ensureTable();
+            return table_ ? static_cast<int>(table_->cells.size()) : 0;
+        }
+    }
+}
+
+int TilingGeom::cellIndexAt(int r, int c, int b) const {
+    switch (type) {
+        case TilingType::Square:
+        case TilingType::Hex: return r * cols + c;
+        case TilingType::Tri: return 2 * (r * cols + c) + (b & 1);
+        default: {
+            ensureTable();
+            if (!table_) return -1;
+            const int B = static_cast<int>(table_->cells.size());
+            if (r < 0 || r >= rows || c < 0 || c >= cols || b < 0 || b >= B) return -1;
+            return (r * cols + c) * B + b;
+        }
+    }
+}
+
+void TilingGeom::indexToRowCol(int index, int& r, int& c, int& b) const {
+    switch (type) {
+        case TilingType::Square:
+        case TilingType::Hex:
+            r = index / cols;
+            c = index % cols;
+            b = 0;
+            return;
+        case TilingType::Tri:
+            r = (index >> 1) / cols;
+            c = (index >> 1) % cols;
+            b = index & 1;
+            return;
+        default:
+            ensureTable();
+            if (!table_) {
+                r = c = b = -1;
+                return;
+            }
+            b = index % static_cast<int>(table_->cells.size());
+            const int rc = index / static_cast<int>(table_->cells.size());
+            r = rc / cols;
+            c = rc % cols;
+            return;
+    }
+}
+
 void TilingGeom::cellCenter(int index, double& wx, double& wy) const {
     switch (type) {
         case TilingType::Square: {

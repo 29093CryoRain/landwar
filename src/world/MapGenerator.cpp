@@ -148,7 +148,9 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
     p.mountainDensity = std::clamp(p.mountainDensity, 0.0, 0.9);
     p.cityDensity = std::clamp(p.cityDensity, 0.0, 0.9);
     // P12：六/三角行数 clamp 到偶数（垂直环绕闭合必需，见开发计划 P12 §2.3）。
-    if (p.tiling != TilingType::Square && (p.height & 1)) --p.height;
+    // 半正/Laves 表驱动用矩形周期域，任意行数均可。
+    if ((p.tiling == TilingType::Hex || p.tiling == TilingType::Tri) && (p.height & 1))
+        --p.height;
     // P12（2026-08 用户拍板）：三角**列数减半**——width 语义 = 视觉列数（每行三角数），
     // 生成时列对数 = width/2 → cellCount = width×height 与方形一致；并强制列数为偶数
     // （(x/2)&~1：105→52、106→52、108→54）。与 Map::configure 同一公式（lwmap 尺寸匹配）。
@@ -425,14 +427,14 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     //   tri：r==0||r==rows-1||i==0||i==cols-1（每行 cols 个三角对；最左/最右对 =
     //   视觉最外列带，含右缘尖出对与左缘 j=0 贴边对）。
     if (p.forceCoast) {
+        const int B = g.baseCount();
         for (int r = 0; r < g.rows; ++r) {
             for (int c = 0; c < g.cols; ++c) {
                 const bool outer = (r == 0 || r == g.rows - 1 || c == 0 || c == g.cols - 1);
                 if (!outer) continue;
-                for (int o = 0; o < (g.type == TilingType::Tri ? 2 : 1); ++o) {
-                    const int idx = (g.type == TilingType::Tri) ? 2 * (r * g.cols + c) + o
-                                                                : r * g.cols + c;
-                    land[static_cast<size_t>(idx)] = false;
+                for (int b = 0; b < B; ++b) {
+                    const int idx = g.cellIndexAt(r, c, b);
+                    if (idx >= 0) land[static_cast<size_t>(idx)] = false;
                 }
             }
         }
@@ -440,7 +442,7 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
 
     // ③ 山（内陆：边邻无海 → 确定性山 R=255）。
     const auto adjacentSea = [&](int idx) {
-        for (int k = 0; k < g.neighborCount(); ++k) {
+        for (int k = 0; k < g.neighborCount(idx); ++k) {
             const int nb = g.neighbor(idx, k);
             if (nb >= 0 && !land[static_cast<size_t>(nb)]) return true;
         }

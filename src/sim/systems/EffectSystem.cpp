@@ -77,16 +77,10 @@ void solveBomb(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
             for (int r = r0; r <= r1; ++r) {
                 g.colRange(pos.x - radius, pos.x + radius, r, c0, c1);
                 for (int c = c0; c <= c1; ++c) {
-                    if (g.type == TilingType::Tri) {
-                        for (int o = 0; o < 2; ++o) {
-                            const int idx = 2 * (r * g.cols + c) + o;
-                            double ccx, ccy;
-                            g.cellCenter(idx, ccx, ccy);
-                            if (math::distance(ccx, ccy, pos.x, pos.y) < radius)
-                                conquerAtIndex(ctx.move, idx, fid.value, creator.unitType);
-                        }
-                    } else {
-                        const int idx = r * g.cols + c;
+                    const int B = g.baseCount();
+                    for (int b = 0; b < B; ++b) {
+                        const int idx = g.cellIndexAt(r, c, b);
+                        if (idx < 0) continue;
                         double ccx, ccy;
                         g.cellCenter(idx, ccx, ccy);
                         if (math::distance(ccx, ccy, pos.x, pos.y) < radius)

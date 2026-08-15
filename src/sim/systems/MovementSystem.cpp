@@ -36,7 +36,7 @@ void bounceLine(MoveContext& ctx, comp::Velocity& vel, double lineAngle) {
     vel.angle += bounceJitter(ctx);
 }
 
-double edgeLineAngle(const TilingGeom& g, int k) {
+double edgeLineAngle(const TilingGeom& g, int index, int k) {
     switch (g.type) {
         case TilingType::Square: return (k == 0 || k == 2) ? kPi / 2.0 : 0.0;
         case TilingType::Hex: return kPi / 180.0 * (60.0 * static_cast<double>(k) + 90.0);
@@ -44,7 +44,12 @@ double edgeLineAngle(const TilingGeom& g, int k) {
             static const double kA[3] = {0.0, kPi / 3.0, 2.0 * kPi / 3.0};
             return kA[static_cast<size_t>(k % 3)];
         }
-        default: return 0.0;  // TODO 半正/Laves：改为按 cellEdge 反算边线角（逐格）
+        default: {
+            double x0, y0, x1, y1;
+            if (g.cellEdge(index, k, x0, y0, x1, y1))
+                return std::atan2(y1 - y0, x1 - x0);
+            return 0.0;
+        }
     }
 }
 
@@ -344,17 +349,17 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
                 wrapPos(pos, offX, offY, ww, wh, nc, nr);
                 relocate();
             } else {
-                bounceLine(ctx, vel, edgeLineAngle(g, crossed));
+                bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed));
             }
             continue;
         }
         // 进入格（六/三角邻格恒为反向；neighbor 返回界内下标）。
         const int nb = g.neighbor(cellIdx, crossed);
         if (nb < 0) {  // 防御（不应发生；界内已判）
-            bounceLine(ctx, vel, edgeLineAngle(g, crossed));
+            bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed));
             continue;
         }
-        const auto doBounce = [&] { bounceLine(ctx, vel, edgeLineAngle(g, crossed)); };
+        const auto doBounce = [&] { bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed)); };
         const bool bounced =
             processEnteredCell(ctx, nb, doBounce, vel, speed, remLength, onLand, mtn, fid, unit,
                                hist);

@@ -296,25 +296,35 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         // ---- 随机地图参数 ----
         ImGui::TextUnformatted("随机地图参数");
         // P12：密铺模式下拉（六/三角随机图；预装 BMP 恒为方形）。
-        static const char* kTilingItems[3] = {"正方形", "六边形", "三角形"};
-        int tilingIdx = static_cast<int>(st.tiling);
+        // 2026-08-16：加入已接入几何的 5 种阿基米德密铺。
+        static const char* kTilingItems[8] = {"正方形", "六边形", "三角形",
+                                              "3.4.6.4", "3.6.3.6", "3.12.12",
+                                              "4.6.12", "4.8.8"};
+        static const TilingType kTilingValues[8] = {
+            TilingType::Square, TilingType::Hex,      TilingType::Tri,
+            TilingType::Arch3464, TilingType::Arch3636, TilingType::Arch31212,
+            TilingType::Arch4612, TilingType::Arch488};
+        int tilingIdx = 0;
+        for (int i = 0; i < 8; ++i)
+            if (st.tiling == kTilingValues[i]) tilingIdx = i;
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        if (ImGui::Combo("密铺模式", &tilingIdx, kTilingItems, 3)) {
-            st.tiling = static_cast<TilingType>(tilingIdx);
+        if (ImGui::Combo("密铺模式", &tilingIdx, kTilingItems, 8)) {
+            st.tiling = kTilingValues[tilingIdx];
             st.previews.clear();  // 密铺变了 → 预览失效
         }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         // 三角"长"（视觉列数）生成时减半 → "-"/"+" 步进 2 并强制偶（保证列对数整数）；
-        // 方/六长无偶要求，步进 1。
+        // 方/六/半正长无偶要求，步进 1。
         const int wStep = (st.tiling == TilingType::Tri) ? 2 : 1;
         ImGui::InputInt("长", &st.randW, wStep, 8);
         // P12 六/三角：行数强制偶数 → "宽"的 "-"/"+" 步进 2（避免点一次不变/偶奇来回跳）。
-        const int hStep = (st.tiling == TilingType::Square) ? 1 : 2;
+        const bool needEvenRows = (st.tiling == TilingType::Hex || st.tiling == TilingType::Tri);
+        const int hStep = needEvenRows ? 2 : 1;
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         ImGui::InputInt("宽", &st.randH, hStep, 8);
         st.randW = std::clamp(st.randW, 32, 200);
         st.randH = std::clamp(st.randH, 32, 200);
-        if (st.tiling != TilingType::Square && (st.randH & 1)) --st.randH;  // P12：偶数行
+        if (needEvenRows && (st.randH & 1)) --st.randH;  // P12：偶数行
         if (st.tiling == TilingType::Tri && (st.randW & 1)) --st.randW;     // 三角：列对数整数
         // 强制边缘为海（在陆地占比条上方，用户要求调换位置，2026-08-06）。
         ImGui::Checkbox("强制边缘为海", &st.forceCoast);

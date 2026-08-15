@@ -67,13 +67,11 @@ std::vector<entt::entity> SpatialHash::queryAABB([[maybe_unused]] const entt::re
         geom_.colRange(x0, x1, r, c0, c1);
         if (c0 > c1) continue;
         for (int c = c0; c <= c1; ++c) {
-            if (geom_.type == TilingType::Tri) {
-                for (int o = 0; o < 2; ++o) {
-                    const auto& bucket = buckets_[static_cast<size_t>(2 * (r * geom_.cols + c) + o)];
-                    result.insert(result.end(), bucket.begin(), bucket.end());
-                }
-            } else {
-                const auto& bucket = buckets_[static_cast<size_t>(r * geom_.cols + c)];
+            const int B = geom_.baseCount();
+            for (int b = 0; b < B; ++b) {
+                const int idx = geom_.cellIndexAt(r, c, b);
+                if (idx < 0) continue;
+                const auto& bucket = buckets_[static_cast<size_t>(idx)];
                 result.insert(result.end(), bucket.begin(), bucket.end());
             }
         }
@@ -93,17 +91,11 @@ std::vector<entt::entity> SpatialHash::queryCircle(const entt::registry& reg, do
         geom_.colRange(x - radius, x + radius, r, c0, c1);
         if (c0 > c1) continue;
         for (int c = c0; c <= c1; ++c) {
-            if (geom_.type == TilingType::Tri) {
-                for (int o = 0; o < 2; ++o) {
-                    for (auto e : buckets_[static_cast<size_t>(2 * (r * geom_.cols + c) + o)]) {
-                        const auto& pos = reg.get<comp::Position>(e);
-                        const double dx = pos.x - x;
-                        const double dy = pos.y - y;
-                        if (dx * dx + dy * dy < r2) result.push_back(e);
-                    }
-                }
-            } else {
-                for (auto e : buckets_[static_cast<size_t>(r * geom_.cols + c)]) {
+            const int B = geom_.baseCount();
+            for (int b = 0; b < B; ++b) {
+                const int idx = geom_.cellIndexAt(r, c, b);
+                if (idx < 0) continue;
+                for (auto e : buckets_[static_cast<size_t>(idx)]) {
                     const auto& pos = reg.get<comp::Position>(e);
                     const double dx = pos.x - x;
                     const double dy = pos.y - y;

@@ -275,6 +275,11 @@ bool Snapshot::deserialize(Simulation& sim, const std::string& json, std::string
         } else if (m.geom_.type == TilingType::Hex) {
             out.x = static_cast<int>(i % static_cast<size_t>(m.geom_.cols));
             out.y = static_cast<int>(i / static_cast<size_t>(m.geom_.cols));
+        } else if (static_cast<int>(m.geom_.type) > static_cast<int>(TilingType::Tri)) {
+            int rr, cc, bb;
+            m.geom_.indexToRowCol(static_cast<int>(i), rr, cc, bb);
+            out.x = cc;
+            out.y = rr;
         } else {
             out.x = static_cast<int>(i % static_cast<size_t>(m.width_));
             out.y = static_cast<int>(i / static_cast<size_t>(m.width_));

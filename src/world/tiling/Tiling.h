@@ -75,6 +75,13 @@ struct TilingGeom {
     // 第 index 格的边邻数（方 4 / 六 6 / 三 3 / 表驱动 = 该格边数）。
     int neighborCount(int index) const;
 
+    // 基础格数（表驱动 = 周期域内格数；方/六 = 1，三 = 2）。
+    int baseCount() const;
+    // 行列/基础格 → 格下标（方：b 忽略；六：b 忽略；三：b=0 正/1 反）。
+    int cellIndexAt(int r, int c, int b) const;
+    // 格下标 → 行列/基础格。
+    void indexToRowCol(int index, int& r, int& c, int& b) const;
+
     // 第 k 个边邻的原始 (r, c)（不做界内检查；方 = (y, x) 语义，三 = (r, i) 语义）。
     void neighborRaw(int index, int k, int& r, int& c) const;
 

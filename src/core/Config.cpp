@@ -178,6 +178,22 @@ void initDefaultCity(Config::City& c) {
     //   L6 = 6 格正六边形（左右顶点、上下平边；3 正 3 反；锚镜像同形，1 种模式）
     //   L8 = L6 + 顶上正 + 底下反（≡ 两个 4 级城拼接；锚镜像旋转 180° 同构，1 种模式）
     c.tri.levels = {1, 2, 4, 6, 8};
+    // 2026-08-16：已接入几何的 5 种阿基米德密铺先给 1 级城（单格）占位，
+    // 完整等级形状表待各密铺城市基建形状数据补全。
+    {
+        const auto single = [] {
+            Shape sh;
+            sh.cells.push_back(ShapeCell{0.0, 0.0, 0});
+            return sh;
+        };
+        for (const TilingType t :
+             {TilingType::Arch3464, TilingType::Arch3636, TilingType::Arch31212,
+              TilingType::Arch4612, TilingType::Arch488}) {
+            auto& set = c.sets[static_cast<size_t>(static_cast<int>(t))];
+            set.levels = {1.0};
+            set.shapes = {single()};
+        }
+    }
     c.tri.shapes = {
         tr({{0, 0, 0}}),  // L1
         // L2：正格 + 同列下方反格（共水平底边 y = r·h；偏移 (0, −2h/3)）

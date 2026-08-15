@@ -116,10 +116,10 @@ void MapRenderer::drawTiled(const Map& map,
     for (int rr = r0; rr <= r1; ++rr) {
         g.colRange(vx0, vx1, rr, c0, c1);
         for (int cc = c0; cc <= c1; ++cc) {
-            const int oCount = (g.type == TilingType::Tri) ? 2 : 1;
-            for (int o = 0; o < oCount; ++o) {
-                const int idx = (g.type == TilingType::Tri) ? 2 * (rr * g.cols + cc) + o
-                                                            : rr * g.cols + cc;
+            const int B = g.baseCount();
+            for (int b = 0; b < B; ++b) {
+                const int idx = g.cellIndexAt(rr, cc, b);
+                if (idx < 0) continue;
                 const MapCell& cell = map.atIndex(idx);
                 if (!cell.land) continue;
                 const int n = g.cellPolygon(idx, wx, wy, 12);
@@ -148,10 +148,10 @@ void MapRenderer::drawTiled(const Map& map,
         for (int rr = r0; rr <= r1; ++rr) {
             g.colRange(vx0, vx1, rr, c0, c1);
             for (int cc = c0; cc <= c1; ++cc) {
-                const int oCount = (g.type == TilingType::Tri) ? 2 : 1;
-                for (int o = 0; o < oCount; ++o) {
-                    const int idx = (g.type == TilingType::Tri) ? 2 * (rr * g.cols + cc) + o
-                                                                : rr * g.cols + cc;
+                const int B = g.baseCount();
+                for (int b = 0; b < B; ++b) {
+                    const int idx = g.cellIndexAt(rr, cc, b);
+                    if (idx < 0) continue;
                     const MapCell& cell = map.atIndex(idx);
                     if (!cell.land || !cell.mountain) continue;
                     double cx0, cy0;
@@ -198,11 +198,11 @@ void MapRenderer::drawBoundaryOutline(const Map& map) {
     for (int rr = r0; rr <= r1; ++rr) {
         g.colRange(vx0, vx1, rr, c0, c1);
         for (int cc = c0; cc <= c1; ++cc) {
-            const int oCount = (g.type == TilingType::Tri) ? 2 : 1;
-            for (int o = 0; o < oCount; ++o) {
-                const int idx = (g.type == TilingType::Tri) ? 2 * (rr * g.cols + cc) + o
-                                                            : rr * g.cols + cc;
-                for (int k = 0; k < g.neighborCount(); ++k) {
+            const int B = g.baseCount();
+            for (int b = 0; b < B; ++b) {
+                const int idx = g.cellIndexAt(rr, cc, b);
+                if (idx < 0) continue;
+                for (int k = 0; k < g.neighborCount(idx); ++k) {
                     if (g.neighbor(idx, k) >= 0) continue;  // 内边 → 跳过
                     double ex0, ey0, ex1, ey1;
                     if (!g.cellEdge(idx, k, ex0, ey0, ex1, ey1)) continue;

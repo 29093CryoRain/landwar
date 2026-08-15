@@ -414,10 +414,14 @@ void Application::pickSelection() {
         const MapCell& cell = sim_.map().atIndex(cellIdx);
         if (cell.land) {
             // 格坐标（列, 行）供显示。
-            const int gx = (sim_.map().tiling() == TilingType::Square)
-                               ? cellIdx % sim_.map().width()
-                               : cellIdx % sim_.map().geom().cols;
-            const int gy = cellIdx / sim_.map().geom().cols;
+            int gx = cellIdx % sim_.map().geom().cols;
+            int gy = cellIdx / sim_.map().geom().cols;
+            if (sim_.map().tiling() != TilingType::Square) {
+                int rr, cc, bb;
+                sim_.map().geom().indexToRowCol(cellIdx, rr, cc, bb);
+                gx = cc;
+                gy = rr;
+            }
             selection_.kind = app::Selection::Kind::Cell;
             selection_.cellX = gx;
             selection_.cellY = gy;
