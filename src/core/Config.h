@@ -204,17 +204,42 @@ struct Config {
             int anchorN = 0;              // 锚点格边数（0=任意；半正/Laves 混合面时限定锚点格类型）
             std::vector<ShapeCell> cells;  // cells[0] = 锚格（(0,0)）
         };
-        // 一个密铺的等级集 + 形状表（shapes[i] ↔ levels[i]）。
+        // 一个密铺的等级集 + 形状表。levels 为去重等级；shapes 为全部形状变体
+        // （同级多形状：Laves 部分等级有两种形状），shapeLevelIndex[s] 指向 levels。
         // 2026-08-16：levels 改 double——半正密铺城市等级 = 面积和（实数）；Laves 等级 = 格数
         // （整数，按 double 存）。levelIndex 用容差匹配（同一实数的 JSON 往返/采样浮点）。
         struct TilingSet {
             std::vector<double> levels;
             std::vector<Shape> shapes;
+            std::vector<int> shapeLevelIndex;
             int levelIndex(double level) const {
                 constexpr double kTol = 1e-9;
                 for (int i = 0; i < static_cast<int>(levels.size()); ++i)
                     if (std::fabs(levels[static_cast<size_t>(i)] - level) <= kTol) return i;
                 return -1;
+            }
+            int firstShapeIndex(double level) const {
+                const int li = levelIndex(level);
+                if (li < 0) return -1;
+                for (int s = 0; s < static_cast<int>(shapeLevelIndex.size()); ++s)
+                    if (shapeLevelIndex[static_cast<size_t>(s)] == li) return s;
+                return -1;
+            }
+            int variantCount(double level) const {
+                const int li = levelIndex(level);
+                if (li < 0) return 0;
+                int n = 0;
+                for (int s : shapeLevelIndex)
+                    if (s == li) ++n;
+                return n;
+            }
+            const Shape* shapeFor(double level, int variant = 0) const {
+                const int s0 = firstShapeIndex(level);
+                if (s0 < 0) return nullptr;
+                const int s = s0 + variant;
+                if (s < 0 || s >= static_cast<int>(shapes.size())) return nullptr;
+                if (shapeLevelIndex[static_cast<size_t>(s)] != levelIndex(level)) return nullptr;
+                return &shapes[static_cast<size_t>(s)];
             }
         };
         // alpha：n 级城经济收入 = n^alpha × 1 级城（>=1，数值待实验；P14 经济重构读取）。
@@ -239,11 +264,9 @@ struct Config {
                 default: return sets[static_cast<size_t>(static_cast<int>(t))];
             }
         }
-        // 等级 → 形状（找不到返回 nullptr；等级为实数，按容差匹配）。纯函数。
+        // 等级 → 形状（默认第一变体；找不到返回 nullptr；等级为实数，按容差匹配）。纯函数。
         const Shape* shapeFor(TilingType t, double level) const {
-            const TilingSet& s = setFor(t);
-            const int i = s.levelIndex(level);
-            return i < 0 ? nullptr : &s.shapes[static_cast<size_t>(i)];
+            return setFor(t).shapeFor(level, 0);
         }
     } city;
 

@@ -327,6 +327,17 @@ void initDefaultCity(Config::City& c) {
         tr({{0, 0, 0}, {0, 4.0 / 3.0, 1}, {0.5, 1, 0}, {-0.5, 1, 0}, {-0.5, 1.0 / 3.0, 1},
             {0.5, 1.0 / 3.0, 1}, {0, 2, 0}, {0, -2.0 / 3.0, 1}}),
     };
+    // 同步 shapeLevelIndex（默认每个 level 一个形状；未来同级多变体时手动调整）。
+    const auto syncShapeLevels = [](Config::City::TilingSet& s) {
+        s.shapeLevelIndex.clear();
+        for (int i = 0; i < static_cast<int>(s.shapes.size()); ++i)
+            s.shapeLevelIndex.push_back(i);
+    };
+    syncShapeLevels(c.square);
+    syncShapeLevels(c.hex);
+    syncShapeLevels(c.tri);
+    for (auto& s : c.sets)
+        if (!s.shapes.empty()) syncShapeLevels(s);
 }
 
 // 内置默认势力表（0..8，下标即 id），与翻新计划 §2.7/§2.8 一致。
@@ -820,7 +831,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 for (const auto& l : sub["levels"])
                     if (l.is_number()) set.levels.push_back(l.get<double>());
             }
-            if (set.shapes.size() != set.levels.size()) set.shapes.resize(set.levels.size());
+            set.shapes.clear();
+            set.shapeLevelIndex.clear();
             if (sub.contains("shapes") && sub["shapes"].is_array()) {
                 for (const auto& s : sub["shapes"]) {
                     if (!s.is_object()) continue;
@@ -835,7 +847,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
                         sh.cells.push_back(
                             {cl[0].get<double>(), cl[1].get<double>(), orient});
                     }
-                    set.shapes[static_cast<size_t>(idx)] = std::move(sh);
+                    set.shapes.push_back(std::move(sh));
+                    set.shapeLevelIndex.push_back(idx);
                 }
             }
         };
@@ -1114,12 +1127,15 @@ std::string Config::toJson() const {
     // P12：六/三角形状表（cells 原样回吐配置空间值 → 往返无损）。
     const auto tilingSetJ = [](const Config::City::TilingSet& set) {
         Json shapes = Json::array();
-        for (int i = 0; i < static_cast<int>(set.levels.size()); ++i) {
+        for (int s = 0; s < static_cast<int>(set.shapes.size()); ++s) {
             Json cells = Json::array();
-            for (const auto& c : set.shapes[static_cast<size_t>(i)].cells)
+            for (const auto& c : set.shapes[static_cast<size_t>(s)].cells)
                 cells.push_back({c.dx, c.dy, c.orient});
-            shapes.push_back({{"level", set.levels[static_cast<size_t>(i)]},
-                              {"anchorN", set.shapes[static_cast<size_t>(i)].anchorN},
+            const int li = (s < static_cast<int>(set.shapeLevelIndex.size()))
+                               ? set.shapeLevelIndex[static_cast<size_t>(s)]
+                               : 0;
+            shapes.push_back({{"level", set.levels[static_cast<size_t>(li)]},
+                              {"anchorN", set.shapes[static_cast<size_t>(s)].anchorN},
                               {"cells", cells}});
         }
         return Json{{"levels", set.levels}, {"shapes", std::move(shapes)}};
