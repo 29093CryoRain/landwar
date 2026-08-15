@@ -21,6 +21,13 @@ std::string towerPath(int level) {
     return "data/tower/tower" + std::to_string(level) + ".png";
 }
 
+// 城市等级（实数）→ 贴图等级（1..9）。四舍五入；10 级及以上统一用一张贴图
+//（新贴图未就绪前先用 9 级城贴图）。
+int textureLevelFor(double level) {
+    if (level >= 10.0) return 9;
+    return std::clamp(static_cast<int>(std::lround(level)), 1, kTowerCount);
+}
+
 // 首都图标源图路径（P15：data/tower/capital.png，白色前景透明背景，与其他城市贴图同类）。
 std::string capitalPath() { return "data/tower/capital.png"; }
 
@@ -129,8 +136,9 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         return capitalStatus[static_cast<size_t>(c.id)];
     };
     for (const City& c : map.cities()) {
-        // 等级塔/首都图标缩放表按等级索引（1..9）；等级不在 1..9（防御）→ 跳过该城。
-        if (c.level < 1 || c.level > kTowerCount) continue;
+        // 等级塔/首都图标缩放表按贴图等级索引（1..9；实数等级四舍五入，10+ 统一贴图）。
+        const int texLevel = textureLevelFor(c.level);
+        if (texLevel < 1) continue;  // 防御：非法等级
         const int status = statusOf(c);
         const bool isCapital = (status == 1 || status == 2);  // 正式首都 / 候补（都用首都图标）
 
@@ -214,7 +222,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         //   图标宽 = round(fitW×iconScale[level-1])，图标高 = round(图标宽×A)。
         //   **渲染改版（用户定夺 2026-08-08）**：普通城市**随缩放继续缩小**（无下限，仅保 ≥1px）；
         //   正式首都/候补**不随缩放继续缩小**（保底 render.capital.minIconSizePx）。
-        const std::size_t lvi = static_cast<size_t>(c.level - 1);
+        const std::size_t lvi = static_cast<size_t>(texLevel - 1);
         const double cellPx = cam_.cellPx();
         double boxW = static_cast<double>(c.w) * cellPx;
         double boxH = static_cast<double>(c.h) * cellPx;
@@ -233,7 +241,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
                              : std::max(1, static_cast<int>(std::lround(fitW * scale)));
         const int dstH = std::max(1, static_cast<int>(std::lround(static_cast<double>(dstW) * A)));
         // 图标中心 = 基建地块几何中心（2026-08-07 用户要求；移除 offsetY 错开）。
-        const Icon icon{c.level, cam_.toScreenXi(c.centerX()), cam_.toScreenYi(c.centerY()),
+        const Icon icon{texLevel, cam_.toScreenXi(c.centerX()), cam_.toScreenYi(c.centerY()),
                         dstW, dstH, std::clamp(c.ownerId, 0, nColor - 1)};
         if (status == 1)
             f.capitalIcons.push_back(icon);

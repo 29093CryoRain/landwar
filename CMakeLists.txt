@@ -62,6 +62,7 @@ add_library(landwar_core STATIC
     src/world/Faction.cpp
     src/world/Map.cpp
     src/world/MapGenerator.cpp
+    src/world/tiling/CityIconFitter.cpp
     src/world/tiling/Tiling.cpp
     src/sim/Buff.cpp
     src/sim/SpatialHash.cpp
@@ -164,6 +165,7 @@ add_executable(landwar_tests
     tests/test_camera.cpp
     tests/test_capital.cpp
     tests/test_city.cpp
+    tests/test_city_icon_fitter.cpp
     tests/test_city_marker.cpp
     tests/test_city_render.cpp
     tests/test_config.cpp

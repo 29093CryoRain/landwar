@@ -43,8 +43,8 @@ struct TilingGeom {
             case TilingType::Square: return cols * rows;
             case TilingType::Hex: return cols * rows;
             case TilingType::Tri: return 2 * cols * rows;
+            default: return 0;  // 半正/Laves：表驱动实现前暂不可用
         }
-        return 0;
     }
 
     // 世界范围（世界单位；环绕周期 = (worldWidth, worldHeight)）。
@@ -53,8 +53,8 @@ struct TilingGeom {
             case TilingType::Square: return static_cast<double>(cols);
             case TilingType::Hex: return kHexColSpacing * static_cast<double>(cols);
             case TilingType::Tri: return kTriSide * static_cast<double>(cols);
+            default: return 0.0;  // 半正/Laves：表驱动实现前暂不可用
         }
-        return 0.0;
     }
 
     double worldHeight() const {
@@ -62,8 +62,8 @@ struct TilingGeom {
             case TilingType::Square: return static_cast<double>(rows);
             case TilingType::Hex: return kHexRowSpacing * static_cast<double>(rows);
             case TilingType::Tri: return kTriAlt * static_cast<double>(rows);
+            default: return 0.0;  // 半正/Laves：表驱动实现前暂不可用
         }
-        return 0.0;
     }
 
     // 格下标 → 世界中心。
@@ -92,8 +92,8 @@ struct TilingGeom {
             case TilingType::Square: return 4;
             case TilingType::Hex: return 6;
             case TilingType::Tri: return 3;
+            default: return 0;  // 半正/Laves：表驱动实现前暂不可用
         }
-        return 0;
     }
 
     // 第 k 个边邻的原始 (r, c)（不做界内检查；方 = (y, x) 语义，三 = (r, i) 语义）。

@@ -242,7 +242,7 @@ bool Snapshot::deserialize(Simulation& sim, const std::string& json, std::string
             City c;
             c.id = cj[0].get<int>();
             c.ownerId = cj[1].get<int>();
-            c.level = cj[2].get<int>();
+            c.level = cj[2].get<double>();
             c.baseX = cj[3].get<int>();
             c.baseY = cj[4].get<int>();
             c.w = cj[5].get<int>();

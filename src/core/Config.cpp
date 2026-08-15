@@ -648,7 +648,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
         if (cityJson.contains("shapes") && cityJson["shapes"].is_array()) {
             for (const auto& s : cityJson["shapes"]) {
                 if (!s.is_object()) continue;
-                const int lv = getInt(s, "level", -1);
+                const double lv = getNum(s, "level", -1.0);
                 const int idx = cfg.city.square.levelIndex(lv);
                 if (idx < 0) continue;
                 const int w = getInt(s, "w", 1);
@@ -663,38 +663,46 @@ Config Config::loadFromJson(const std::string& jsonText) {
         // P12：六/三角形状表（可选）。hex cells = [dq, dr] 轴向偏移；tri cells = [x, y, o]
         // （x 以 b 计、y 以 h 计、o 朝向 0 正/1 反）。均为**配置空间**值（toJson 原样回吐，
         // 往返无损）；世界转换在 Map 放置时经 TilingGeom 完成。
-        const auto parseTilingSet = [](const Json& sub, Config::City::TilingSet& set, bool tri) {
+        // 2026-08-16：新密铺 cells 也统一为 [dx, dy, orient]（无朝向时 orient=0）。
+        const auto parseTilingSet = [](const Json& sub, Config::City::TilingSet& set) {
             if (sub.contains("levels") && sub["levels"].is_array()) {
                 set.levels.clear();
                 for (const auto& l : sub["levels"])
-                    if (l.is_number_integer()) set.levels.push_back(l.get<int>());
+                    if (l.is_number()) set.levels.push_back(l.get<double>());
             }
             if (sub.contains("shapes") && sub["shapes"].is_array()) {
                 for (const auto& s : sub["shapes"]) {
                     if (!s.is_object()) continue;
-                    const int lv = getInt(s, "level", -1);
+                    const double lv = getNum(s, "level", -1.0);
                     const int idx = set.levelIndex(lv);
                     if (idx < 0 || !s.contains("cells") || !s["cells"].is_array()) continue;
                     Config::City::Shape sh;
                     for (const auto& cl : s["cells"]) {
-                        if (!cl.is_array()) continue;
-                        if (tri) {
-                            if (cl.size() < 3) continue;
-                            sh.cells.push_back({cl[0].get<double>(), cl[1].get<double>(),
-                                                cl[2].get<int>()});
-                        } else {
-                            if (cl.size() < 2) continue;
-                            sh.cells.push_back({cl[0].get<double>(), cl[1].get<double>(), 0});
-                        }
+                        if (!cl.is_array() || cl.size() < 2) continue;
+                        const int orient = (cl.size() >= 3) ? cl[2].get<int>() : 0;
+                        sh.cells.push_back(
+                            {cl[0].get<double>(), cl[1].get<double>(), orient});
                     }
                     set.shapes[static_cast<size_t>(idx)] = std::move(sh);
                 }
             }
         };
         if (cityJson.contains("hex") && cityJson["hex"].is_object())
-            parseTilingSet(cityJson["hex"], cfg.city.hex, false);
+            parseTilingSet(cityJson["hex"], cfg.city.hex);
         if (cityJson.contains("tri") && cityJson["tri"].is_object())
-            parseTilingSet(cityJson["tri"], cfg.city.tri, true);
+            parseTilingSet(cityJson["tri"], cfg.city.tri);
+        // 2026-08-16：半正/Laves 形状表（可选；city.tilings 下按 tilingName 存）。
+        if (cityJson.contains("tilings") && cityJson["tilings"].is_object()) {
+            for (auto it = cityJson["tilings"].begin(); it != cityJson["tilings"].end(); ++it) {
+                const TilingType tt = tilingFromName(it.key());
+                const int idx = static_cast<int>(tt);
+                if (idx < 0 || idx >= kTilingTypeCount) continue;
+                if (tt == TilingType::Square || tt == TilingType::Hex || tt == TilingType::Tri)
+                    continue;  // 具名段已解析，避免重复
+                if (!it.value().is_object()) continue;
+                parseTilingSet(it.value(), cfg.city.sets[static_cast<size_t>(idx)]);
+            }
+        }
     }
 
     // ---- capital（P15 迁都状态机）----
@@ -962,11 +970,19 @@ std::string Config::toJson() const {
         }
         return Json{{"levels", set.levels}, {"shapes", std::move(shapes)}};
     };
+    // 2026-08-16：半正/Laves 形状表统一放 city.tilings.<tilingName>；缺省为空集。
+    Json tilingsJ = Json::object();
+    for (int i = 0; i < kTilingTypeCount; ++i) {
+        const TilingType tt = static_cast<TilingType>(i);
+        if (tt == TilingType::Square || tt == TilingType::Hex || tt == TilingType::Tri) continue;
+        tilingsJ[tilingName(tt)] = tilingSetJ(city.sets[static_cast<size_t>(i)]);
+    }
     j["city"] = {{"levelIncomeExponent", city.levelIncomeExponent},
                  {"levelRankExponent", city.levelRankExponent},
                  {"shapes", std::move(shapesJ)},
                  {"hex", tilingSetJ(city.hex)},
-                 {"tri", tilingSetJ(city.tri)}};
+                 {"tri", tilingSetJ(city.tri)},
+                 {"tilings", std::move(tilingsJ)}};
 
     j["capital"] = {{"relocationDelayTicks", capital.relocationDelayTicks}};
 

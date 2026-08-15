@@ -22,7 +22,7 @@ class Snapshot;  // replay/Snapshot.h：读档需重建网格/首都/城市（Ph
 struct City {
     int id = -1;               // cityId（Map 注册表下标）
     int ownerId = 0;           // 归属势力 id（0 = 中立/未占）
-    int level = 1;             // 等级（按密铺的等级集）
+    double level = 1.0;        // 等级（实数；半正=面积和，Laves/方/六/三=格数）
     int baseX = 0, baseY = 0;  // 锚点坐标（方：(x,y)；六/三：(c,r)；快照序列化）
     int baseIndex = -1;        // 锚点格下标（P12；快照序列化）
     int w = 1, h = 1;          // 形状 AABB 格数（方：w×h 语义不变；六/三：AABB 列/行，显示用）
@@ -120,10 +120,10 @@ public:
     // 等级采样（幂律，思路 9.1）：s = alpha + beta，P(L=1)=1-2^-s; P(L=2)=2^-s-4^-s; ...
     // u = rng.unit()（1 次 RNG）按累计概率定等级。纯函数，公开以便单测各分支。
     // set = 该密铺的等级集（cfg.city.setFor(tiling)）。
-    static int sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set,
-                               Rng& rng);
+    static double sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set,
+                                  Rng& rng);
     // 兼容重载：正方形等级集（旧签名，测试用）。
-    static int sampleCityLevel(const Config::City& cc, Rng& rng) {
+    static double sampleCityLevel(const Config::City& cc, Rng& rng) {
         return sampleCityLevel(cc, cc.square, rng);
     }
     int cityCount() const { return static_cast<int>(cities_.size()); }
@@ -133,21 +133,21 @@ public:
     // P12：城市基建格下标集合（形状 = 锚点 + level 查密铺形状表，经世界偏移解析）。
     std::vector<int> cityCells(const City& c) const;
     // P12：形状 → 基建格下标（level + 锚点格 index；界外格 = -1）。公开供放置/渲染/测试。
-    std::vector<int> shapeCells(int level, int anchorIndex) const;
+    std::vector<int> shapeCells(double level, int anchorIndex) const;
     // P12：城市形状几何中心（世界坐标；= 全部基建格中心平均；方 = baseX+w/2 同旧式）。
     void cityCenter(const City& c, double& wx, double& wy) const;
     // P12：重算全部城市的 baseIndex/AABB/几何中心（快照读档后调用）。
     void recomputeCityGeometry();
     // 注册新城市（锚点格 index，形状由 level + tiling 推导）。占用/陆地/可成城校验由
     // 调用方先行完成（loadFromBmp 经 canPlaceCity；placeCapitals 自身保证）。返回新 cityId。
-    int addCity(int level, int index);
+    int addCity(double level, int index);
     // 兼容重载：正方形 (baseX, baseY) 锚点（旧签名，测试用；等价 index = baseY*width+baseX）。
-    int addCity(int level, int baseX, int baseY) { return addCity(level, baseY * width_ + baseX); }
+    int addCity(double level, int baseX, int baseY) { return addCity(level, baseY * width_ + baseX); }
     // 锚点 (index) 处放置 level 级城的形状占用检查：界内 ∧ 锚点可成城 ∧ 全部基建格
     // 陆地（含山）∧ 无重叠（cityId==-1）。P12：形状不可跨环绕接缝（界内即含此约束）。
-    bool canPlaceCity(int level, int index) const;
+    bool canPlaceCity(double level, int index) const;
     // 兼容重载：正方形 (baseX, baseY) 锚点（旧签名，测试用）。
-    bool canPlaceCity(int level, int baseX, int baseY) const {
+    bool canPlaceCity(double level, int baseX, int baseY) const {
         return canPlaceCity(level, baseY * width_ + baseX);
     }
 

@@ -80,17 +80,51 @@ inline constexpr double kPi = 3.14159265358979323846;
 inline constexpr double kEps = 0.000001;
 
 // 密铺类型（P12 异种地图；类型定义放公共头，几何在 world/tiling/Tiling.h）。
+// 2026-08-16 起扩展：7 种半正（阿基米德）密铺 + 7 种 Laves 密铺（对偶）。
+// 不做 3.3.3.4.4 及其 Laves 对偶五边形，不为其预留编号。
 enum class TilingType : int {
     Square = 0,
     Hex = 1,  // 正六边形（尖顶：顶点在正上下方）
     Tri = 2,  // 正三角形（正向/反向两种朝向）
+    // ---- 半正（阿基米德）密铺 ----
+    Arch33336 = 3,  // 3.3.3.3.6（三角形:六边形 = 8:1）
+    Arch33434 = 4,  // 3.3.4.3.4（三角形:正方形 = 2:1）
+    Arch3464 = 5,   // 3.4.6.4（三角形:正方形:六边形 = 2:3:1）
+    Arch3636 = 6,   // 3.6.3.6（三角形:六边形 = 2:1）
+    Arch31212 = 7,  // 3.12.12（三角形:十二边形 = 2:1）
+    Arch4612 = 8,   // 4.6.12（正方形:六边形:十二边形 = 3:2:1）
+    Arch488 = 9,    // 4.8.8（正方形:八边形 = 1:1）
+    // ---- Laves 密铺（半正密铺的对偶，单种凸多边形面）----
+    Laves3636 = 10,  // 对偶 3.6.3.6：菱形
+    Laves31212 = 11, // 对偶 3.12.12：等腰三角形
+    Laves4612 = 12,  // 对偶 4.6.12：不等边三角形
+    Laves488 = 13,   // 对偶 4.8.8：等腰直角三角形
+    Laves33434 = 14, // 对偶 3.3.4.3.4：五边形
+    Laves33336 = 15, // 对偶 3.3.3.3.6：五边形
+    Laves3464 = 16,  // 对偶 3.4.6.4：筝形（四边形）
 };
+
+inline constexpr int kTilingTypeCount = 17;
 
 inline const char* tilingName(TilingType t) {
     switch (t) {
         case TilingType::Square: return "square";
         case TilingType::Hex: return "hex";
         case TilingType::Tri: return "tri";
+        case TilingType::Arch33336: return "arch_33336";
+        case TilingType::Arch33434: return "arch_33434";
+        case TilingType::Arch3464: return "arch_3464";
+        case TilingType::Arch3636: return "arch_3636";
+        case TilingType::Arch31212: return "arch_31212";
+        case TilingType::Arch4612: return "arch_4612";
+        case TilingType::Arch488: return "arch_488";
+        case TilingType::Laves3636: return "laves_3636";
+        case TilingType::Laves31212: return "laves_31212";
+        case TilingType::Laves4612: return "laves_4612";
+        case TilingType::Laves488: return "laves_488";
+        case TilingType::Laves33434: return "laves_33434";
+        case TilingType::Laves33336: return "laves_33336";
+        case TilingType::Laves3464: return "laves_3464";
     }
     return "square";
 }
@@ -98,6 +132,20 @@ inline const char* tilingName(TilingType t) {
 inline TilingType tilingFromName(const std::string& name) {
     if (name == "hex") return TilingType::Hex;
     if (name == "tri") return TilingType::Tri;
+    if (name == "arch_33336") return TilingType::Arch33336;
+    if (name == "arch_33434") return TilingType::Arch33434;
+    if (name == "arch_3464") return TilingType::Arch3464;
+    if (name == "arch_3636") return TilingType::Arch3636;
+    if (name == "arch_31212") return TilingType::Arch31212;
+    if (name == "arch_4612") return TilingType::Arch4612;
+    if (name == "arch_488") return TilingType::Arch488;
+    if (name == "laves_3636") return TilingType::Laves3636;
+    if (name == "laves_31212") return TilingType::Laves31212;
+    if (name == "laves_4612") return TilingType::Laves4612;
+    if (name == "laves_488") return TilingType::Laves488;
+    if (name == "laves_33434") return TilingType::Laves33434;
+    if (name == "laves_33336") return TilingType::Laves33336;
+    if (name == "laves_3464") return TilingType::Laves3464;
     return TilingType::Square;
 }
 

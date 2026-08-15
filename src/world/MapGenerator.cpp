@@ -501,7 +501,7 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     data.reserve(static_cast<size_t>(10 + cellCount * 3));
     data.insert(data.end(), {'L', 'W', 'M', 'P'});
     data.push_back(1);  // version
-    data.push_back(p.tiling == TilingType::Hex ? 1u : 2u);
+    data.push_back(static_cast<unsigned char>(static_cast<int>(p.tiling)));
     const auto push32 = [&](int v) {
         data.push_back(static_cast<unsigned char>(v & 0xFF));
         data.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));

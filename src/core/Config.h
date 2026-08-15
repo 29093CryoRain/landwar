@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -203,12 +204,15 @@ struct Config {
             std::vector<ShapeCell> cells;  // cells[0] = 锚格（(0,0)）
         };
         // 一个密铺的等级集 + 形状表（shapes[i] ↔ levels[i]）。
+        // 2026-08-16：levels 改 double——半正密铺城市等级 = 面积和（实数）；Laves 等级 = 格数
+        // （整数，按 double 存）。levelIndex 用容差匹配（同一实数的 JSON 往返/采样浮点）。
         struct TilingSet {
-            std::vector<int> levels;
+            std::vector<double> levels;
             std::vector<Shape> shapes;
-            int levelIndex(int level) const {
+            int levelIndex(double level) const {
+                constexpr double kTol = 1e-9;
                 for (int i = 0; i < static_cast<int>(levels.size()); ++i)
-                    if (levels[static_cast<size_t>(i)] == level) return i;
+                    if (std::fabs(levels[static_cast<size_t>(i)] - level) <= kTol) return i;
                 return -1;
             }
         };
@@ -217,22 +221,25 @@ struct Config {
         // beta：等级幂律指数增量（>0，思路默认 0.5）。等级分布 P(L>=n) ∝ n^{-(alpha+beta)}。
         double levelRankExponent = 0.5;
         // 各密铺等级/形状表（默认值内置，JSON 覆盖；square 段兼容旧 {level,w,h} 格式）。
+        // square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]。
         TilingSet square;  // 默认 1/2/4/6/9：1×1 / 1×2 / 2×2 / 2×3 / 3×3
         TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，轴向偏移在 Config.cpp 转世界偏移）
         TilingSet tri;     // 默认 1/2/4/6/8（P12 形状表，世界偏移）
+        std::array<TilingSet, kTilingTypeCount> sets;  // 半正/Laves 的等级形状表（默认空）
         // 默认构造：填充三密铺内置等级/形状表（裸 City{} 即可用，Map::cityConfig_ 等）。
         City();
         // 幂律总指数 s = alpha + beta（P(L>=n) = n^-s）。纯函数。
         double rankExponent() const { return levelIncomeExponent + levelRankExponent; }
         const TilingSet& setFor(TilingType t) const {
             switch (t) {
+                case TilingType::Square: return square;
                 case TilingType::Hex: return hex;
                 case TilingType::Tri: return tri;
-                default: return square;
+                default: return sets[static_cast<size_t>(static_cast<int>(t))];
             }
         }
-        // 等级 → 形状（找不到返回 nullptr）。纯函数。
-        const Shape* shapeFor(TilingType t, int level) const {
+        // 等级 → 形状（找不到返回 nullptr；等级为实数，按容差匹配）。纯函数。
+        const Shape* shapeFor(TilingType t, double level) const {
             const TilingSet& s = setFor(t);
             const int i = s.levelIndex(level);
             return i < 0 ? nullptr : &s.shapes[static_cast<size_t>(i)];

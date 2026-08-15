@@ -44,8 +44,8 @@ double edgeLineAngle(const TilingGeom& g, int k) {
             static const double kA[3] = {0.0, kPi / 3.0, 2.0 * kPi / 3.0};
             return kA[static_cast<size_t>(k % 3)];
         }
+        default: return 0.0;  // TODO 半正/Laves：改为按 cellEdge 反算边线角（逐格）
     }
-    return 0.0;
 }
 
 // 征服格（下标）归势力 factionId；开拓兵同时按规范序征服全部**边邻格**（P12：

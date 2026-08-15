@@ -24,20 +24,20 @@ double rampProb(int channel, const Config::Terrain& t) {
 
 }  // namespace
 
-int Map::sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set, Rng& rng) {
+double Map::sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set, Rng& rng) {
     // P13：等级采样（幂律分布，思路 9.1）。s = alpha + beta（config），
     //   P(L=levels[i]) = levels[i]^{-s} - levels[i+1]^{-s}（末级 = levels[N-1]^{-s}）。
     // u = rng.unit() 按累计概率确定等级（1 次 RNG）。levels 须升序。
-    // P12：等级集按密铺（方 {1,2,4,6,9}、六 {1,3,4,6,7,9}、三 {1,2,4,6,8}）。
-    if (set.levels.empty()) return 1;
+    // 2026-08-16：levels 为 double（半正=面积和；Laves=格数）；最小等级可以不是 1，
+    //   公式对非 1 起点自然成立（条件分布）。
+    if (set.levels.empty()) return 1.0;
     const double s = cc.rankExponent();
     const double u = rng.unit();
     double cum = 0.0;
     for (int i = 0; i < static_cast<int>(set.levels.size()); ++i) {
-        const double cur = std::pow(static_cast<double>(set.levels[static_cast<size_t>(i)]), -s);
+        const double cur = std::pow(set.levels[static_cast<size_t>(i)], -s);
         const double next = (i + 1 < static_cast<int>(set.levels.size()))
-                                ? std::pow(static_cast<double>(set.levels[static_cast<size_t>(i + 1)]),
-                                           -s)
+                                ? std::pow(set.levels[static_cast<size_t>(i + 1)], -s)
                                 : 0.0;
         cum += cur - next;  // P(L=levels[i]) = levels[i]^-s - levels[i+1]^-s
         if (u < cum) return set.levels[static_cast<size_t>(i)];
@@ -163,9 +163,12 @@ bool Map::loadFromLwmap(const std::string& path, Rng& rng) {
         spdlog::error("lwmap file '{}': bad header", path);
         return false;
     }
-    const TilingType fileTiling = (tilingByte == 1)  ? TilingType::Hex
-                                  : (tilingByte == 2) ? TilingType::Tri
-                                                      : TilingType::Square;
+    // P12 旧格式：1=hex、2=tri。2026-08-16 起 tilingByte = TilingType 枚举值（0..16）。
+    TilingType fileTiling = TilingType::Square;
+    if (tilingByte < kTilingTypeCount)
+        fileTiling = static_cast<TilingType>(tilingByte);
+    else
+        fileTiling = TilingType::Square;
     if (fileTiling != geom_.type) {
         spdlog::error("lwmap file '{}': tiling mismatch (file {}, map {})", path,
                       tilingName(fileTiling), tilingName(geom_.type));
@@ -215,11 +218,15 @@ void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
             continue;
         }
         if (rng.chance(rampProb(cc.g, terrain_))) {
-            const int level = sampleCityLevel(cityConfig_, cityConfig_.setFor(geom_.type), rng);
+            const double level = sampleCityLevel(cityConfig_, cityConfig_.setFor(geom_.type), rng);
             if (canPlaceCity(level, idx)) {
                 addCity(level, idx);
-            } else if (canPlaceCity(1, idx)) {
-                addCity(1, idx);  // 放置失败回退 1 级
+            } else {
+                // 放置失败回退到该密铺的最小允许等级（2026-08-16：原硬编码 1 级，
+                // 最小等级 ≠ 1 时 shapeFor(1) 不存在会丢失城市）。
+                const auto& set = cityConfig_.setFor(geom_.type);
+                const double minLevel = set.levels.empty() ? 1.0 : set.levels.front();
+                if (canPlaceCity(minLevel, idx)) addCity(minLevel, idx);
             }
         }
         cell.mountain = rng.chance(rampProb(cc.r, terrain_));
@@ -340,12 +347,15 @@ bool Map::placeCapitals(Rng& rng) {
             break;
         }
     }
-    // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册 1 级城。
+    // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册最小等级城
+    //（2026-08-16：原硬编码 1 级，最小等级 ≠ 1 时应注册该密铺的最小允许等级）。
+    const auto& citySet = cityConfig_.setFor(geom_.type);
+    const double minLevel = citySet.levels.empty() ? 1.0 : citySet.levels.front();
     for (int i = 0; i < kPlayerFactionCount; ++i) {
         const int cx = capitalX_[static_cast<size_t>(i)];
         const int cy = capitalY_[static_cast<size_t>(i)];
         if (cx < 0) continue;  // 放置失败槽位（原语义保留）
-        if (atIndex(cellIndexAt(cx, cy)).cityId < 0) addCity(1, cellIndexAt(cx, cy));
+        if (atIndex(cellIndexAt(cx, cy)).cityId < 0) addCity(minLevel, cellIndexAt(cx, cy));
     }
     return true;
 }
@@ -362,7 +372,7 @@ void Map::finalize() {
 }
 
 // 形状 → 基建格下标（level 查密铺形状表；锚点 index 为形状原点）。P12。
-std::vector<int> Map::shapeCells(int level, int anchorIndex) const {
+std::vector<int> Map::shapeCells(double level, int anchorIndex) const {
     std::vector<int> out;
     const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, level);
     if (!sh || anchorIndex < 0 || anchorIndex >= cellCount()) return out;
@@ -391,15 +401,20 @@ std::vector<int> Map::shapeCells(int level, int anchorIndex) const {
         // 三角：锚朝向决定形状变体（用户 2026-08 定稿：L1/L4 有正/反两种模式，其余同形）。
         // 形状表按"正锚模式"定义；锚为反三角（奇下标）时对 dy 垂直镜像（orient 随之翻转），
         // 偏移点即目标格中心 → worldToCell 稳定解析。六边形（轴向偏移）与锚朝向无关。
+        // 半正/Laves：形状表按"目标格中心 − 锚格中心"的世界偏移存储（平移不变）→ 直接
+        // 加锚中心后 worldToCell。
         const bool anchorUp = (geom_.type == TilingType::Tri) ? ((anchorIndex & 1) == 0) : true;
         for (const auto& sc : sh->cells) {
             double wx, wy;
             if (geom_.type == TilingType::Hex) {
                 wx = ax + TilingGeom::kHexColSpacing * (sc.dx + 0.5 * sc.dy);
                 wy = ay + TilingGeom::kHexRowSpacing * sc.dy;
-            } else {  // Tri
+            } else if (geom_.type == TilingType::Tri) {
                 wx = ax + sc.dx * TilingGeom::kTriSide;
                 wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
+            } else {  // 半正/Laves：世界偏移
+                wx = ax + sc.dx;
+                wy = ay + sc.dy;
             }
             out.push_back(geom_.worldToCell(wx, wy));
         }
@@ -473,7 +488,7 @@ void Map::recomputeCityGeometry() {
     }
 }
 
-int Map::addCity(int level, int index) {
+int Map::addCity(double level, int index) {
     const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, level);
     if (!sh || index < 0 || index >= cellCount()) return -1;
     const int id = static_cast<int>(cities_.size());
@@ -522,7 +537,7 @@ int Map::addCity(int level, int index) {
     return id;
 }
 
-bool Map::canPlaceCity(int level, int index) const {
+bool Map::canPlaceCity(double level, int index) const {
     const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, level);
     if (!sh || sh->cells.empty()) return false;  // 未注册等级 → 拒绝（旧 levelIndex<0 语义）
     if (index < 0 || index >= cellCount()) return false;
