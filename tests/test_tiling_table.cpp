@@ -452,6 +452,46 @@ TEST(TilingTable, Laves31212CityShapesResolveToExpectedCellCountsWithVariants) {
     }
 }
 
+TEST(TilingTable, Laves4612CityShapesResolveToExpectedCellCountsWithVariants) {
+    const Config cfg = Config::loadFromJson("{}");
+    Config::Map mc = cfg.map;
+    mc.tiling = "laves_4612";
+    mc.width = 8;
+    mc.height = 8;
+    Map map;
+    map.configure(mc);
+    map.setCityConfig(cfg.city);
+    const auto& set = cfg.city.sets[static_cast<size_t>(static_cast<int>(TilingType::Laves4612))];
+    ASSERT_EQ(set.levels.size(), 4u);
+    ASSERT_EQ(set.shapes.size(), 6u);  // L4 与 L12 各两个变体
+    for (int s = 0; s < static_cast<int>(set.shapes.size()); ++s) {
+        const double level = set.levels[static_cast<size_t>(set.shapeLevelIndex[static_cast<size_t>(s)])];
+        const int vc = set.variantCount(level);
+        const int anchorN = set.shapes[static_cast<size_t>(s)].anchorN;
+        int anchor = -1;
+        for (int idx = 0; idx < map.cellCount(); ++idx) {
+            if (map.geom().neighborCount(idx) == anchorN) {
+                double cx, cy;
+                map.geom().cellCenter(idx, cx, cy);
+                if (cx > 0.2 * map.worldWidth() && cx < 0.8 * map.worldWidth()
+                    && cy > 0.2 * map.worldHeight() && cy < 0.8 * map.worldHeight()) {
+                    anchor = idx;
+                    break;
+                }
+            }
+        }
+        ASSERT_GE(anchor, 0) << "shape index " << s;
+        const int variant = (vc > 1) ? (std::abs(anchor) % vc) : 0;
+        const int shapeIdx = set.firstShapeIndex(level) + variant;
+        const auto cells = map.shapeCells(level, anchor);
+        int count = 0;
+        for (int c : cells)
+            if (c >= 0) ++count;
+        EXPECT_EQ(count, static_cast<int>(set.shapes[static_cast<size_t>(shapeIdx)].cells.size()))
+            << "shape index " << s << " variant " << variant;
+    }
+}
+
 TEST(TilingTable, ArchRowColRangeConservative) {
     for (TilingType t : kTableTypes) {
         TilingGeom g{t, 5, 4};
