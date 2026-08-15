@@ -54,7 +54,10 @@ TEST(Determinism, BaselineSeed42_20000Ticks_StateHash) {
     // 2026-08-15 三次更新：① 三角城市形状按用户定稿语义重做（正锚模式 + 反锚镜像）→
     // config.toJson() 的 city.tri 形状表序列化变 → 纯 config 序列化变化 → hash 更新
     // （sim 行为不变：land=3139 army=276 与上基线相同）→ 0x230960a67e857bb0。
-    EXPECT_EQ(h, 0x230960a67e857bb0ull)
+    // 2026-08-16 半正/Laves 密铺开发：TilingType 枚举扩展 + city.tilings 通用形状表段 +
+    // Arch/Laves 城市形状表（Arch488/Arch3636/Arch3464/Arch4612/Laves3636/Laves488/
+    // Laves3464 等）→ config 序列化变化 → hash 更新（方 sim 行为不变：land=3139）。
+    EXPECT_EQ(h, 0xa78ddd4bfff797d4ull)
         << "确定性基线漂移！对应 CLI: landwar --headless --seed 42 --ticks 20000 --summary";
     // 顺带锁定终局规模（land=3139 与基线记录一致；army 数随战斗轨迹波动，不锁）。
     EXPECT_EQ(sim.faction(1).landCount + sim.faction(2).landCount + sim.faction(3).landCount +
@@ -77,8 +80,8 @@ TEST(Determinism, BaselineSeed42_20000Ticks_StateHash) {
 //    影响（0x525b2d8fd4be80ab 未变）。
 // → hex/tri hash 更新（hex land=5922、tri land=5866）。
 TEST(Determinism, BaselineHexTri_20000Ticks_StateHash) {
-    EXPECT_EQ(runTiledBaseline(lw::TilingType::Hex), 0x525b2d8fd4be80abull)
+    EXPECT_EQ(runTiledBaseline(lw::TilingType::Hex), 0x9edae28a70f66163ull)
         << "hex 基线漂移！对应 CLI: landwar --headless --tiling hex --seed 42 --ticks 20000 --summary";
-    EXPECT_EQ(runTiledBaseline(lw::TilingType::Tri), 0x43061e47462627e3ull)
+    EXPECT_EQ(runTiledBaseline(lw::TilingType::Tri), 0x2aa9405d076bbc4f)
         << "tri 基线漂移！对应 CLI: landwar --headless --tiling tri --seed 42 --ticks 20000 --summary";
 }
