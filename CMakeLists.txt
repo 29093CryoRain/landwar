@@ -191,6 +191,7 @@ add_executable(landwar_tests
     tests/test_stats.cpp
     tests/test_tech.cpp
     tests/test_tiling.cpp
+    tests/test_tiling_table.cpp
     tests/test_tint.cpp
     tests/test_wrapdraw.cpp)
 target_include_directories(landwar_tests PRIVATE src)

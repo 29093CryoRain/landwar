@@ -3,6 +3,12 @@
 #include "world/tiling/Tiling.h"
 
 #include <algorithm>
+#include <array>
+#include <fstream>
+#include <vector>
+
+#include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
 namespace lw {
 
@@ -23,6 +29,212 @@ double raySegHit(double px, double py, double dx, double dy, double ax, double a
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// 表驱动半正/Laves 密铺几何。
+// 数据文件 data/tiling_specs_arch.json 由 tools/export_arch_specs.py 生成，
+// 目前包含 5 种阿基米德密铺的基础域（3.3.4.3.4 与 3.3.3.3.6 待补）。
+// 基础域 = 周期平行四边形 W=(wx,0)、H=(hx,hy)；B 个基础格在域内按格下标
+//   idx = (r*cols + c)*B + b 平移复制：center = base[b].center + c*W + r*H。
+// 邻接在首次加载时按"某基础格的边经 ±dr,±dc 平移后与另一基础格的边反向重合"求得。
+// ---------------------------------------------------------------------------
+struct TilingTable {
+    double wx = 0.0, hx = 0.0, hy = 0.0;  // W=(wx,0)、H=(hx,hy)
+    double rx = 0.0, ry = 0.0;            // 基础格多边形相对中心的 AABB 半径（保守）
+    struct Edge {
+        int nb = -1;   // 邻格基础格下标
+        int dr = 0;    // 邻格所在行偏移
+        int dc = 0;    // 邻格所在列偏移
+    };
+    struct Cell {
+        int n = 0;
+        double cx = 0.0, cy = 0.0;
+        std::vector<std::array<double, 2>> v;  // 逆时针顶点（与边序一致）
+        std::vector<Edge> edges;               // 与 v[i]→v[i+1] 同序
+    };
+    std::vector<Cell> cells;
+};
+
+namespace {
+
+constexpr double kTableTol = 1e-6;
+
+bool isTableType(TilingType t) {
+    return static_cast<int>(t) > static_cast<int>(TilingType::Tri);
+}
+
+double dist2(const std::array<double, 2>& a, const std::array<double, 2>& b) {
+    const double dx = a[0] - b[0], dy = a[1] - b[1];
+    return dx * dx + dy * dy;
+}
+
+bool samePoint(const std::array<double, 2>& a, const std::array<double, 2>& b) {
+    return dist2(a, b) <= kTableTol * kTableTol;
+}
+
+int pointInConvex(const std::vector<std::array<double, 2>>& poly, double x, double y) {
+    const int n = static_cast<int>(poly.size());
+    if (n < 3) return 0;
+    int sign = 0;
+    for (int i = 0; i < n; ++i) {
+        const auto& a = poly[static_cast<size_t>(i)];
+        const auto& b = poly[static_cast<size_t>((i + 1) % n)];
+        const double cross = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
+        if (std::fabs(cross) <= kTableTol) continue;
+        const int s = cross > 0.0 ? 1 : -1;
+        if (sign == 0) sign = s;
+        else if (sign != s) return 0;
+    }
+    return 1;
+}
+
+std::shared_ptr<const TilingTable> loadTable(TilingType t) {
+    const char* name = tilingName(t);
+    std::ifstream ifs("data/tiling_specs_arch.json");
+    if (!ifs.is_open()) {
+        spdlog::error("TilingTable: data/tiling_specs_arch.json not found");
+        return nullptr;
+    }
+    nlohmann::json root;
+    try {
+        ifs >> root;
+    } catch (const std::exception& e) {
+        spdlog::error("TilingTable: JSON parse failed: {}", e.what());
+        return nullptr;
+    }
+    if (!root.contains(name)) {
+        spdlog::warn("TilingTable: no spec for '{}'", name);
+        return nullptr;
+    }
+    const auto& j = root[name];
+    auto tab = std::make_shared<TilingTable>();
+    tab->wx = j["W"][0].get<double>();
+    tab->hx = j["H"][0].get<double>();
+    tab->hy = j["H"][1].get<double>();
+    for (const auto& jc : j["cells"]) {
+        TilingTable::Cell c;
+        c.n = jc["n"].get<int>();
+        c.cx = jc["cx"].get<double>();
+        c.cy = jc["cy"].get<double>();
+        for (const auto& jv : jc["v"])
+            c.v.push_back({jv[0].get<double>(), jv[1].get<double>()});
+        c.edges.resize(static_cast<size_t>(c.n));
+        tab->cells.push_back(std::move(c));
+    }
+    // 保守 AABB 半径（相对格中心）。
+    for (const auto& c : tab->cells) {
+        for (const auto& p : c.v) {
+            tab->rx = std::max(tab->rx, std::fabs(p[0] - c.cx));
+            tab->ry = std::max(tab->ry, std::fabs(p[1] - c.cy));
+        }
+    }
+    // 建立邻接：每个基础格的每条边，找 ±dr,±dc 平移后与另一基础格反向重合的边。
+    const int B = static_cast<int>(tab->cells.size());
+    for (int b = 0; b < B; ++b) {
+        TilingTable::Cell& cell = tab->cells[static_cast<size_t>(b)];
+        for (int k = 0; k < cell.n; ++k) {
+            const std::array<double, 2> A = cell.v[static_cast<size_t>(k)];
+            const std::array<double, 2> Bv = cell.v[static_cast<size_t>((k + 1) % cell.n)];
+            bool found = false;
+            for (int dr = -2; dr <= 2 && !found; ++dr) {
+                for (int dc = -2; dc <= 2 && !found; ++dc) {
+                    const double ox = static_cast<double>(dc) * tab->wx + static_cast<double>(dr) * tab->hx;
+                    const double oy = static_cast<double>(dr) * tab->hy;
+                    for (int nb = 0; nb < B && !found; ++nb) {
+                        const auto& ocell = tab->cells[static_cast<size_t>(nb)];
+                        for (int kk = 0; kk < ocell.n; ++kk) {
+                            std::array<double, 2> n0 = {ocell.v[static_cast<size_t>(kk)][0] + ox,
+                                                         ocell.v[static_cast<size_t>(kk)][1] + oy};
+                            std::array<double, 2> n1 = {ocell.v[static_cast<size_t>((kk + 1) % ocell.n)][0] + ox,
+                                                         ocell.v[static_cast<size_t>((kk + 1) % ocell.n)][1] + oy};
+                            if (samePoint(n0, Bv) && samePoint(n1, A)) {
+                                cell.edges[static_cast<size_t>(k)] = {nb, dr, dc};
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!found)
+                spdlog::warn("TilingTable: no neighbor for {} base {} edge {}", name, b, k);
+        }
+    }
+    return tab;
+}
+
+}  // namespace
+
+void TilingGeom::ensureTable() const {
+    if (!isTableType(type) || table_) return;
+    table_ = loadTable(type);
+}
+
+int TilingGeom::cellCount() const {
+    switch (type) {
+        case TilingType::Square: return cols * rows;
+        case TilingType::Hex: return cols * rows;
+        case TilingType::Tri: return 2 * cols * rows;
+        default: {
+            ensureTable();
+            if (!table_) return 0;
+            return static_cast<int>(table_->cells.size()) * cols * rows;
+        }
+    }
+}
+
+double TilingGeom::worldWidth() const {
+    switch (type) {
+        case TilingType::Square: return static_cast<double>(cols);
+        case TilingType::Hex: return kHexColSpacing * static_cast<double>(cols);
+        case TilingType::Tri: return kTriSide * static_cast<double>(cols);
+        default: {
+            ensureTable();
+            return table_ ? table_->wx * static_cast<double>(cols) : 0.0;
+        }
+    }
+}
+
+double TilingGeom::worldHeight() const {
+    switch (type) {
+        case TilingType::Square: return static_cast<double>(rows);
+        case TilingType::Hex: return kHexRowSpacing * static_cast<double>(rows);
+        case TilingType::Tri: return kTriAlt * static_cast<double>(rows);
+        default: {
+            ensureTable();
+            return table_ ? table_->hy * static_cast<double>(rows) : 0.0;
+        }
+    }
+}
+
+int TilingGeom::neighborCount() const {
+    switch (type) {
+        case TilingType::Square: return 4;
+        case TilingType::Hex: return 6;
+        case TilingType::Tri: return 3;
+        default: {
+            ensureTable();
+            // 表驱动类型各格边数不同；此处返回基础格中最大边数供旧式循环兜底。
+            int m = 0;
+            if (table_) for (const auto& c : table_->cells) m = std::max(m, c.n);
+            return m;
+        }
+    }
+}
+
+int TilingGeom::neighborCount(int index) const {
+    switch (type) {
+        case TilingType::Square: return 4;
+        case TilingType::Hex: return 6;
+        case TilingType::Tri: return 3;
+        default: {
+            ensureTable();
+            if (!table_ || index < 0 || index >= cellCount()) return 0;
+            const int B = static_cast<int>(table_->cells.size());
+            return table_->cells[static_cast<size_t>(index % B)].n;
+        }
+    }
+}
 
 void TilingGeom::cellCenter(int index, double& wx, double& wy) const {
     switch (type) {
@@ -49,6 +261,19 @@ void TilingGeom::cellCenter(int index, double& wx, double& wy) const {
             const double y0 = kTriAlt * static_cast<double>(r);
             wx = xLeft + 0.5 * kTriSide;
             wy = y0 + (o == 0 ? kTriAlt / 3.0 : 2.0 * kTriAlt / 3.0);
+            return;
+        }
+        default: {
+            ensureTable();
+            if (!table_) break;
+            const int B = static_cast<int>(table_->cells.size());
+            const int b = index % B;
+            const int rc = index / B;
+            const int r = rc / cols;
+            const int c = rc % cols;
+            const auto& cell = table_->cells[static_cast<size_t>(b)];
+            wx = cell.cx + static_cast<double>(c) * table_->wx + static_cast<double>(r) * table_->hx;
+            wy = cell.cy + static_cast<double>(r) * table_->hy;
             return;
         }
     }
@@ -84,8 +309,23 @@ int TilingGeom::cellPolygon(int index, double* wx, double* wy, int maxVerts) con
             }
             return 3;
         }
-        default:
-            return 0;  // 方形走 cellRect，不用多边形
+        default: {
+            ensureTable();
+            if (!table_) return 0;
+            const int B = static_cast<int>(table_->cells.size());
+            const int b = index % B;
+            const int rc = index / B;
+            const int r = rc / cols;
+            const int c = rc % cols;
+            const auto& cell = table_->cells[static_cast<size_t>(b)];
+            if (cell.n > maxVerts) return 0;
+            for (int i = 0; i < cell.n; ++i) {
+                wx[i] = cell.v[static_cast<size_t>(i)][0] + static_cast<double>(c) * table_->wx
+                        + static_cast<double>(r) * table_->hx;
+                wy[i] = cell.v[static_cast<size_t>(i)][1] + static_cast<double>(r) * table_->hy;
+            }
+            return cell.n;
+        }
     }
 }
 
@@ -95,8 +335,8 @@ int TilingGeom::cellPolygon(int index, double* wx, double* wy, int maxVerts) con
 //   三正（v0=底左、v1=底右、v2=顶）：k0=底(v0,v1)、k1=左斜(v0,v2)、k2=右斜(v2,v1)；
 //   三反（v0=下尖、v1=底左、v2=底右）：k0=顶(v1,v2)、k1=右斜(v2,v0)、k2=左斜(v0,v1)。
 bool TilingGeom::cellEdge(int index, int k, double& x0, double& y0, double& x1, double& y1) const {
-    double vx[6], vy[6];
-    const int n = cellPolygon(index, vx, vy, 6);
+    double vx[12], vy[12];
+    const int n = cellPolygon(index, vx, vy, 12);
     if (n < 3 || k < 0 || k >= n) return false;
     if (type == TilingType::Hex) {
         static const int kE0[6] = {1, 0, 5, 4, 3, 2};
@@ -105,20 +345,26 @@ bool TilingGeom::cellEdge(int index, int k, double& x0, double& y0, double& x1, 
         x1 = vx[kE1[k]]; y1 = vy[kE1[k]];
         return true;
     }
-    const bool up = (index & 1) == 0;
-    if (k == 0) {  // 正：底边 (v0,v1)；反：顶边 (v1,v2)
-        x0 = vx[up ? 0 : 1]; y0 = vy[up ? 0 : 1];
-        x1 = vx[up ? 1 : 2]; y1 = vy[up ? 1 : 2];
+    if (type == TilingType::Tri) {
+        const bool up = (index & 1) == 0;
+        if (k == 0) {  // 正：底边 (v0,v1)；反：顶边 (v1,v2)
+            x0 = vx[up ? 0 : 1]; y0 = vy[up ? 0 : 1];
+            x1 = vx[up ? 1 : 2]; y1 = vy[up ? 1 : 2];
+            return true;
+        }
+        if (k == 1) {  // 正：左斜 (v0,v2)；反：右斜 (v2,v0)
+            x0 = vx[up ? 0 : 2]; y0 = vy[up ? 0 : 2];
+            x1 = vx[up ? 2 : 0]; y1 = vy[up ? 2 : 0];
+            return true;
+        }
+        // k == 2：正：右斜 (v2,v1)；反：左斜 (v0,v1)
+        x0 = vx[up ? 2 : 0]; y0 = vy[up ? 2 : 0];
+        x1 = vx[up ? 1 : 1]; y1 = vy[up ? 1 : 1];
         return true;
     }
-    if (k == 1) {  // 正：左斜 (v0,v2)；反：右斜 (v2,v0)
-        x0 = vx[up ? 0 : 2]; y0 = vy[up ? 0 : 2];
-        x1 = vx[up ? 2 : 0]; y1 = vy[up ? 2 : 0];
-        return true;
-    }
-    // k == 2：正：右斜 (v2,v1)；反：左斜 (v0,v1)
-    x0 = vx[up ? 2 : 0]; y0 = vy[up ? 2 : 0];
-    x1 = vx[up ? 1 : 1]; y1 = vy[up ? 1 : 1];
+    // 表驱动：边 k 与多边形顶点序一致。
+    x0 = vx[k]; y0 = vy[k];
+    x1 = vx[(k + 1) % n]; y1 = vy[(k + 1) % n];
     return true;
 }
 
@@ -195,6 +441,42 @@ int TilingGeom::worldToCell(double wx, double wy) const {
             }
             return -1;
         }
+        default: {
+            ensureTable();
+            if (!table_) return -1;
+            if (wx < -table_->rx || wx > worldWidth() + table_->rx || wy < -table_->ry
+                || wy > worldHeight() + table_->ry)
+                return -1;
+            const int B = static_cast<int>(table_->cells.size());
+            // 对每个基础格 b 解 p - center_b = c*W + r*H，取最近整数行列，再 ±1 邻域
+            // 验证点是否落在平移后的基础多边形内。扫描序固定：b 升序，r 邻域 -1..1，
+            // c 邻域 -1..1（含候选 c0,c0±1）。
+            for (int b = 0; b < B; ++b) {
+                const auto& cell = table_->cells[static_cast<size_t>(b)];
+                const double px = wx - cell.cx, py = wy - cell.cy;
+                const double c0f = px / table_->wx - (table_->hx / table_->wx) * (py / table_->hy);
+                const double r0f = py / table_->hy;
+                const int c0 = static_cast<int>(std::lround(c0f));
+                const int r0 = static_cast<int>(std::lround(r0f));
+                for (int dr = -1; dr <= 1; ++dr) {
+                    const int r = r0 + dr;
+                    if (r < 0 || r >= rows) continue;
+                    for (int dc = -1; dc <= 1; ++dc) {
+                        const int c = c0 + dc;
+                        if (c < 0 || c >= cols) continue;
+                        const double ox = static_cast<double>(c) * table_->wx + static_cast<double>(r) * table_->hx;
+                        const double oy = static_cast<double>(r) * table_->hy;
+                        std::vector<std::array<double, 2>> poly;
+                        poly.reserve(cell.v.size());
+                        for (const auto& p : cell.v)
+                            poly.push_back({p[0] + ox, p[1] + oy});
+                        if (pointInConvex(poly, wx, wy))
+                            return (r * cols + c) * B + b;
+                    }
+                }
+            }
+            return -1;
+        }
     }
     return -1;
 }
@@ -212,6 +494,16 @@ void TilingGeom::rowRange(double y0, double y1, int& r0, int& r1) const {
         case TilingType::Tri:
             r0 = static_cast<int>(std::floor(y0 / kTriAlt)) - 1;
             r1 = static_cast<int>(std::floor(y1 / kTriAlt)) + 1;
+            break;
+        default:
+            ensureTable();
+            if (table_) {
+                r0 = static_cast<int>(std::floor((y0 - table_->ry) / table_->hy)) - 1;
+                r1 = static_cast<int>(std::ceil((y1 + table_->ry) / table_->hy)) + 1;
+            } else {
+                r0 = 0;
+                r1 = rows - 1;
+            }
             break;
     }
     r0 = std::clamp(r0, 0, std::max(0, rows - 1));
@@ -236,6 +528,17 @@ void TilingGeom::colRange(double x0, double x1, int r, int& c0, int& c1) const {
             c1 = static_cast<int>(std::floor(x1 / kTriSide)) + 1;
             break;
         }
+        default:
+            ensureTable();
+            if (table_) {
+                const double baseX = static_cast<double>(r) * table_->hx;
+                c0 = static_cast<int>(std::floor((x0 - baseX - table_->rx) / table_->wx)) - 1;
+                c1 = static_cast<int>(std::ceil((x1 - baseX + table_->rx) / table_->wx)) + 1;
+            } else {
+                c0 = 0;
+                c1 = cols - 1;
+            }
+            break;
     }
     c0 = std::clamp(c0, 0, std::max(0, cols - 1));
     c1 = std::clamp(c1, 0, std::max(0, cols - 1));
@@ -286,12 +589,27 @@ void TilingGeom::neighborRaw(int index, int k, int& r, int& c) const {
                 }
             }
         }
+        default: {
+            ensureTable();
+            if (!table_) break;
+            const int B = static_cast<int>(table_->cells.size());
+            const int b = index % B;
+            const int rc = index / B;
+            const int rr = rc / cols;
+            const int cc = rc % cols;
+            const auto& cell = table_->cells[static_cast<size_t>(b)];
+            if (k < 0 || k >= cell.n) break;
+            const auto& e = cell.edges[static_cast<size_t>(k)];
+            r = rr + e.dr;
+            c = cc + e.dc;
+            return;
+        }
     }
     r = c = -1;
 }
 
 int TilingGeom::neighbor(int index, int k) const {
-    if (index < 0 || k < 0 || k >= neighborCount()) return -1;
+    if (index < 0 || k < 0 || k >= neighborCount(index)) return -1;
     if (type == TilingType::Tri) {
         const int pair = index >> 1;
         const int o = index & 1;
@@ -317,6 +635,15 @@ int TilingGeom::neighbor(int index, int k) const {
     int r, c;
     neighborRaw(index, k, r, c);
     if (r < 0 || r >= rows || c < 0 || c >= cols) return -1;
+    if (isTableType(type)) {
+        ensureTable();
+        if (!table_) return -1;
+        const int B = static_cast<int>(table_->cells.size());
+        const int b = index % B;
+        const auto& cell = table_->cells[static_cast<size_t>(b)];
+        if (k < 0 || k >= cell.n) return -1;
+        return (r * cols + c) * B + cell.edges[static_cast<size_t>(k)].nb;
+    }
     return r * cols + c;
 }
 
@@ -380,8 +707,17 @@ int TilingGeom::crossEdge(int index, double& x, double& y, double angle, double&
             }
             break;
         }
-        default:
-            return -1;  // 方形走 math::findNextXY，不进入本函数
+        default: {
+            ensureTable();
+            if (!table_) return -1;
+            const int n = neighborCount(index);
+            for (int k = 0; k < n; ++k) {
+                double ax, ay, bx, by;
+                if (cellEdge(index, k, ax, ay, bx, by))
+                    testEdge(ax, ay, bx, by, k);
+            }
+            break;
+        }
     }
 
     if (bestK < 0) return -1;  // 无前向边命中（位置贴边/界外 → 调用方 nudge 重定位）

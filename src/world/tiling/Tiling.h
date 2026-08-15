@@ -20,16 +20,21 @@
 
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "core/GameDefs.h"
 
 namespace lw {
 
+struct TilingTable;
+
 struct TilingGeom {
     TilingType type = TilingType::Square;
     int cols = 0;  // 列数（方 = width；六 = 每行列数；三 = 每行格对数）
     int rows = 0;  // 行数（六/三须为偶数——环绕闭合，见 P12 §2）
+    // 半正/Laves 表驱动数据（惰性加载；Square/Hex/Tri 恒空）。
+    mutable std::shared_ptr<const TilingTable> table_;
 
     // 面积相等边长（世界单位，固定推导值，不落 config）。
     static constexpr double kHexSide = 0.6204032394013997;    // √(2/(3√3))
@@ -38,33 +43,12 @@ struct TilingGeom {
     static constexpr double kHexRowSpacing = 1.5 * kHexSide;  // 行距（y）
     static constexpr double kHexColSpacing = 1.7320508075688772 * kHexSide;  // √3a（列中心距）
 
-    int cellCount() const {
-        switch (type) {
-            case TilingType::Square: return cols * rows;
-            case TilingType::Hex: return cols * rows;
-            case TilingType::Tri: return 2 * cols * rows;
-            default: return 0;  // 半正/Laves：表驱动实现前暂不可用
-        }
-    }
+    int cellCount() const;
 
     // 世界范围（世界单位；环绕周期 = (worldWidth, worldHeight)）。
-    double worldWidth() const {
-        switch (type) {
-            case TilingType::Square: return static_cast<double>(cols);
-            case TilingType::Hex: return kHexColSpacing * static_cast<double>(cols);
-            case TilingType::Tri: return kTriSide * static_cast<double>(cols);
-            default: return 0.0;  // 半正/Laves：表驱动实现前暂不可用
-        }
-    }
+    double worldWidth() const;
 
-    double worldHeight() const {
-        switch (type) {
-            case TilingType::Square: return static_cast<double>(rows);
-            case TilingType::Hex: return kHexRowSpacing * static_cast<double>(rows);
-            case TilingType::Tri: return kTriAlt * static_cast<double>(rows);
-            default: return 0.0;  // 半正/Laves：表驱动实现前暂不可用
-        }
-    }
+    double worldHeight() const;
 
     // 格下标 → 世界中心。
     void cellCenter(int index, double& wx, double& wy) const;
@@ -86,15 +70,10 @@ struct TilingGeom {
     // 世界 x 范围在给定行的列范围（含越界 ±1；clamp 到 [0, cols)）。
     void colRange(double x0, double x1, int r, int& c0, int& c1) const;
 
-    // 边邻数（方 4 / 六 6 / 三 3）。
-    int neighborCount() const {
-        switch (type) {
-            case TilingType::Square: return 4;
-            case TilingType::Hex: return 6;
-            case TilingType::Tri: return 3;
-            default: return 0;  // 半正/Laves：表驱动实现前暂不可用
-        }
-    }
+    // 边邻数（方 4 / 六 6 / 三 3）。表驱动类型可能逐格不同，请用 neighborCount(index)。
+    int neighborCount() const;
+    // 第 index 格的边邻数（方 4 / 六 6 / 三 3 / 表驱动 = 该格边数）。
+    int neighborCount(int index) const;
 
     // 第 k 个边邻的原始 (r, c)（不做界内检查；方 = (y, x) 语义，三 = (r, i) 语义）。
     void neighborRaw(int index, int k, int& r, int& c) const;
@@ -111,6 +90,9 @@ struct TilingGeom {
     //   取哪条边都会进错格，故直接穿顶点）。
     // 更新 (x,y)、remLength。RNG 0 次。
     int crossEdge(int index, double& x, double& y, double angle, double& remLength) const;
+
+private:
+    void ensureTable() const;
 };
 
 }  // namespace lw
