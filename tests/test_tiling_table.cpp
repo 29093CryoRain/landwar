@@ -2,8 +2,11 @@
 // 覆盖：格数、世界尺寸、中心→worldToCell 往返、邻接对称/边界、cellPolygon/cellEdge 一致性。
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "core/Config.h"
@@ -490,6 +493,74 @@ TEST(TilingTable, Laves4612CityShapesResolveToExpectedCellCountsWithVariants) {
         EXPECT_EQ(count, static_cast<int>(set.shapes[static_cast<size_t>(shapeIdx)].cells.size()))
             << "shape index " << s << " variant " << variant;
     }
+}
+
+TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
+    const TilingType types[10] = {
+        TilingType::Arch3464,  TilingType::Arch3636,  TilingType::Arch31212,
+        TilingType::Arch4612,  TilingType::Arch488,   TilingType::Laves3464,
+        TilingType::Laves3636, TilingType::Laves31212, TilingType::Laves4612,
+        TilingType::Laves488};
+    const Config cfg = Config::loadFromJson("{}");
+    for (TilingType t : types) {
+        const int B = std::max(1, TilingGeom{t, 1, 1}.baseCount());
+        const int width = ((64 + B - 1) / B) * B;  // 长为 B 的倍数且 ≥64
+        const int height = 32;
+        MapGenParams gp{width, height, 0.3, 0.1, 0.08, false, t};
+        const std::string path = "userdata/maps/utest_all10_" + std::string(tilingName(t)) + ".lwmap";
+        ASSERT_TRUE(MapGenerator::generate(path, 42, gp)) << tilingName(t);
+        Config::Map mc = cfg.map;
+        mc.tiling = tilingName(t);
+        mc.width = width;
+        mc.height = height;
+        mc.file = path;
+        Map map;
+        map.configure(mc);
+        map.setTerrain(cfg.terrain);
+        map.setCityConfig(cfg.city);
+        Rng rng(42);
+        ASSERT_TRUE(map.loadFromLwmap(path, rng)) << tilingName(t);
+        ASSERT_TRUE(map.placeCapitals(rng)) << tilingName(t);
+        map.finalize();
+        EXPECT_EQ(map.cellCount(), width * height) << tilingName(t);  // 长*宽 = 总格数
+        EXPECT_GT(map.cityCount(), 0) << tilingName(t);
+        std::set<int> texLevels;
+        for (const auto& c : map.cities()) {
+            int tl = (c.level >= 10.0)
+                         ? 10
+                         : std::clamp(static_cast<int>(std::lround(c.level)), 1, 10);
+            texLevels.insert(tl);
+        }
+        EXPECT_GE(texLevels.size(), 2u)
+            << tilingName(t) << " has only " << texLevels.size() << " distinct city levels";
+    }
+}
+
+TEST(TilingTable, Arch488GeneratedCitiesHaveMultipleTextureLevels) {
+    const Config cfg = Config::loadFromJson("{}");
+    MapGenParams gp{64, 32, 0.3, 0.1, 0.08, false, TilingType::Arch488};
+    const std::string path = "userdata/maps/utest_arch488_levels.lwmap";
+    ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
+    Config::Map mc = cfg.map;
+    mc.tiling = "arch_488";
+    mc.width = 64;
+    mc.height = 32;
+    mc.file = path;
+    Map map;
+    map.configure(mc);
+    map.setTerrain(cfg.terrain);
+    map.setCityConfig(cfg.city);
+    Rng rng(42);
+    ASSERT_TRUE(map.loadFromLwmap(path, rng));
+    ASSERT_TRUE(map.placeCapitals(rng));
+    map.finalize();
+    std::set<int> texLevels;
+    for (const auto& c : map.cities()) {
+        int tl = (c.level >= 10.0) ? 10
+                                   : std::clamp(static_cast<int>(std::lround(c.level)), 1, 10);
+        texLevels.insert(tl);
+    }
+    EXPECT_GE(texLevels.size(), 2u) << "distinct texture levels: " << texLevels.size();
 }
 
 TEST(TilingTable, ArchRowColRangeConservative) {
