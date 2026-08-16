@@ -290,33 +290,18 @@ static bool generateSquare(const std::string& path, std::uint32_t seed, const Ma
     for (size_t k = 0; k < nPlateau && k < orderH.size(); ++k) isMountain[orderH[k]] = true;
     for (size_t k = 0; k < nRange && k < orderG.size(); ++k) isMountain[orderG[k]] = true;
 
-    // ④ 城（地形作用：沿海/低地密集、山顶几乎不建城）：
-    //    权重 = 沿海×2 × 山顶×0.15 × 低地偏好(1.3 - 0.6·hNorm)，归一化到期望 Σp = cityDensity×陆格数。
+    // ④ 城：取消沿海/海拔偏好；保留山地惩罚 ×0.3。
     size_t landCount = 0;
-    double maxLandH = threshold;
-    for (size_t idx = 0; idx < land.size(); ++idx) {
-        if (!land[idx]) continue;
-        ++landCount;
-        maxLandH = std::max(maxLandH, height[idx]);
-    }
-    const double hSpan = std::max(1e-9, maxLandH - threshold);
     std::vector<double> cityWeight(land.size(), 0.0);
     double cityWeightSum = 0.0;
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const size_t idx = static_cast<size_t>(y) * w + x;
             if (!land[idx]) continue;
-            double wgt = 1.0;
-            if (adjacentSea(x, y)) wgt *= 2.0;  // 沿海城市偏好
-            if (isMountain[idx]) {
-                wgt *= 0.15;                    // 山顶不建城
-            } else {
-                const double hNorm =
-                    std::clamp((height[idx] - threshold) / hSpan, 0.0, 1.0);
-                wgt *= (1.3 - 0.6 * hNorm);     // 低地偏好（高海拔陆格权重更低）
-            }
+            const double wgt = isMountain[idx] ? p.cityMountainWeight : 1.0;  // 山地降低城市率
             cityWeight[idx] = wgt;
             cityWeightSum += wgt;
+            ++landCount;
         }
     }
 
@@ -458,12 +443,10 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
         return false;
     };
     std::vector<size_t> orderH, orderG;
-    size_t eligibleCount = 0;
     for (int idx = 0; idx < cellCount; ++idx)
         if (land[static_cast<size_t>(idx)] && !adjacentSea(idx)) {
             orderH.push_back(static_cast<size_t>(idx));
             orderG.push_back(static_cast<size_t>(idx));
-            ++eligibleCount;
         }
     std::sort(orderH.begin(), orderH.end(), [&](size_t a, size_t b) {
         if (height[a] != height[b]) return height[a] > height[b];
@@ -481,30 +464,16 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     for (size_t kk = 0; kk < nPlateau && kk < orderH.size(); ++kk) isMountain[orderH[kk]] = true;
     for (size_t kk = 0; kk < nRange && kk < orderG.size(); ++kk) isMountain[orderG[kk]] = true;
 
-    // ④ 城权重（沿海×2 × 山顶×0.15 × 低地偏好），归一化到期望 Σp = cityDensity×陆格数。
+    // ④ 城：取消沿海/海拔偏好；保留山地惩罚 ×0.3。
     size_t landCount = 0;
-    double maxLandH = threshold;
-    for (size_t idx = 0; idx < land.size(); ++idx) {
-        if (!land[idx]) continue;
-        ++landCount;
-        maxLandH = std::max(maxLandH, height[idx]);
-    }
-    const double hSpan = std::max(1e-9, maxLandH - threshold);
     std::vector<double> cityWeight(land.size(), 0.0);
     double cityWeightSum = 0.0;
     for (int idx = 0; idx < cellCount; ++idx) {
         if (!land[static_cast<size_t>(idx)]) continue;
-        double wgt = 1.0;
-        if (adjacentSea(idx)) wgt *= 2.0;
-        if (isMountain[static_cast<size_t>(idx)]) {
-            wgt *= 0.15;
-        } else {
-            const double hNorm = std::clamp(
-                (height[static_cast<size_t>(idx)] - threshold) / hSpan, 0.0, 1.0);
-            wgt *= (1.3 - 0.6 * hNorm);
-        }
+        const double wgt = isMountain[static_cast<size_t>(idx)] ? p.cityMountainWeight : 1.0;
         cityWeight[static_cast<size_t>(idx)] = wgt;
         cityWeightSum += wgt;
+        ++landCount;
     }
 
     // ⑤ 编码 → 写 lwmap（magic "LWMP" + ver1 + tiling + cols + rows + 逐格 BGR 通道）。

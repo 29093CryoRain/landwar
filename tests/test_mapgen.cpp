@@ -102,7 +102,7 @@ CoastStats coastStats(const lw::Map& map) {
 
 TEST(MapGen, ForceCoastAtZeroSeaIsExactlyRing) {
     // 陆地占比 100%（seaRatio=0）+ 强制边缘为海 → 只有最外一圈为海。
-    const lw::MapGenParams p{48, 40, 0.0, 0.05, 0.02, true};
+    const lw::MapGenParams p{48, 40, 0.0, 0.05, 0.02, 0.3, true};
     const lw::Map map = loadGenerated(42, p, "build/_gen_coast0.bmp");
     const CoastStats s = coastStats(map);
     EXPECT_EQ(s.ringSea, s.ring) << "最外一圈必须全海";
@@ -121,7 +121,7 @@ TEST(MapGen, ForceCoastAtZeroSeaIsExactlyRing) {
 
 TEST(MapGen, ForceCoastWithoutZeroKeepsRingAndRatio) {
     // 有海占比 + 强制边缘为海 → 最外一圈必海、海陆比仍符合参数。
-    const lw::MapGenParams p{105, 95, 0.30, 0.08, 0.04, true};
+    const lw::MapGenParams p{105, 95, 0.30, 0.08, 0.04, 0.3, true};
     const lw::Map map = loadGenerated(42, p, "build/_gen_coast30.bmp");
     const CoastStats s = coastStats(map);
     EXPECT_EQ(s.ringSea, s.ring) << "最外一圈必须全海";
@@ -131,7 +131,7 @@ TEST(MapGen, ForceCoastWithoutZeroKeepsRingAndRatio) {
 
 TEST(MapGen, NoForceCoastAtZeroSeaIsAllLand) {
     // 不勾强制边缘为海、seaRatio=0 → 全陆地。
-    const lw::MapGenParams p{40, 40, 0.0, 0.05, 0.02, false};
+    const lw::MapGenParams p{40, 40, 0.0, 0.05, 0.02, 0.3, false};
     const lw::Map map = loadGenerated(7, p, "build/_gen_allland.bmp");
     const CoastStats s = coastStats(map);
     EXPECT_EQ(s.sea, 0);
@@ -257,7 +257,7 @@ TEST(MapGen, TiledForceCoastZeroSeaIsExactlyOuterRing) {
     const lw::TilingType tilings[2] = {lw::TilingType::Hex, lw::TilingType::Tri};
     for (const lw::TilingType t : tilings) {
         for (const int sz : {48, 120}) {
-            const lw::MapGenParams p{sz, sz, 0.0, 0.05, 0.02, true, t};
+            const lw::MapGenParams p{sz, sz, 0.0, 0.05, 0.02, 0.3, true, t};
             const std::string path = std::string("build/_gen_fc_") +
                                      (t == lw::TilingType::Hex ? "hex" : "tri") + "_" +
                                      std::to_string(sz) + ".lwmap";

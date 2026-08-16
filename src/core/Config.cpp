@@ -748,7 +748,7 @@ void validateConfigKeys(const Json& root) {
     // 纯键值段。
     warnUnknownKeys(obj("map"),
                     {"file", "width", "height", "blockSize", "panelWidth", "capitalMinDistance",
-                     "tiling"},
+                     "cityMountainWeight", "tiling"},
                     "map");
     warnUnknownKeys(obj("army"),
                     {"baseSpeed", "baseSize", "bounceJitterHalfRange", "bounceJitterDenominator"},
@@ -918,6 +918,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.map.panelWidth = getInt(mapJson, "panelWidth", cfg.map.panelWidth);
         cfg.map.capitalMinDistance =
             getInt(mapJson, "capitalMinDistance", cfg.map.capitalMinDistance);
+        cfg.map.cityMountainWeight =
+            getNum(mapJson, "cityMountainWeight", cfg.map.cityMountainWeight);
         // P12：密铺类型（square/hex/tri）。预装 BMP 恒为方形；非方形由随机图生成器产出。
         cfg.map.tiling = getStr(mapJson, "tiling", cfg.map.tiling);
     }
@@ -1374,6 +1376,7 @@ std::string Config::toJson() const {
                 {"blockSize", map.blockSize},
                 {"panelWidth", map.panelWidth},
                 {"capitalMinDistance", map.capitalMinDistance},
+                {"cityMountainWeight", map.cityMountainWeight},
                 {"tiling", map.tiling}};
 
     j["army"] = {{"baseSpeed", army.baseSpeed},

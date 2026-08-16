@@ -86,7 +86,7 @@ TEST(TilingTable, ArchCellPolygonMatchesCellEdge) {
 
 TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
     const Config cfg = Config::loadFromJson("{}");
-    MapGenParams gp{32, 32, 0.4, 0.1, 0.02, false, TilingType::Arch488};
+    MapGenParams gp{32, 32, 0.4, 0.1, 0.02, 0.3, false, TilingType::Arch488};
     const std::string path = "userdata/maps/utest_arch488.lwmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;
@@ -108,7 +108,7 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
 
 TEST(TilingTable, Laves488MapGenerationAndCapitalPlacement) {
     const Config cfg = Config::loadFromJson("{}");
-    MapGenParams gp{32, 32, 0.4, 0.1, 0.02, false, TilingType::Laves488};
+    MapGenParams gp{32, 32, 0.4, 0.1, 0.02, 0.3, false, TilingType::Laves488};
     const std::string path = "userdata/maps/utest_laves488.lwmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;
@@ -508,7 +508,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
         const int width = 64;
         const int rows = std::max(6, (32 + B - 1) / B);
         const int height = rows * B;
-        MapGenParams gp{width, height, 0.3, 0.1, 0.08, false, t};
+        MapGenParams gp{width, height, 0.3, 0.1, 0.08, 0.3, false, t};
         const std::string path = "userdata/maps/utest_all10_" + std::string(tilingName(t)) + ".lwmap";
         ASSERT_TRUE(MapGenerator::generate(path, 42, gp)) << tilingName(t);
         Config::Map mc = cfg.map;
@@ -540,7 +540,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
 
 TEST(TilingTable, Arch488GeneratedCitiesHaveMultipleTextureLevels) {
     const Config cfg = Config::loadFromJson("{}");
-    MapGenParams gp{64, 32, 0.3, 0.1, 0.08, false, TilingType::Arch488};
+    MapGenParams gp{64, 32, 0.3, 0.1, 0.08, 0.3, false, TilingType::Arch488};
     const std::string path = "userdata/maps/utest_arch488_levels.lwmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;

@@ -111,8 +111,7 @@ def ramp(x):
 
 
 def sample_level(rng, s):
-    """等级采样（2026-08-17 调试期改均匀分布）：与 C++ sampleCityLevel 一致
-    （1 次 unit()）。idx = int(u * n) 均匀选一个等级；幂律待修正后恢复。"""
+    """旧接口保留（当前 C++ 已不使用采样，改为最大余数分配）。"""
     u = rng.unit()
     idx = min(len(LEVELS) - 1, int(u * len(LEVELS)))
     return LEVELS[idx]
@@ -148,6 +147,53 @@ def place_city(land, cityid, cityallowed, citylevel, level, x, y, next_id):
     return -1, next_id
 
 
+def allocate_levels(total, levels, s):
+    """最大余数法分配各级城市数量；levels 升序。返回降序 level 列表。"""
+    if total <= 0 or not levels:
+        return []
+    beta = (1.0 - min(levels)) * 0.5
+    weights = {}
+    total_w = 0.0
+    for x in levels:
+        w = math.pow(max(x + beta, 1e-9), -s)
+        weights[x] = weights.get(x, 0.0) + w
+        total_w += w
+    allocs = []
+    assigned = 0
+    for x in sorted(weights.keys()):
+        expected = total * weights[x] / total_w
+        base = int(math.floor(expected))
+        allocs.append({'level': x, 'count': base, 'rem': expected - base})
+        assigned += base
+    allocs.sort(key=lambda a: a['rem'], reverse=True)
+    extra = min(total - assigned, len(allocs))
+    for i in range(extra):
+        allocs[i]['count'] += 1
+    out = []
+    for a in allocs:
+        out += [a['level']] * a['count']
+    out.sort(reverse=True)
+    return out
+
+
+def place_city_exact(land, cityid, cityallowed, citylevel, level, x, y, next_id):
+    """与 C++ addCity 一致：只放置指定等级，放不下返回 -1。"""
+    w, h = SHAPES[level]
+    if x < 0 or y < 0 or x + w > MAP_X or y + h > MAP_Y:
+        return -1, next_id
+    if not cityallowed[y][x]:
+        return -1, next_id
+    for dy in range(h):
+        for dx in range(w):
+            if not land[y + dy][x + dx] or cityid[y + dy][x + dx] != -1:
+                return -1, next_id
+    for dy in range(h):
+        for dx in range(w):
+            cityid[y + dy][x + dx] = next_id
+            citylevel[y + dy][x + dx] = level
+    return next_id, next_id + 1
+
+
 def parse_map(path, rng, s):
     """地形基图两遍解析 + 邻海修正。返回 land/mountain/cityid/cityallowed/citylevel。"""
     land = [[0] * MAP_X for _ in range(MAP_Y)]
@@ -173,23 +219,59 @@ def parse_map(path, rng, s):
                 channels[(j, i)] = (r, g, b)
                 land[j][i] = 0 if min(r, g, b) < SEA_MIN else 1  # 第一遍即定全图海/陆
 
-    # 第二遍：原迭代序（y 外 x 内）。海格收尾；陆格掷城骰（占用格跳过）+ 恒掷山骰。
-    # land 已在第一遍置好（海格 0 / 陆格 1），本遍只掷骰与放置。
+    # 第二遍：与 C++ Map::finishTerrain 一致——先随机顺序逐格掷山/城许可，再集中安置城市。
+    n = MAP_X * MAP_Y
+    order = list(range(n))
+    for i in range(n - 1, 0, -1):
+        j = rng.get(i)
+        order[i], order[j] = order[j], order[i]
+    for idx in order:
+        i = idx % MAP_X
+        j = idx // MAP_X
+        cityid[j][i] = -1
+        cityallowed[j][i] = 0
+        mountain[j][i] = 0
+        if land[j][i] == 0:
+            continue
+        r, g, b = channels[(j, i)]
+        cityallowed[j][i] = 1 if ramp(g) > 0 else 0
+        mountain[j][i] = 1 if rng.chance(ramp(r)) else 0
+
+    # 城市目标数 = Σ 陆地格 ramp(G)。
+    land_cells = []
+    total_p = 0.0
     for j in range(MAP_Y):
         for i in range(MAP_X):
-            r, g, b = channels[(j, i)]
             if land[j][i] == 0:
-                cityid[j][i] = -1
                 continue
-            cityallowed[j][i] = 1 if ramp(g) > 0 else 0
-            if cityid[j][i] != -1:
-                # 已被既有城市形状占用：不掷城概率（RNG 位置确定性），仍掷山骰。
-                mountain[j][i] = 1 if rng.chance(ramp(r)) else 0
+            r, g, b = channels[(j, i)]
+            total_p += ramp(g)
+            if cityallowed[j][i]:
+                land_cells.append((j, i))
+    total_cities_target = int(round(total_p))
+    if total_cities_target > 0 and land_cells:
+        levels = allocate_levels(total_cities_target, LEVELS, s)
+        # 方形基准归一化：E_tiling == E_square，norm=1（黄金数据只覆盖方形）。
+        for level in levels:
+            placed = False
+            for _ in range(min(200, len(land_cells))):
+                jj, ii = land_cells[rng.get(len(land_cells) - 1)]
+                if cityid[jj][ii] != -1 or not cityallowed[jj][ii]:
+                    continue
+                cid, next_id = place_city_exact(land, cityid, cityallowed, citylevel, level,
+                                                 ii, jj, next_id)
+                if cid >= 0:
+                    placed = True
+                    break
+            if placed:
                 continue
-            if rng.chance(ramp(g)):
-                lev = sample_level(rng, s)
-                cid, next_id = place_city(land, cityid, cityallowed, citylevel, lev, i, j, next_id)
-            mountain[j][i] = 1 if rng.chance(ramp(r)) else 0
+            for jj, ii in land_cells:
+                if cityid[jj][ii] != -1 or not cityallowed[jj][ii]:
+                    continue
+                cid, next_id = place_city_exact(land, cityid, cityallowed, citylevel, level,
+                                                 ii, jj, next_id)
+                if cid >= 0:
+                    break
 
     # 邻海修正（与 C++ correctMountainCoast 一致；只读 land，结果与顺序无关）。
     for j in range(MAP_Y):

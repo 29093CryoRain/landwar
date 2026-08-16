@@ -20,6 +20,7 @@ struct MapGenParams {
     double seaRatio = 0.40;         // 海占比目标（clamp [0,0.9]，0 = 全陆地；0.9 = 陆地占比 0.1）
     double mountainDensity = 0.08;  // 内陆山占比目标（clamp [0,0.9]，期望值经骰子近似）
     double cityDensity = 0.02;      // 城占比目标（占陆地格）
+    double cityMountainWeight = 0.3; // 山地格城市权重（普通陆地=1.0）
     bool forceCoast = false;        // 强制边缘为海（2026-08-06）：边缘带按距离削减海拔高度，
                                     //   最外一圈恒为海 → 陆地占比 100% 时也只有恰好一圈海
     TilingType tiling = TilingType::Square;  // P12：密铺（square/hex/tri）

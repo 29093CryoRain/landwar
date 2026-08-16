@@ -116,7 +116,7 @@ SDL_Texture* filePreview(MenuState& st, SDL_Renderer* ren, const Config& cfg,
 // 生成随机图（确定性：seed+params；方 = BMP，六/三 = lwmap）；成功返回 true。
 bool generateRandomMap(MenuState& st, const Config& cfg, SDL_Renderer* ren) {
     const MapGenParams p{st.randW, st.randH, st.seaRatio, st.mtnDensity, st.cityDensity,
-                         st.forceCoast, st.tiling};
+                         cfg.map.cityMountainWeight, st.forceCoast, st.tiling};
     st.genPath = MapGenerator::defaultPath(st.draftSeed, p);
     st.genError.clear();
     if (!MapGenerator::generate(st.genPath, st.draftSeed, p)) {

@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <functional>
+#include <map>
 
 #include "core/MathUtil.h"
 
@@ -25,13 +27,51 @@ double rampProb(int channel, const Config::Terrain& t) {
 }  // namespace
 
 double Map::sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set, Rng& rng) {
-    // 等级采样。2026-08-17（调试期）：幂律采样在 levels[0]≠1 时概率异常（累计≠1），
-    // 先改为**均匀分布**（等概率选一个等级），确认密铺系统正常后再恢复幂律并修正归一化。
+    // 等级采样（.docs/临时文本.txt 修正幂律）：
+    //   S = 形状表展开的可重等级集合（同一级多个形状变体 = 多个元素，n_x 即重复次数）；
+    //   P(x) ∝ n_x * (x + beta)^{-s}
+    //   s = levelIncomeExponent + levelRankExponent（沿用旧配置 alpha+gamma）。
+    //   beta = (1 - min(S)) / 2，min(S) 为当前密铺最小城市等级。
     // 用 unit() 而非 get()：unit() 是 virtual，测试可用 mock 固定分支。
     if (set.levels.empty()) return 1.0;
-    const int n = static_cast<int>(set.levels.size());
-    const int idx = std::min(n - 1, static_cast<int>(rng.unit() * static_cast<double>(n)));
-    return set.levels[static_cast<size_t>(idx)];
+    std::vector<double> elems;
+    elems.reserve(set.shapes.size());
+    for (std::size_t si = 0; si < set.shapes.size(); ++si) {
+        int li = (si < set.shapeLevelIndex.size())
+                     ? set.shapeLevelIndex[si]
+                     : static_cast<int>(std::min<std::size_t>(si, set.levels.size() - 1));
+        if (li < 0 || li >= static_cast<int>(set.levels.size())) continue;
+        elems.push_back(set.levels[static_cast<size_t>(li)]);
+    }
+    if (elems.empty()) return set.levels.front();
+    const double minLevel = *std::min_element(elems.begin(), elems.end());
+    const double beta = (1.0 - minLevel) * 0.5;
+    const double alpha = cc.rankExponent() > 0.0 ? cc.rankExponent() : 1.5;
+    double total = 0.0;
+    std::vector<double> weights;
+    weights.reserve(elems.size());
+    for (double x : elems) {
+        const double base = x + beta;
+        if (base <= 0.0) {  // 数值防御：极低等级导致非正底数时按均匀处理
+            weights.assign(elems.size(), 1.0);
+            total = static_cast<double>(elems.size());
+            break;
+        }
+        const double w = std::pow(base, -alpha);
+        weights.push_back(w);
+        total += w;
+    }
+    if (total <= 0.0) {
+        const int n = static_cast<int>(elems.size());
+        return elems[static_cast<size_t>(std::min(n - 1, static_cast<int>(rng.unit() * n)))];
+    }
+    double r = rng.unit() * total;
+    for (std::size_t i = 0; i < elems.size(); ++i) {
+        if (r < weights[i] || i + 1 == elems.size())
+            return elems[i];
+        r -= weights[i];
+    }
+    return elems.back();
 }
 
 void Map::clear() {
@@ -193,40 +233,153 @@ bool Map::loadFromLwmap(const std::string& path, Rng& rng) {
     return true;
 }
 
-// 第二遍（方/六/三共用）：按格下标序掷山/城骰 + 放置城市（见文件头注）。
+// 第二遍（方/六/三/表驱动共用）：按随机顺序处理山地/建城许可；然后按城市密度与
+// 幂律采样出目标等级列表，优先从大到小随机安置城市（见文件头注）。
 void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
-    for (int idx = 0; idx < cellCount(); ++idx) {
+    const int n = cellCount();
+
+    // 随机处理顺序（Fisher-Yates，消耗 RNG 但确定性）。
+    std::vector<int> order(static_cast<size_t>(n));
+    for (int i = 0; i < n; ++i) order[static_cast<size_t>(i)] = i;
+    for (int i = n - 1; i > 0; --i) {
+        const int j = rng.get(i);
+        std::swap(order[static_cast<size_t>(i)], order[static_cast<size_t>(j)]);
+    }
+
+    // 1) 先逐格掷山/城许可，不再在循环里放城。
+    for (int idx : order) {
         const CellChannels& cc = ch[static_cast<size_t>(idx)];
         MapCell& cell = atIndex(idx);
         cell.belongi = 0;
         cell.cityAllowed = false;
         cell.mountain = false;
-        // cityId 保留原值（clear 置 -1；已被前面放置的形状占用则不变）。
-        if (cc.sea) {
-            cell.cityId = -1;
-            continue;  // land 已在第一遍置 false（海）；本遍只收尾
-        }
+        cell.cityId = -1;
+        if (cc.sea) continue;
         cell.cityAllowed = rampProb(cc.g, terrain_) > 0.0;
-        if (cell.cityId != -1) {
-            // 已被既有城市形状占用：不掷城概率（RNG 位置确定性），仍掷山骰。
-            cell.mountain = rng.chance(rampProb(cc.r, terrain_));
-            continue;
-        }
-        if (rng.chance(rampProb(cc.g, terrain_))) {
-            const double level = sampleCityLevel(cityConfig_, cityConfig_.setFor(geom_.type), rng);
-            if (canPlaceCity(level, idx)) {
-                addCity(level, idx, &rng);
-            } else {
-                // 放置失败回退到该密铺的最小允许等级（2026-08-16：原硬编码 1 级，
-                // 最小等级 ≠ 1 时 shapeFor(1) 不存在会丢失城市）。
-                const auto& set = cityConfig_.setFor(geom_.type);
-                const double minLevel = set.levels.empty() ? 1.0 : set.levels.front();
-                if (canPlaceCity(minLevel, idx)) addCity(minLevel, idx, &rng);
-            }
-        }
         cell.mountain = rng.chance(rampProb(cc.r, terrain_));
     }
     correctMountainCoast();  // 邻海修正：山只出现在不与海相邻的陆地上
+
+    // 2) 目标城市数 = Σ 陆地格建城概率（与 MapGenerator 的 cityDensity×陆格数一致）。
+    const auto& set = cityConfig_.setFor(geom_.type);
+    if (set.levels.empty()) return;
+    double totalP = 0.0;
+    std::vector<int> landCells;
+    landCells.reserve(static_cast<size_t>(n));
+    for (int idx = 0; idx < n; ++idx) {
+        if (ch[static_cast<size_t>(idx)].sea) continue;
+        totalP += rampProb(ch[static_cast<size_t>(idx)].g, terrain_);
+        if (atIndex(idx).cityAllowed) landCells.push_back(idx);
+    }
+    const int totalAttempts = static_cast<int>(std::lround(totalP));
+    if (totalAttempts <= 0 || landCells.empty()) return;
+
+    // 3) 计算本密铺与方形参考的幂律分布，按“总城市生产力相等”反解本密铺目标城市数。
+    const double sExp = cityConfig_.rankExponent();
+    const double alpha = cityConfig_.levelIncomeExponent;
+    struct LevelInfo {
+        double level;
+        double weight;    // n_x * (level+beta)^-s
+        double prod;      // weight * level^alpha
+    };
+    auto levelInfos = [&](const Config::City::TilingSet& tset) {
+        std::vector<double> elems;
+        for (std::size_t si = 0; si < tset.shapes.size(); ++si) {
+            int li = (si < tset.shapeLevelIndex.size())
+                         ? tset.shapeLevelIndex[si]
+                         : static_cast<int>(std::min<std::size_t>(si, tset.levels.size() - 1));
+            if (li >= 0 && li < static_cast<int>(tset.levels.size()))
+                elems.push_back(tset.levels[static_cast<size_t>(li)]);
+        }
+        std::map<double, LevelInfo> info;
+        if (elems.empty()) return info;
+        const double minL = *std::min_element(elems.begin(), elems.end());
+        const double beta = (1.0 - minL) * 0.5;
+        for (double x : elems) {
+            const double base = std::max(x + beta, 1e-9);
+            LevelInfo& inf = info[x];
+            inf.level = x;
+            inf.weight += std::pow(base, -sExp);
+        }
+        double totalW = 0.0;
+        for (auto& [lv, inf] : info) {
+            inf.prod = inf.weight * std::pow(std::max(lv, 0.0), alpha);
+            totalW += inf.weight;
+        }
+        for (auto& [lv, inf] : info) {
+            inf.weight /= totalW;
+            inf.prod /= totalW;
+        }
+        return info;
+    };
+    auto info = levelInfos(set);
+    if (info.empty()) return;
+    const auto squareInfo = levelInfos(cityConfig_.square);
+    double eTiling = 0.0;
+    double eSquare = 0.0;
+    for (const auto& [lv, inf] : info) eTiling += inf.prod;
+    for (const auto& [lv, inf] : squareInfo) eSquare += inf.prod;
+    const double norm = (eTiling > 1e-9) ? (eSquare / eTiling) : 1.0;
+    const int baseTarget = std::clamp(totalAttempts, 0, static_cast<int>(landCells.size()));
+    int targetCities = static_cast<int>(std::lround(static_cast<double>(baseTarget) * norm));
+    targetCities = std::clamp(targetCities, 0, static_cast<int>(landCells.size()));
+    if (targetCities <= 0) return;
+
+    // 4) 按归一化后的幂律概率分配各级城市数量（最大余数法），并从大到小排序。
+    std::vector<double> levels;
+    levels.reserve(static_cast<size_t>(targetCities));
+    {
+        struct Alloc {
+            double level;
+            int count;
+            double rem;
+        };
+        std::vector<Alloc> allocs;
+        allocs.reserve(info.size());
+        int assigned = 0;
+        for (const auto& [lv, inf] : info) {
+            const double expected = static_cast<double>(targetCities) * inf.weight;
+            const int base = static_cast<int>(std::floor(expected));
+            allocs.push_back({lv, base, expected - static_cast<double>(base)});
+            assigned += base;
+        }
+        std::sort(allocs.begin(), allocs.end(),
+                  [](const Alloc& a, const Alloc& b) { return a.rem > b.rem; });
+        const int extra = std::min(targetCities - assigned, static_cast<int>(allocs.size()));
+        for (int i = 0; i < extra; ++i) ++allocs[static_cast<size_t>(i)].count;
+        for (const Alloc& a : allocs)
+            levels.insert(levels.end(), static_cast<size_t>(a.count), a.level);
+    }
+
+    std::sort(levels.begin(), levels.end(), std::greater<double>());
+
+    // 5) 随机安置：对每个等级，先在可用锚点中随机尝试若干次；仍失败则扫描全部可用锚点。
+    constexpr int kRandomTries = 200;
+    for (double level : levels) {
+        bool placed = false;
+        const int candidateCount = static_cast<int>(landCells.size());
+        for (int t = 0; t < kRandomTries && t < candidateCount; ++t) {
+            const int idx = landCells[static_cast<size_t>(rng.get(candidateCount - 1))];
+            if (atIndex(idx).cityId != -1) continue;
+            if (!atIndex(idx).cityAllowed) continue;
+            if (canPlaceCity(level, idx)) {
+                addCity(level, idx, &rng);
+                placed = true;
+                break;
+            }
+        }
+        if (placed) continue;
+        for (int idx : landCells) {
+            if (atIndex(idx).cityId != -1) continue;
+            if (!atIndex(idx).cityAllowed) continue;
+            if (canPlaceCity(level, idx)) {
+                addCity(level, idx, &rng);
+                placed = true;
+                break;
+            }
+        }
+        // 放不下就丢弃该次采样（保持目标等级列表中的大城优先；小城稍后仍有自己的采样）。
+    }
 }
 
 void Map::correctMountainCoast() {

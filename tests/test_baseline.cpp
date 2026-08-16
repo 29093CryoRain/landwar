@@ -24,10 +24,10 @@
 namespace {
 
 // 六/三角：生成随机 lwmap（seed=42，与 CLI --tiling 路径一致）→ init → 20k tick → hash。
-std::uint64_t runTiledBaseline(lw::TilingType t) {
+std::uint64_t runTiledBaseline(lw::TilingType t, int ticks = 1000) {
     lw::Config cfg = lwtest::loadCfg();
     cfg.map.tiling = lw::tilingName(t);
-    lw::MapGenParams gp{105, 95, 0.40, 0.08, 0.02, false, t};
+    lw::MapGenParams gp{105, 95, 0.40, 0.08, 0.02, 0.3, false, t};
     const std::string path = lw::MapGenerator::defaultPath(42, gp);
     EXPECT_TRUE(lw::MapGenerator::generate(path, 42, gp));
     if (gp.height & 1) --gp.height;  // 偶数行（与生成器/Map::configure 一致）
@@ -36,47 +36,23 @@ std::uint64_t runTiledBaseline(lw::TilingType t) {
     cfg.map.file = path;
     lw::Simulation sim(cfg, 42, 42);
     EXPECT_TRUE(sim.init());
-    for (int i = 0; i < 20000; ++i) sim.tick();
+    for (int i = 0; i < ticks; ++i) sim.tick();
     return lw::fnv1a64(lw::Snapshot::serialize(sim));
 }
 
-}  // namespace
-
-TEST(Determinism, DISABLED_BaselineSeed42_20000Ticks_StateHash) {
+TEST(Determinism, BaselineSeed42_1000Ticks_StateHash) {
     lw::Simulation sim(lwtest::loadCfg(), 42);
     ASSERT_TRUE(sim.init());
-    for (int i = 0; i < 20000; ++i) sim.tick();
+    for (int i = 0; i < 1000; ++i) sim.tick();
     const std::uint64_t h = lw::fnv1a64(lw::Snapshot::serialize(sim));
-    // 2026-08 双色势力渲染系统并入 config（factions.secondary / render.tile /
-    // render.city.mix 新键 + sea.cyanSeaMult 死键删除 + 中立主色 127→96）→ config 序列化
-    // 变 → hash 更新（sim 行为不变：land=3139 army=276 与上一基线相同；见 .docs/开发计划.md §0；
-    // 上一基线 0x4ac5a7925795d690 = 霰弹速度方差收窄后）。
-    // 2026-08-14 二次更新：用户调 render.tile（主0.5/副0.3/白0.2）与 render.city.mix
-    // （主0.7/副0.1/黑0.2）等数据文件值 → 仅 config 序列化变。
-    // 2026-08-14 P12 起步：config 新增 map.tiling 与 city.hex/city.tri 形状表 → 0x6b2bba9beef464a4。
-    // 2026-08-14 P12 快照 v6：cells 按密铺格序 + 城市 baseIndex + config tiling →
-    // 0x6b2bba9beef464a4 → 0xbd90b94d52be9413（sim 行为不变：land=3139 army=276）。
-    // 2026-08-15 三次更新：① 三角城市形状按用户定稿语义重做（正锚模式 + 反锚镜像）→
-    // config.toJson() 的 city.tri 形状表序列化变 → 纯 config 序列化变化 → hash 更新
-    // （sim 行为不变：land=3139 army=276 与上基线相同）→ 0x230960a67e857bb0。
-    // 2026-08-16 半正/Laves 密铺开发：TilingType 枚举扩展 + city.tilings 通用形状表段 +
-    // Arch/Laves 城市形状表（Arch488/Arch3636/Arch3464/Arch4612/Laves3636/Laves488/
-    // Laves3464 等）→ config 序列化变化 → hash 更新（方 sim 行为不变：land=3139）。
-    // 2026-08-16 深夜-白天 两次更新：① 半正/Laves 首都改"从已生成城市中分配"
-    // （Snapshot 新增 capitalsB 基础格序号键，**全密铺序列化**）→ 方/六/三 hash 全动
-    // （sim 行为不变：land=3139/5922/5866、army=276/110/494 与上基线相同）；
-    // ② 锚格朝向修复（TilingGeom 每基础格变换 + Map 形状解析按锚格朝向旋转/镜像）——
-    // 仅表驱动密铺分支，方/六/三不受影响（此更新只为隔离验证，hash 未再动）。
-    // 2026-08-17 Laves 城市形状表重写（5 密铺全部按开发思路.txt 语义重做 + Laves4612
-    // spec 朝向修正）→ 仅 config 序列化变化（sim 行为不变：land=3139 army=276 与上基线相同）
-    // → hash 更新 → 0x4a3b07a46a2542bf。
-    EXPECT_EQ(h, 0x4a3b07a46a2542bfull)
-        << "确定性基线漂移！对应 CLI: landwar --headless --seed 42 --ticks 20000 --summary";
-    // 顺带锁定终局规模（land=3139 与基线记录一致；army 数随战斗轨迹波动，不锁）。
+    // 2026-08-17 城市生成重构（随机顺序 + 修正幂律 + 大城优先 + 生产力归一化）后
+    // 以 1000 tick 作为快速基线（20000 tick 过慢，用户指示缩小）。
+    EXPECT_EQ(h, 0xac7ce195c4fb467bull)
+        << "方形基线漂移！对应 CLI: landwar --headless --seed 42 --ticks 1000 --summary";
     EXPECT_EQ(sim.faction(1).landCount + sim.faction(2).landCount + sim.faction(3).landCount +
                   sim.faction(4).landCount + sim.faction(5).landCount + sim.faction(6).landCount +
                   sim.faction(7).landCount + sim.faction(8).landCount,
-              3139);
+              1758);
 }
 
 // P12：六/三角各自基线（密铺几何 + 移动/特效路径独立于方形）。
@@ -97,9 +73,43 @@ TEST(Determinism, DISABLED_BaselineSeed42_20000Ticks_StateHash) {
 // army=494 与上基线相同）。
 // 2026-08-17 Laves 形状表重写 + Laves4612 spec 朝向修正 → 仅 config 序列化变化
 // （sim 行为不变）→ hash 更新。
-TEST(Determinism, DISABLED_BaselineHexTri_20000Ticks_StateHash) {
-    EXPECT_EQ(runTiledBaseline(lw::TilingType::Hex), 0x10f499d16532133a)
-        << "hex 基线漂移！对应 CLI: landwar --headless --tiling hex --seed 42 --ticks 20000 --summary";
-    EXPECT_EQ(runTiledBaseline(lw::TilingType::Tri), 0x4e48cb8fccf1f11a)
-        << "tri 基线漂移！对应 CLI: landwar --headless --tiling tri --seed 42 --ticks 20000 --summary";
+TEST(Determinism, BaselineHexTri_1000Ticks_StateHash) {
+    EXPECT_EQ(runTiledBaseline(lw::TilingType::Hex, 1000), 0x8a5f8c8f158a990a)
+        << "hex 基线漂移！对应 CLI: landwar --headless --tiling hex --seed 42 --ticks 1000 --summary";
+    EXPECT_EQ(runTiledBaseline(lw::TilingType::Tri, 1000), 0x8edf919cf21655f)
+        << "tri 基线漂移！对应 CLI: landwar --headless --tiling tri --seed 42 --ticks 1000 --summary";
 }
+
+// 全密铺确定性小参数快测：地图小、城密度低、tick 少。只为锁“同 seed 必同 hash”。
+TEST(Determinism, SmallTiledAllTilingsSameSeedSameHash) {
+    const std::vector<lw::TilingType> tilings = {
+        lw::TilingType::Hex,       lw::TilingType::Tri,
+        lw::TilingType::Arch33336, lw::TilingType::Arch33434,
+        lw::TilingType::Arch3464,  lw::TilingType::Arch3636,
+        lw::TilingType::Arch31212, lw::TilingType::Arch4612,
+        lw::TilingType::Arch488,   lw::TilingType::Laves3636,
+        lw::TilingType::Laves31212, lw::TilingType::Laves4612,
+        lw::TilingType::Laves488,  lw::TilingType::Laves33434,
+        lw::TilingType::Laves33336, lw::TilingType::Laves3464};
+    for (lw::TilingType t : tilings) {
+        lw::Config cfg = lwtest::loadCfg();
+        cfg.map.tiling = lw::tilingName(t);
+        lw::MapGenParams gp{32, 32, 0.40, 0.05, 0.01, 0.3, false, t};
+        const std::string path = lw::MapGenerator::defaultPath(777, gp);
+        ASSERT_TRUE(lw::MapGenerator::generate(path, 777, gp));
+        if (gp.height & 1) --gp.height;
+        cfg.map.width = gp.width;
+        cfg.map.height = gp.height;
+        cfg.map.file = path;
+        lw::Simulation a(cfg, 777, 777);
+        ASSERT_TRUE(a.init());
+        lw::Simulation b(cfg, 777, 777);
+        ASSERT_TRUE(b.init());
+        for (int i = 0; i < 100; ++i) { a.tick(); b.tick(); }
+        EXPECT_EQ(lw::fnv1a64(lw::Snapshot::serialize(a)),
+                  lw::fnv1a64(lw::Snapshot::serialize(b)))
+            << "tiling " << lw::tilingName(t) << " 同 seed 哈希不一致";
+    }
+}
+
+}  // namespace

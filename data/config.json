@@ -6,7 +6,8 @@
     "height": 95,
     "blockSize": 15,
     "panelWidth": 600,
-    "capitalMinDistance": 28
+    "capitalMinDistance": 28,
+    "cityMountainWeight": 0.3
   },
   "army": {
     "baseSpeed": 0.3,

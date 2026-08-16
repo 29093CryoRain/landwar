@@ -37,6 +37,8 @@ struct Config {
         int blockSize = 15;
         int panelWidth = 600;
         int capitalMinDistance = 28;
+        // 随机图生成：山地格城市权重（普通陆地=1.0，山地×此值；2026-08 从硬编码移入）。
+        double cityMountainWeight = 0.3;
         // P12：密铺类型（square/hex/tri）。默认 square → 基线不变；非方形地图由随机图
         // 生成器产出（预装 BMP 恒为方形）。进快照（config 序列化 → 基线变更，已接受）。
         std::string tiling = "square";
@@ -260,7 +262,10 @@ struct Config {
         };
         // alpha：n 级城经济收入 = n^alpha × 1 级城（>=1，数值待实验；P14 经济重构读取）。
         double levelIncomeExponent = 1.0;
-        // beta：等级幂律指数增量（>0，思路默认 0.5）。等级分布 P(L>=n) ∝ n^{-(alpha+beta)}。
+        // gamma：等级幂律指数增量（>0，思路默认 0.5）。采样总指数 s = alpha + gamma。
+        // 2026-08 起采样公式改为 .docs/临时文本.txt 的修正幂律：
+        //   P(x) ∝ n_x * (x + beta)^{-s}
+        // beta 按当前密铺最小等级动态取 (1 - minLevel)/2。
         double levelRankExponent = 0.5;
         // 各密铺等级/形状表（默认值内置，JSON 覆盖；square 段兼容旧 {level,w,h} 格式）。
         // square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]。
@@ -270,7 +275,7 @@ struct Config {
         std::array<TilingSet, kTilingTypeCount> sets;  // 半正/Laves 的等级形状表（默认空）
         // 默认构造：填充三密铺内置等级/形状表（裸 City{} 即可用，Map::cityConfig_ 等）。
         City();
-        // 幂律总指数 s = alpha + beta（P(L>=n) = n^-s）。纯函数。
+        // 幂律总指数 s = alpha + gamma（采样用；经济 alpha 仍为 levelIncomeExponent）。纯函数。
         double rankExponent() const { return levelIncomeExponent + levelRankExponent; }
         const TilingSet& setFor(TilingType t) const {
             switch (t) {
