@@ -99,8 +99,9 @@ void Simulation::initFactions() {
         const int capIdx = turnOrder_[static_cast<size_t>(i)];
         const int capX = map_.capitalX(capIdx);
         const int capY = map_.capitalY(capIdx);
-        // P12：首都格按密铺格下标（方 = y*width+x；六/三 = cellIndexAt，三角锚恒为正）。
-        const int capCell = map_.cellIndexAt(capX, capY);
+        // P12：首都格按密铺格下标（方 = y*width+x；六/三 = cellIndexAt，三角锚恒为正；
+        // 半正/Laves 需带基础格序号 b）。
+        const int capCell = map_.cellIndexAt(capX, capY, map_.capitalB(capIdx));
         conquerIndex(capCell, i + 1, /*freeArmyEnabled=*/false);
         // P15：初始首都 = 初始城（征服后该格所属城市 id）。首都语义本阶段起生效。
         const int fid = i + 1;

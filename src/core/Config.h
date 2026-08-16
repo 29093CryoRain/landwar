@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "core/GameDefs.h"
@@ -202,6 +203,9 @@ struct Config {
         };
         struct Shape {
             int anchorN = 0;              // 锚点格边数（0=任意；半正/Laves 混合面时限定锚点格类型）
+            // 锚点基础格限制位掩码（半正/Laves 表驱动；bit b = 允许 b 号基础格作锚）。
+            // 0 = 不限制（方/六/三与未限制的形状）。用于"仅限朝向横平竖直的正方形"等规则。
+            std::uint32_t anchorBaseMask = 0;
             std::vector<ShapeCell> cells;  // cells[0] = 锚格（(0,0)）
         };
         // 一个密铺的等级集 + 形状表。levels 为去重等级；shapes 为全部形状变体
@@ -212,11 +216,23 @@ struct Config {
             std::vector<double> levels;
             std::vector<Shape> shapes;
             std::vector<int> shapeLevelIndex;
+            // 贴图等级（1..10，与 levels 等长；空 = 缺省按 lround(levels[i]) 推导）。
+            // 特例：Arch31212 的 4 级城（实际等级 3.43）用 4 级贴图（文档"为了与 3 级区分"）、
+            // Arch3636 新增 4 级城（实际 4.5）用 4 级贴图——实际等级≠四舍五入，需显式指定。
+            std::vector<int> iconLevels;
             int levelIndex(double level) const {
                 constexpr double kTol = 1e-9;
                 for (int i = 0; i < static_cast<int>(levels.size()); ++i)
                     if (std::fabs(levels[static_cast<size_t>(i)] - level) <= kTol) return i;
                 return -1;
+            }
+            // 实际等级 → 贴图等级（缺省 lround；超范围 clamp 1..10）。
+            int iconLevelFor(double level) const {
+                const int li = levelIndex(level);
+                if (li < 0) return std::clamp(static_cast<int>(std::lround(level)), 1, 10);
+                if (li < static_cast<int>(iconLevels.size()) && iconLevels[static_cast<size_t>(li)] > 0)
+                    return iconLevels[static_cast<size_t>(li)];
+                return std::clamp(static_cast<int>(std::lround(levels[static_cast<size_t>(li)])), 1, 10);
             }
             int firstShapeIndex(double level) const {
                 const int li = levelIndex(level);
@@ -314,6 +330,20 @@ struct Config {
             //（0~1，<1 → 略小于框，紧贴框边缘不好看；当前默认 0.85）。
             // 当前仅等级 1/2/4/6/9 出城，3/5/7/8 为占位（形状表扩展时直接生效）。
             std::array<double, 9> iconScale = {0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85};
+            // 预计算"贴图最大内接框宽"（世界单位，中心 = 基建地块几何中心，不平移）。
+            // 键：tilingName -> 贴图等级(1..10) -> fitW。由交互工具人工调定并经
+            // tools/apply_city_icon_fit_scales.py 取同级最小值后写入。
+            // 渲染时 fitW = iconFitScale[tiling][texLevel] × cellPx，再 × iconScale[texLevel-1]。
+            std::unordered_map<std::string, std::unordered_map<int, double>> iconFitScale;
+            // 贴图竖直平移（世界单位，正=向上；由交互工具逐条目人工调定）。
+            // 每个城市形状变体/锚朝向独立享有，不做同级合并。
+            struct IconFitOffsetY {
+                int iconLevel = 1;    // 贴图等级（1..10）
+                int variant = 0;      // 同级形状变体下标（City::shapeVariant）
+                int anchorB = 0;      // 锚基础格/朝向（hex=0；tri=0正/1倒；表驱动=baseB）
+                double value = 0.0;   // 世界单位偏移，渲染时 iconCy = centerY + value
+            };
+            std::unordered_map<std::string, std::vector<IconFitOffsetY>> iconFitOffsetY;
             // 等级塔图标颜色加深系数（0-1）：图标色 = 势力色 × iconDarken（与玩家指示"城市显示
             // 亮度"×0.8 一致）。城市图标此前用满色势力色，在亮色陆地上对比弱 → 大城看不清
             //（2026-08-07 反馈），加深以提升对比度。0 → 黑，1 → 势力色原色。

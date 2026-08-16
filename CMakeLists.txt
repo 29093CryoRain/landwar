@@ -86,6 +86,19 @@ target_link_libraries(landwar_core PUBLIC
 landwar_warnings(landwar_core)
 
 # ---------------------------------------------------------------------------
+# 城市贴图缩放交互调整工具（半正/Laves 渲染调整；保存临时 JSON，
+# 由 tools/apply_city_icon_fit_scales.py 写回 render.city.iconFitScale）
+# ---------------------------------------------------------------------------
+add_executable(city_icon_fit_tool tools/city_icon_fit_tool.cpp src/ui/ImGuiSetup.cpp)
+target_include_directories(city_icon_fit_tool PRIVATE src)
+target_link_libraries(city_icon_fit_tool PRIVATE
+    landwar_core
+    SDL2::SDL2
+    SDL2_image::SDL2_image
+    imgui)
+landwar_warnings(city_icon_fit_tool)
+
+# ---------------------------------------------------------------------------
 # 存档/回放（无头 CLI + 快照序列化；EXE 与测试共用）
 # ---------------------------------------------------------------------------
 add_library(landwar_replay STATIC

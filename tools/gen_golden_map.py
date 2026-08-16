@@ -111,17 +111,11 @@ def ramp(x):
 
 
 def sample_level(rng, s):
-    """P13 等级采样（幂律）：与 C++ sampleCityLevel 一致（1 次 unit()）。
-    P(L=levels[i]) = levels[i]^-s - levels[i+1]^-s（末级 = levels[N-1]^-s）。"""
+    """等级采样（2026-08-17 调试期改均匀分布）：与 C++ sampleCityLevel 一致
+    （1 次 unit()）。idx = int(u * n) 均匀选一个等级；幂律待修正后恢复。"""
     u = rng.unit()
-    cum = 0.0
-    for i, lev in enumerate(LEVELS):
-        cur = lev ** (-s)
-        nxt = LEVELS[i + 1] ** (-s) if i + 1 < len(LEVELS) else 0.0
-        cum += cur - nxt
-        if u < cum:
-            return lev
-    return LEVELS[-1]  # 浮点兜底（累计 ≈ 1）
+    idx = min(len(LEVELS) - 1, int(u * len(LEVELS)))
+    return LEVELS[idx]
 
 
 def can_place(land, cityid, cityallowed, level, x, y):

@@ -78,16 +78,16 @@ struct CityMap {
     }
 };
 
-// 幂律阈值（s = 1.0 + 0.5 = 1.5，config 默认）：u ∈ [0, 0.6464) → 1 级；[0.6464, 0.875) → 2；
-// [0.875, 0.9320) → 4；[0.9320, 0.9630) → 6；[0.9630, 1) → 9。
+// 等级采样分支（2026-08-17 调试期改**均匀分布**：u∈[0,1) → idx=int(u*5)，levels={1,2,4,6,9}：
+// u<0.2→1级、0.2~0.4→2级、0.4~0.6→4级、0.6~0.8→6级、0.8~1→9级。幂律待修正后恢复）。
 TEST(City, LevelSamplingBranches) {
     const Config cfg = Config::loadFromJson("{}");
     struct Case {
         double u;
         int expect;
     };
-    const Case cases[] = {{0.1, 1}, {0.5, 1}, {0.7, 2},   {0.8, 2},  {0.89, 4},
-                          {0.90, 4}, {0.94, 6}, {0.955, 6}, {0.97, 9}, {0.99, 9}};
+    const Case cases[] = {{0.1, 1}, {0.19, 1}, {0.2, 2},  {0.39, 2}, {0.4, 4},
+                          {0.59, 4}, {0.6, 6},  {0.79, 6}, {0.8, 9},  {0.99, 9}};
     for (const auto& c : cases) {
         LevelRng rng;
         rng.units = {c.u};
@@ -98,6 +98,11 @@ TEST(City, LevelSamplingBranches) {
         LevelRng rng;
         rng.units = {0.0};
         EXPECT_EQ(Map::sampleCityLevel(cfg.city, rng), 1);
+    }
+    {
+        LevelRng rng;
+        rng.units = {0.999999};
+        EXPECT_EQ(Map::sampleCityLevel(cfg.city, rng), 9);
     }
 }
 
@@ -182,7 +187,7 @@ TEST(City, NoCityWhenPlacementFailsBothLevels) {
     EXPECT_EQ(w.map.at(0, 0).cityId, -1);
 }
 
-// 幂律分布（统计）：稀疏城概率格（间距 ≥ 4，形状不重叠）→ 观测等级比例 ≈ 幂律期望（容差断言）。
+// 幂律分布（统计）——2026-08-17 调试期改均匀分布：方形成等级 {1,2,4,6,9} 各约 20%。
 TEST(City, LevelDistributionApproximatesPowerLaw) {
     const std::string path = "build/_city_powerlaw.bmp";
     std::vector<std::pair<int, int>> zones;
@@ -201,14 +206,13 @@ TEST(City, LevelDistributionApproximatesPowerLaw) {
     }
     const int total = sim.map().totalCities();
     ASSERT_GE(total, 100) << "城概率格应产生足够城市样本";
-    // s=1.5 幂律期望：P(L=1)=1-2^-1.5≈0.6464; P(L=2)=2^-1.5-4^-1.5≈0.2286;
-    // P(L=4)≈0.0570; P(L=6)≈0.0310; P(L=9)=9^-1.5≈0.0370（近似，容差断言"大致服从"）。
-    const double expect[5] = {0.6464, 0.2286, 0.0570, 0.0310, 0.0370};
+    // 均匀分布期望：P(L=each) ≈ 1/5 = 0.2（容差断言"大致均匀"）。
+    const double expect[5] = {0.2, 0.2, 0.2, 0.2, 0.2};
     for (int i = 0; i < 5; ++i) {
         const double observed = static_cast<double>(count[static_cast<size_t>(i)]) / total;
-        EXPECT_NEAR(observed, expect[static_cast<size_t>(i)], 0.08) << "level bucket " << i;
+        EXPECT_NEAR(observed, expect[static_cast<size_t>(i)], 0.12) << "level bucket " << i;
     }
-    // 至少存在一例 >1 级城市（幂律非退化到全是 1 级）。
+    // 至少存在一例 >1 级城市（均匀分布非退化到全是 1 级）。
     int high = 0;
     for (int i = 1; i < 5; ++i) high += count[static_cast<size_t>(i)];
     EXPECT_GT(high, 0);

@@ -25,24 +25,13 @@ double rampProb(int channel, const Config::Terrain& t) {
 }  // namespace
 
 double Map::sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set, Rng& rng) {
-    // P13：等级采样（幂律分布，思路 9.1）。s = alpha + beta（config），
-    //   P(L=levels[i]) = levels[i]^{-s} - levels[i+1]^{-s}（末级 = levels[N-1]^{-s}）。
-    // u = rng.unit() 按累计概率确定等级（1 次 RNG）。levels 须升序。
-    // 2026-08-16：levels 为 double（半正=面积和；Laves=格数）；最小等级可以不是 1，
-    //   公式对非 1 起点自然成立（条件分布）。
+    // 等级采样。2026-08-17（调试期）：幂律采样在 levels[0]≠1 时概率异常（累计≠1），
+    // 先改为**均匀分布**（等概率选一个等级），确认密铺系统正常后再恢复幂律并修正归一化。
+    // 用 unit() 而非 get()：unit() 是 virtual，测试可用 mock 固定分支。
     if (set.levels.empty()) return 1.0;
-    const double s = cc.rankExponent();
-    const double u = rng.unit();
-    double cum = 0.0;
-    for (int i = 0; i < static_cast<int>(set.levels.size()); ++i) {
-        const double cur = std::pow(set.levels[static_cast<size_t>(i)], -s);
-        const double next = (i + 1 < static_cast<int>(set.levels.size()))
-                                ? std::pow(set.levels[static_cast<size_t>(i + 1)], -s)
-                                : 0.0;
-        cum += cur - next;  // P(L=levels[i]) = levels[i]^-s - levels[i+1]^-s
-        if (u < cum) return set.levels[static_cast<size_t>(i)];
-    }
-    return set.levels.back();  // 浮点兜底（累计 ≈ 1）
+    const int n = static_cast<int>(set.levels.size());
+    const int idx = std::min(n - 1, static_cast<int>(rng.unit() * static_cast<double>(n)));
+    return set.levels[static_cast<size_t>(idx)];
 }
 
 void Map::clear() {
@@ -59,6 +48,7 @@ void Map::clear() {
     }
     capitalX_.clear();
     capitalY_.clear();
+    capitalB_.clear();
     cities_.clear();
 }
 
@@ -72,11 +62,10 @@ void Map::configure(const Config::Map& cfg) {
     if (cfg.tilingType() == TilingType::Tri) {
         cols = (cols / 2) & ~1;
     } else if (static_cast<int>(cfg.tilingType()) > static_cast<int>(TilingType::Tri)) {
-        // 半正/Laves 表驱动：用户长*宽 = 总格数。每周期域含 B 个基础格，
-        // 故列数 = 用户长 / B（向下取整）。UI 侧已保证用户长为 B 的倍数。
-        const TilingGeom probe{cfg.tilingType(), 1, 1};
-        const int B = std::max(1, probe.baseCount());
-        cols = std::max(1, cfg.width / B);
+        // 半正/Laves 表驱动：用户长*宽 = 总格数。周期域列/行按“实际视觉宽高比
+        // 尽量接近用户长/宽比”选择（chooseTableDomain），避免旧方案（列=长/B）出现
+        // “设 200×32 实际却宽>高”，也避免简单“列=长”把图拉成过宽的条带。
+        chooseTableDomain(static_cast<int>(cfg.tilingType()), cfg.width, cfg.height, cols, rows);
     }
     // 六/三角行数须为偶数（垂直环绕闭合）；半正/Laves 表驱动用矩形周期域，任意行数均可。
     if ((cfg.tilingType() == TilingType::Hex || cfg.tilingType() == TilingType::Tri)
@@ -226,13 +215,13 @@ void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
         if (rng.chance(rampProb(cc.g, terrain_))) {
             const double level = sampleCityLevel(cityConfig_, cityConfig_.setFor(geom_.type), rng);
             if (canPlaceCity(level, idx)) {
-                addCity(level, idx);
+                addCity(level, idx, &rng);
             } else {
                 // 放置失败回退到该密铺的最小允许等级（2026-08-16：原硬编码 1 级，
                 // 最小等级 ≠ 1 时 shapeFor(1) 不存在会丢失城市）。
                 const auto& set = cityConfig_.setFor(geom_.type);
                 const double minLevel = set.levels.empty() ? 1.0 : set.levels.front();
-                if (canPlaceCity(minLevel, idx)) addCity(minLevel, idx);
+                if (canPlaceCity(minLevel, idx)) addCity(minLevel, idx, &rng);
             }
         }
         cell.mountain = rng.chance(rampProb(cc.r, terrain_));
@@ -278,6 +267,94 @@ void Map::correctMountainCoast() {
 bool Map::placeCapitals(Rng& rng) {
     capitalX_.assign(static_cast<size_t>(kPlayerFactionCount), -9961);
     capitalY_.assign(static_cast<size_t>(kPlayerFactionCount), -9961);
+    capitalB_.assign(static_cast<size_t>(kPlayerFactionCount), 0);
+    const bool table = static_cast<int>(geom_.type) > static_cast<int>(TilingType::Tri);
+
+    if (table) {
+        // 半正/Laves：首都从已生成城市中分配（用户 2026-08-16：先生成可用城市，再分配首都），
+        // 不再随机挑格后硬塞最小等级城；已生成城市不足 8 个时才回退到"合法最小等级城"。
+        const auto& citySet = cityConfig_.setFor(geom_.type);
+        const double minLevel = citySet.levels.empty() ? 1.0 : citySet.levels.front();
+        std::vector<int> candAnchors;
+        candAnchors.reserve(cities_.size());
+        for (const auto& c : cities_)
+            if (c.baseIndex >= 0 && c.baseIndex < cellCount() && atIndex(c.baseIndex).land)
+                candAnchors.push_back(c.baseIndex);
+        std::vector<bool> used(candAnchors.size(), false);
+        const int nCityCand = static_cast<int>(candAnchors.size());
+
+        const auto distFromPlaced = [&](int idx) {
+            double best = 1e18;
+            double ax, ay;
+            cellCenter(idx, ax, ay);
+            for (int j = 0; j < kPlayerFactionCount; ++j) {
+                if (capitalX_[static_cast<size_t>(j)] < 0) continue;
+                const int pj = cellIndexAt(capitalX_[static_cast<size_t>(j)],
+                                           capitalY_[static_cast<size_t>(j)],
+                                           capitalB_[static_cast<size_t>(j)]);
+                double bx, by;
+                cellCenter(pj, bx, by);
+                best = std::min(best, math::distance(ax, ay, bx, by));
+            }
+            return best;
+        };
+        int minDist = capitalMinDistance_;
+        for (int i = 0; i < kPlayerFactionCount; ++i) {
+            bool assigned = false;
+            while (minDist >= 1) {
+                int bestJ = -1;
+                double bestD = -1.0;
+                for (int j = 0; j < nCityCand; ++j) {
+                    if (used[static_cast<size_t>(j)]) continue;
+                    const double d = distFromPlaced(candAnchors[static_cast<size_t>(j)]);
+                    if (d >= minDist && d > bestD) {
+                        bestD = d;
+                        bestJ = j;
+                    }
+                }
+                if (bestJ >= 0) {
+                    used[static_cast<size_t>(bestJ)] = true;
+                    int rr = 0, cc = 0, bb = 0;
+                    geom_.indexToRowCol(candAnchors[static_cast<size_t>(bestJ)], rr, cc, bb);
+                    capitalX_[static_cast<size_t>(i)] = cc;
+                    capitalY_[static_cast<size_t>(i)] = rr;
+                    capitalB_[static_cast<size_t>(i)] = bb;
+                    assigned = true;
+                    break;
+                }
+                if (minDist <= 1) break;
+                minDist = std::max(1, minDist / 2);
+            }
+            if (assigned) continue;
+            // 回退：随机找一个合法锚点，放置最小等级城（canPlaceCity 会校验锚点边数/形状格）。
+            bool ok = false;
+            int attempts = 0;
+            while (attempts < kCapitalMaxAttempts) {
+                ++attempts;
+                const int idx = rng.get(cellCount() - 1);
+                const MapCell& cand = atIndex(idx);
+                if (!cand.land || cand.cityId != -1) continue;
+                // 回退阶段：已有城市不足 8 个 → 允许在任意陆地放最小等级城（形状/无重叠仍校验）。
+                if (!canPlaceCityImpl(minLevel, idx, /*requireAllowed=*/false)) continue;
+                if (distFromPlaced(idx) < minDist) continue;
+                addCity(minLevel, idx, &rng);
+                int rr = 0, cc = 0, bb = 0;
+                geom_.indexToRowCol(idx, rr, cc, bb);
+                capitalX_[static_cast<size_t>(i)] = cc;
+                capitalY_[static_cast<size_t>(i)] = rr;
+                capitalB_[static_cast<size_t>(i)] = bb;
+                ok = true;
+                break;
+            }
+            if (!ok) {
+                spdlog::error("placeCapitals: retry exhausted (table tiling, no valid city anchor)");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // ---- 方/六/三：保持原语义（基线/黄金数据路径）----
     int attempts = 0;
     // P5 改版：首都优先落在"可产城"格（cityAllowed = 基图允许该格成为城市，即源 g>probFloor）。
     // 这样基图"必然无城"的格子（ramp(G)=0）不会被首都强行塞进城市。
@@ -350,18 +427,17 @@ bool Map::placeCapitals(Rng& rng) {
             if (tooClose) continue;
             capitalX_[static_cast<size_t>(i)] = rx;
             capitalY_[static_cast<size_t>(i)] = ry;
+            capitalB_[static_cast<size_t>(i)] = 0;
             break;
         }
     }
-    // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册最小等级城
-    //（2026-08-16：原硬编码 1 级，最小等级 ≠ 1 时应注册该密铺的最小允许等级）。
-    const auto& citySet = cityConfig_.setFor(geom_.type);
-    const double minLevel = citySet.levels.empty() ? 1.0 : citySet.levels.front();
+    // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册 1 级城
+    //（方/六/三最小等级均为 1，即文档存在的单格城）。
     for (int i = 0; i < kPlayerFactionCount; ++i) {
         const int cx = capitalX_[static_cast<size_t>(i)];
         const int cy = capitalY_[static_cast<size_t>(i)];
         if (cx < 0) continue;  // 放置失败槽位（原语义保留）
-        if (atIndex(cellIndexAt(cx, cy)).cityId < 0) addCity(minLevel, cellIndexAt(cx, cy));
+        if (atIndex(cellIndexAt(cx, cy)).cityId < 0) addCity(1.0, cellIndexAt(cx, cy), &rng);
     }
     return true;
 }
@@ -375,18 +451,28 @@ int Map::cellIndexAt(int c, int r) const {
     return r * geom_.cols + c;
 }
 
+int Map::cellIndexAt(int c, int r, int b) const {
+    if (geom_.type == TilingType::Tri) return 2 * (r * geom_.cols + c) + (b & 1);
+    if (static_cast<int>(geom_.type) > static_cast<int>(TilingType::Tri))
+        return geom_.cellIndexAt(r, c, b);
+    return r * geom_.cols + c;
+}
+
 void Map::finalize() {
     // P13：城市数 = 注册表大小（城市实体数，非格子数）。基建格全在陆地（放置时校验），
     // 无海上城市 → 原清理步骤消失。旧经济公式 totalCities 语义随之变为"城市实体数比"。
 }
 
-// 形状 → 基建格下标（level 查密铺形状表；锚点 index 为形状原点）。P12。
-std::vector<int> Map::shapeCells(double level, int anchorIndex) const {
+// 形状 → 基建格下标（level 查密铺形状表；锚点 index 为形状原点；variant < 0 时按锚点
+// 确定性选取）。P12。渲染/放置统一用 City::shapeVariant（放置时选定、快照持久化），
+// 保证同级多形状（Laves/部分半正）的锚朝向/局部拓扑匹配不因 anchorIndex 取模漂移。
+std::vector<int> Map::shapeCells(double level, int anchorIndex, int variant) const {
     std::vector<int> out;
     const auto& set = cityConfig_.setFor(geom_.type);
     const int vc = set.variantCount(level);
-    const int variant = (vc > 1) ? (std::abs(anchorIndex) % vc) : 0;  // 确定性选变体
-    const Config::City::Shape* sh = set.shapeFor(level, variant);
+    int v = variant;
+    if (v < 0) v = (vc > 1) ? (std::abs(anchorIndex) % vc) : 0;  // 旧确定性选变体（测试用）
+    const Config::City::Shape* sh = set.shapeFor(level, v);
     if (!sh || anchorIndex < 0 || anchorIndex >= cellCount()) return out;
     out.reserve(sh->cells.size());
     if (geom_.type == TilingType::Square) {
@@ -413,8 +499,9 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex) const {
         // 三角：锚朝向决定形状变体（用户 2026-08 定稿：L1/L4 有正/反两种模式，其余同形）。
         // 形状表按"正锚模式"定义；锚为反三角（奇下标）时对 dy 垂直镜像（orient 随之翻转），
         // 偏移点即目标格中心 → worldToCell 稳定解析。六边形（轴向偏移）与锚朝向无关。
-        // 半正/Laves：形状表按"目标格中心 − 锚格中心"的世界偏移存储（平移不变）→ 直接
-        // 加锚中心后 worldToCell。
+        // 半正/Laves：形状表按"目标格中心 − 锚格中心"的世界偏移存储（平移不变）；形状表
+        // 按"同边数第一个基础格"朝向编写，锚为其他朝向基础格时须按锚格变换旋转/镜像
+        //（锚格朝向修复 2026-08-16，见 TilingGeom::applyAnchorOrientation）。
         const bool anchorUp = (geom_.type == TilingType::Tri) ? ((anchorIndex & 1) == 0) : true;
         for (const auto& sc : sh->cells) {
             double wx, wy;
@@ -424,9 +511,12 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex) const {
             } else if (geom_.type == TilingType::Tri) {
                 wx = ax + sc.dx * TilingGeom::kTriSide;
                 wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
-            } else {  // 半正/Laves：世界偏移
-                wx = ax + sc.dx;
-                wy = ay + sc.dy;
+            } else {  // 半正/Laves：形状表按旧中间朝向存储，运行时几何已旋转 90°，
+                       // 偏移量同步旋转 (dx,dy)->(-dy,dx)，再按锚格朝向变换。
+                double ox = -sc.dy, oy = sc.dx;
+                geom_.applyAnchorOrientation(anchorIndex, sh->anchorN, sh->anchorBaseMask, ox, oy);
+                wx = ax + ox;
+                wy = ay + oy;
             }
             out.push_back(geom_.worldToCell(wx, wy));
         }
@@ -434,10 +524,10 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex) const {
     return out;
 }
 
-std::vector<int> Map::cityCells(const City& c) const { return shapeCells(c.level, c.baseIndex); }
+std::vector<int> Map::cityCells(const City& c) const { return shapeCells(c.level, c.baseIndex, c.shapeVariant); }
 
 void Map::cityCenter(const City& c, double& wx, double& wy) const {
-    const std::vector<int> cells = shapeCells(c.level, c.baseIndex);
+    const std::vector<int> cells = cityCells(c);
     double sx = 0.0, sy = 0.0;
     int n = 0;
     for (int idx : cells) {
@@ -482,7 +572,7 @@ void Map::recomputeCityGeometry() {
         c.centerX_ = cx0;
         c.centerY_ = cy0;
         // AABB（显示用；六/三取形状格中心的世界包围盒折算列/行）。
-        const std::vector<int> cells = shapeCells(c.level, c.baseIndex);
+        const std::vector<int> cells = cityCells(c);
         if (!cells.empty() && geom_.type != TilingType::Square) {
             double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
             for (int idx : cells) {
@@ -500,10 +590,24 @@ void Map::recomputeCityGeometry() {
     }
 }
 
-int Map::addCity(double level, int index) {
+int Map::addCity(double level, int index, Rng* rng) {
     const auto& set = cityConfig_.setFor(geom_.type);
     const int vc = set.variantCount(level);
-    const int variant = (vc > 1) ? (std::abs(index) % vc) : 0;
+    // 同级多形状：选"能放下"的变体（与 canPlaceCityImpl 判定一致），保证锚朝向/局部
+    // 拓扑匹配；持久化到 City::shapeVariant，渲染/读档用同一变体（2026-08-16 修复：
+    // 旧逻辑 abs(index)%vc 盲选，会选中放不下的变体导致城市形状错乱/重叠）。
+    // 2026-08-17：rng 非空且变体>1 时**随机**选一个能放下的变体——否则固定选第一个
+    // 能放下的，同级其他形状永不出现（如 Laves31212 的菱形 6 级城、Arch31212 正反）。
+    int variant = 0;
+    if (vc > 1) {
+        const std::vector<int> vs = placeableVariants(level, index, /*requireAllowed=*/true);
+        if (!vs.empty()) {
+            variant = (rng != nullptr) ? vs[static_cast<size_t>(rng->get(static_cast<int>(vs.size()) - 1))]
+                                       : vs.front();
+        } else {
+            variant = 0;  // 调用方已 canPlaceCity 保证可放，防御兜底
+        }
+    }
     const Config::City::Shape* sh = set.shapeFor(level, variant);
     if (!sh || index < 0 || index >= cellCount()) return -1;
     const int id = static_cast<int>(cities_.size());
@@ -511,6 +615,7 @@ int Map::addCity(double level, int index) {
     c.id = id;
     c.level = level;
     c.baseIndex = index;
+    c.shapeVariant = variant;
     if (geom_.type == TilingType::Square) {
         c.baseX = index % geom_.cols;
         c.baseY = index / geom_.cols;
@@ -518,7 +623,7 @@ int Map::addCity(double level, int index) {
         c.baseX = index % geom_.cols;
         c.baseY = index / geom_.cols;
     }
-    const std::vector<int> cells = shapeCells(level, index);
+    const std::vector<int> cells = shapeCells(level, index, variant);
     for (int idx : cells)
         if (idx >= 0) atIndex(idx).cityId = id;
     // 几何中心 + AABB（显示用：方 = w×h 形状；六/三 = 形状格中心世界包围盒折算列/行）。
@@ -553,16 +658,36 @@ int Map::addCity(double level, int index) {
 }
 
 bool Map::canPlaceCity(double level, int index) const {
-    if (index < 0 || index >= cellCount()) return false;
-    if (!atIndex(index).cityAllowed) return false;  // 锚点须可成城（基图允许该格成城）
+    return canPlaceCityImpl(level, index, /*requireAllowed=*/true);
+}
+
+bool Map::canPlaceCityImpl(double level, int index, bool requireAllowed) const {
+    return placeableVariant(level, index, requireAllowed) >= 0;
+}
+
+int Map::placeableVariant(double level, int index, bool requireAllowed) const {
+    const std::vector<int> vs = placeableVariants(level, index, requireAllowed);
+    return vs.empty() ? -1 : vs.front();
+}
+
+std::vector<int> Map::placeableVariants(double level, int index, bool requireAllowed) const {
+    std::vector<int> out;
+    if (index < 0 || index >= cellCount()) return out;
+    if (requireAllowed && !atIndex(index).cityAllowed)
+        return out;  // 锚点须可成城（基图允许该格成城）
     const auto& set = cityConfig_.setFor(geom_.type);
     const int vc = set.variantCount(level);
-    if (vc <= 0) return false;  // 未注册等级 → 拒绝（旧 levelIndex<0 语义）
+    if (vc <= 0) return out;  // 未注册等级 → 拒绝（旧 levelIndex<0 语义）
     for (int v = 0; v < vc; ++v) {
         const Config::City::Shape* sh = set.shapeFor(level, v);
         if (!sh || sh->cells.empty()) continue;
         // 半正/Laves 混合面：形状可限定锚点格类型（按边数 = 多边形顶点数）。
         if (sh->anchorN != 0 && geom_.neighborCount(index) != sh->anchorN) continue;
+        // 锚点基础格限制（如 Arch3464 L1/L2 仅限横平竖直正方形）。
+        if (sh->anchorBaseMask != 0) {
+            const int b = index % std::max(1, geom_.baseCount());
+            if (b < 0 || b >= 31 || (sh->anchorBaseMask & (1u << b)) == 0) continue;
+        }
         // 用该变体解析形状格（shapeCells 按锚点取第一变体，这里需逐变体直接解析）。
         std::vector<int> cells;
         cells.reserve(sh->cells.size());
@@ -590,8 +715,11 @@ bool Map::canPlaceCity(double level, int index) const {
                     wx = ax + sc.dx * TilingGeom::kTriSide;
                     wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
                 } else {
-                    wx = ax + sc.dx;
-                    wy = ay + sc.dy;
+                    // 半正/Laves：运行时几何已旋转 90°，偏移量同步旋转，再按锚格朝向变换。
+                    double ox = -sc.dy, oy = sc.dx;
+                    geom_.applyAnchorOrientation(index, sh->anchorN, sh->anchorBaseMask, ox, oy);
+                    wx = ax + ox;
+                    wy = ay + oy;
                 }
                 cells.push_back(geom_.worldToCell(wx, wy));
             }
@@ -602,9 +730,9 @@ bool Map::canPlaceCity(double level, int index) const {
             const MapCell& c = atIndex(idx);
             if (!c.land || c.cityId != -1) { ok = false; break; }  // 陆地且无重叠
         }
-        if (ok) return true;
+        if (ok) out.push_back(v);
     }
-    return false;
+    return out;
 }
 
 MapCell& Map::atIndex(int idx) {

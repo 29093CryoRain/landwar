@@ -150,7 +150,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
     };
     for (const City& c : map.cities()) {
         // 等级塔/首都图标缩放表按贴图等级索引（1..9；实数等级四舍五入，10+ 统一贴图）。
-        const int texLevel = textureLevelFor(c.level);
+        const int texLevel = map.cityConfig().setFor(map.tiling()).iconLevelFor(c.level);
         if (texLevel < 1) continue;  // 防御：非法等级
         const int status = statusOf(c);
         const bool isCapital = (status == 1 || status == 2);  // 正式首都 / 候补（都用首都图标）
@@ -159,7 +159,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         SDL_Rect block{0, 0, 0, 0};
         if (tiled) {
             // P12 六/三角：视野剔除用形状世界 AABB（屏幕）。
-            const std::vector<int> cells = map.shapeCells(c.level, c.baseIndex);
+            const std::vector<int> cells = map.cityCells(c);
             double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
             double wx[12], wy[12];
             for (int ci : cells) {
@@ -197,7 +197,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
                 // P12：外廓 = 形状边界线段（邻格不在形状内的边段；cellEdge 与邻接同序）。
                 Hull h;
                 h.colorIndex = std::clamp(c.ownerId, 0, nColor - 1);
-                const std::vector<int> cells = map.shapeCells(c.level, c.baseIndex);
+                const std::vector<int> cells = map.cityCells(c);
                 for (int ci : cells) {
                     if (ci < 0) continue;
                     for (int k = 0; k < map.geom().neighborCount(); ++k) {
@@ -230,63 +230,108 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         }
 
         // 图标尺寸按基建地块框自适应。方：AABB 框（与旧版一致）；六/三/半正/Laves：
-        // 用 CityIconFitter 求"贴图不越界且尽量大、允许平移"的缩放与中心（缓存）。
+        // 普通城市优先用 config 预计算的 iconFitScale（中心 = 基建地块几何中心，不平移）；
+        // 无预计算值（旧配置/测试）或首都图标仍回退 CityIconFitter 允许平移的实时拟合（缓存）。
         const std::size_t lvi = static_cast<size_t>(texLevel <= 9 ? texLevel - 1 : 8);
         const double cellPx = cam_.cellPx();
-        double A = isCapital ? capitalAspect_
-                             : (texLevel == 10 ? tower10Aspect_ : srcAspect_[lvi]);
-        if (A <= 0.0) A = 1.0;  // 未烘焙/未知 → 按方形
-        const double scaleFactor = isCapital ? rc.capital.iconScale[lvi] : rc.city.iconScale[lvi];
-        double fitW = 0.0;
-        double iconCx = c.centerX(), iconCy = c.centerY();
+
+        // 先按普通城市贴图计算尺寸（首都图标面积与该普通贴图面积一致）。
+        double normalA = (texLevel == 10 ? tower10Aspect_ : srcAspect_[lvi]);
+        if (normalA <= 0.0) normalA = 1.0;
+        double normalFitW = 0.0;
+        double normalIconCx = c.centerX(), normalIconCy = c.centerY();
+        bool normalDirectFit = false;  // true = iconFitScale 已是最终 fitW，不再乘 iconScale
         if (tiled) {
-            // 用真实形状多边形（世界坐标）拟合，而不是 AABB。
-            const std::vector<int> cells = map.shapeCells(c.level, c.baseIndex);
-            std::vector<FitPoly> polys;
-            polys.reserve(cells.size());
-            double wx[12], wy[12];
-            for (int ci : cells) {
-                if (ci < 0) continue;
-                const int n = map.geom().cellPolygon(ci, wx, wy, 12);
-                if (n < 3) continue;
-                FitPoly poly;
-                poly.reserve(static_cast<size_t>(n));
-                for (int k = 0; k < n; ++k) poly.push_back({wx[k], wy[k]});
-                polys.push_back(std::move(poly));
-            }
-            const std::string key = std::string(tilingName(map.tiling())) + "|"
-                                    + std::to_string(texLevel) + "|"
-                                    + std::to_string(static_cast<int>(std::lround(A * 1000.0)))
-                                    + "|" + std::to_string(c.baseIndex % map.geom().baseCount());
-            auto it = fitCache_.find(key);
-            if (it == fitCache_.end()) {
-                double s = 0.0, fcx = 0.0, fcy = 0.0;
-                if (CityIconFitter::compute(polys, 1.0, A, s, fcx, fcy)) {
-                    it = fitCache_.emplace(key, FitEntry{s, fcx - c.centerX(), fcy - c.centerY()})
-                             .first;
-                } else {
-                    it = fitCache_.end();
+            bool haveFit = false;
+            const auto tIt = rc.city.iconFitScale.find(tilingName(map.tiling()));
+            if (tIt != rc.city.iconFitScale.end()) {
+                const auto lIt = tIt->second.find(texLevel);
+                if (lIt != tIt->second.end() && lIt->second > 0.0) {
+                    normalFitW = lIt->second * cellPx;
+                    normalIconCx = c.centerX();
+                    normalIconCy = c.centerY();
+                    haveFit = true;
+                    normalDirectFit = true;  // 配置值即最终 fitW
                 }
             }
-            if (it != fitCache_.end()) {
-                fitW = it->second.scale * cellPx;
-                iconCx = c.centerX() + it->second.offX;
-                iconCy = c.centerY() + it->second.offY;
-            } else {
-                // 兜底：AABB。
-                fitW = std::min(static_cast<double>(block.w), static_cast<double>(block.h) / A);
+            // 竖直平移（世界单位）：每个形状变体/锚朝向独立记录。
+            const auto oIt = rc.city.iconFitOffsetY.find(tilingName(map.tiling()));
+            if (oIt != rc.city.iconFitOffsetY.end()) {
+                const int anchorB = (map.geom().baseCount() > 0)
+                                        ? (c.baseIndex % map.geom().baseCount())
+                                        : 0;
+                for (const auto& rec : oIt->second) {
+                    if (rec.iconLevel == texLevel && rec.variant == c.shapeVariant
+                        && rec.anchorB == anchorB) {
+                        normalIconCy = c.centerY() + rec.value;
+                        break;
+                    }
+                }
+            }
+            if (!haveFit) {
+                // 用真实形状多边形（世界坐标）拟合，而不是 AABB。
+                const std::vector<int> cells = map.cityCells(c);
+                std::vector<FitPoly> polys;
+                polys.reserve(cells.size());
+                double wx[12], wy[12];
+                for (int ci : cells) {
+                    if (ci < 0) continue;
+                    const int n = map.geom().cellPolygon(ci, wx, wy, 12);
+                    if (n < 3) continue;
+                    FitPoly poly;
+                    poly.reserve(static_cast<size_t>(n));
+                    for (int k = 0; k < n; ++k) poly.push_back({wx[k], wy[k]});
+                    polys.push_back(std::move(poly));
+                }
+                const std::string key = std::string(tilingName(map.tiling())) + "|"
+                                        + std::to_string(texLevel) + "|"
+                                        + std::to_string(static_cast<int>(std::lround(normalA * 1000.0)))
+                                        + "|" + std::to_string(c.baseIndex % map.geom().baseCount());
+                auto it = fitCache_.find(key);
+                if (it == fitCache_.end()) {
+                    double s = 0.0, fcx = 0.0, fcy = 0.0;
+                    if (CityIconFitter::compute(polys, 1.0, normalA, s, fcx, fcy)) {
+                        it = fitCache_.emplace(key, FitEntry{s, fcx - c.centerX(), fcy - c.centerY()})
+                                 .first;
+                    } else {
+                        it = fitCache_.end();
+                    }
+                }
+                if (it != fitCache_.end()) {
+                    normalFitW = it->second.scale * cellPx;
+                    normalIconCx = c.centerX() + it->second.offX;
+                    normalIconCy = c.centerY() + it->second.offY;
+                } else {
+                    // 兜底：AABB。
+                    normalFitW = std::min(static_cast<double>(block.w), static_cast<double>(block.h) / normalA);
+                }
             }
         } else {
             const double boxW = static_cast<double>(c.w) * cellPx;
             const double boxH = static_cast<double>(c.h) * cellPx;
-            fitW = std::min(boxW, boxH / A);
+            normalFitW = std::min(boxW, boxH / normalA);
         }
-        const int dstW = isCapital
-                             ? std::max(rc.capital.minIconSizePx,
-                                        static_cast<int>(std::lround(fitW * scaleFactor)))
-                             : std::max(1, static_cast<int>(std::lround(fitW * scaleFactor)));
-        const int dstH = std::max(1, static_cast<int>(std::lround(static_cast<double>(dstW) * A)));
-        // 图标中心 = 基建地块几何中心（方）或 CityIconFitter 允许平移后的中心（密铺）。
+        const double normalScaleFactor = normalDirectFit ? 1.0 : rc.city.iconScale[lvi];
+        const int normalDstW = std::max(1, static_cast<int>(std::lround(normalFitW * normalScaleFactor)));
+        const int normalDstH = std::max(1, static_cast<int>(std::lround(static_cast<double>(normalDstW) * normalA)));
+
+        double iconCx = normalIconCx;
+        double iconCy = normalIconCy;
+        int dstW = normalDstW;
+        int dstH = normalDstH;
+        if (isCapital) {
+            // 首都贴图：面积 = 普通城市贴图实际面积 S；按首都贴图纵横比反推尺寸；
+            // 始终不添加竖直偏移，中心 = 基建地块几何中心。
+            double capA = capitalAspect_;
+            if (capA <= 0.0) capA = 1.0;
+            const double S = static_cast<double>(normalDstW) * static_cast<double>(normalDstH);
+            const double capW = std::sqrt(S / capA);
+            dstW = std::max(rc.capital.minIconSizePx, static_cast<int>(std::lround(capW)));
+            dstH = std::max(1, static_cast<int>(std::lround(static_cast<double>(dstW) * capA)));
+            iconCx = c.centerX();
+            iconCy = c.centerY();
+        }
+
         const Icon icon{texLevel, cam_.toScreenXi(iconCx), cam_.toScreenYi(iconCy),
                         dstW, dstH, std::clamp(c.ownerId, 0, nColor - 1)};
         if (status == 1)

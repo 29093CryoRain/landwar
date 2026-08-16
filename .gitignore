@@ -34,3 +34,9 @@ imgui.ini
 # Python 工具缓存
 __pycache__/
 *.pyc
+
+# 交互工具根目录副本
+/city_icon_fit_tool.exe
+
+# 城市贴图缩放交互工具临时数据
+/data/city_icon_fit_scales.json

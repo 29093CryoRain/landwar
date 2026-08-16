@@ -25,7 +25,9 @@ TEST(Simulation, InitBuildsFactionsAndConquersCapitals) {
         const auto& f = factions[static_cast<size_t>(id)];
         EXPECT_TRUE(f.alive) << "faction " << id;
         EXPECT_EQ(f.cityCount, 1) << "faction " << id << " 恰持一个首都";
-        EXPECT_EQ(f.landCount, 1) << "faction " << id;
+        // 2026-08-17（调试期均匀分布）：首都城市等级可能 >1（首都建在高等级城上），
+        // 占格数随之 >1；断言放宽为"至少 1 格"。
+        EXPECT_GE(f.landCount, 1) << "faction " << id;
     }
 
     // 每个首都归属某个可玩势力，且 8 个首都不重复。

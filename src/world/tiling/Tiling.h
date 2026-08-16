@@ -98,8 +98,27 @@ struct TilingGeom {
     // 更新 (x,y)、remLength。RNG 0 次。
     int crossEdge(int index, double& x, double& y, double angle, double& remLength) const;
 
+    // ---- 锚格朝向修复（2026-08-16）：表驱动密铺的形状表按"参考基础格"朝向编写 ----
+    // 锚格为同边数但不同朝向的基础格时，形状偏移须旋转/镜像后才能 worldToCell 解析。
+    // 基础格 b 相对"同边数第一个基础格"的变换（旋转角 rad + 镜像标志；非表驱动恒恒等）。
+    bool baseCellTransform(int baseB, double& angleRad, bool& reflect) const;
+    // 形状的参考基础格：anchorBaseMask 非 0 → 取最低置位（形状按该朝向族编写，
+    // 如 Arch3464 L1/L2 仅限横平竖直正方形 b=2/8）；否则 → 该边数第一个基础格。
+    int shapeReferenceBase(int anchorN, std::uint32_t anchorBaseMask) const;
+    // 应用锚格朝向变换到形状偏移 (ox,oy)（运行时朝向、参考基础格 frame → 锚格 frame）。
+    // 返回 false = 无表/参数非法（偏移保持不变）。
+    bool applyAnchorOrientation(int index, int anchorN, std::uint32_t anchorBaseMask,
+                                double& ox, double& oy) const;
+
 private:
     void ensureTable() const;
 };
+
+// 表驱动密铺（半正/Laves）的周期域列/行选择：
+// 用户宽先向上取整到 B 的倍数（且 ≤200 的 B 倍数），使 cols*rows*B = 用户长*有效宽
+// （总格数）精确成立；再使实际视觉宽高比 (worldWidth*cols)/(worldHeight*rows)
+// 尽量接近 用户长/有效宽。遍历 P=长*有效宽/B 的因子求最优 rows。
+// 对非表驱动类型按原语义返回。
+void chooseTableDomain(int tilingType, int userLength, int userWidth, int& cols, int& rows);
 
 }  // namespace lw

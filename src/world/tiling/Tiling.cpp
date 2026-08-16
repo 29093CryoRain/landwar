@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <limits>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -51,6 +52,11 @@ struct TilingTable {
         double cx = 0.0, cy = 0.0;
         std::vector<std::array<double, 2>> v;  // 逆时针顶点（与边序一致）
         std::vector<Edge> edges;               // 与 v[i]→v[i+1] 同序
+        // 锚格朝向修复（2026-08-16）：本基础格相对"同边数第一个基础格"的朝向变换。
+        // 形状表按参考基础格（第一个基础格）朝向编写偏移；锚格为其他基础格时，偏移须
+        // 先按参考变换求逆、再按锚格变换应用（见 TilingGeom::applyAnchorOrientation）。
+        double rotAngle = 0.0;   // 旋转角（rad；相对参考基础格）
+        bool reflect = false;    // 是否镜像（先绕 x 轴翻转再旋转）
     };
     std::vector<Cell> cells;
 };
@@ -58,6 +64,7 @@ struct TilingTable {
 namespace {
 
 constexpr double kTableTol = 1e-6;
+constexpr int kMaxPolygonVerts = 16;  // 最大多边形顶点数（十二边形 12 + 余量）
 
 bool isTableType(TilingType t) {
     return static_cast<int>(t) > static_cast<int>(TilingType::Tri);
@@ -136,6 +143,26 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
         c.edges.resize(static_cast<size_t>(c.n));
         tab->cells.push_back(std::move(c));
     }
+    // 2026-08-16：生成器产出的 JSON 是未按方向规范旋转的中间朝向；运行时统一旋转 90°
+    //（x' = hy - y, y' = x）并交换周期 W/H，使密铺方向符合 .docs/开发思路.txt 的方向规范。
+    {
+        const double oldWx = tab->wx;
+        const double oldHy = tab->hy;
+        for (auto& c : tab->cells) {
+            const double nc = oldHy - c.cy;
+            const double ny = c.cx;
+            c.cx = nc;
+            c.cy = ny;
+            for (auto& p : c.v) {
+                const double ox = p[0];
+                const double oy = p[1];
+                p[0] = oldHy - oy;
+                p[1] = ox;
+            }
+        }
+        tab->wx = oldHy;
+        tab->hy = oldWx;
+    }
     // 保守 AABB 半径（相对格中心）。
     for (const auto& c : tab->cells) {
         for (const auto& p : c.v) {
@@ -173,6 +200,90 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
             }
             if (!found)
                 spdlog::warn("TilingTable: no neighbor for {} base {} edge {}", name, b, k);
+        }
+    }
+    // 锚格朝向修复（2026-08-16）：为每个基础格求相对"同边数第一个基础格"的朝向变换
+    //（旋转角 + 是否镜像）。方法：用邻格中心偏移集匹配——同边数格在周期域内互为旋转/
+    // 镜像副本，邻格偏移集合（方向+长度）在变换下保持不变。镜像检测对 Laves 筝形/三角
+    // 等手性面必要（分析见 tools/analyze_anchor_transforms2.py，0 NO MATCH）。
+    {
+        // 每个 n 的第一个基础格
+        std::vector<int> firstOfN(static_cast<size_t>(kMaxPolygonVerts + 1), -1);
+        for (int b = 0; b < B; ++b) {
+            const int n = tab->cells[static_cast<size_t>(b)].n;
+            if (n >= 0 && n <= kMaxPolygonVerts && firstOfN[static_cast<size_t>(n)] < 0)
+                firstOfN[static_cast<size_t>(n)] = b;
+        }
+        // 邻格中心偏移（相对本格中心）
+        auto offsetsOf = [&](int b, std::vector<std::array<double, 2>>& out) {
+            out.clear();
+            const auto& cell = tab->cells[static_cast<size_t>(b)];
+            for (const auto& e : cell.edges) {
+                if (e.nb < 0) continue;
+                const auto& o = tab->cells[static_cast<size_t>(e.nb)];
+                out.push_back({o.cx + static_cast<double>(e.dc) * tab->wx
+                                   + static_cast<double>(e.dr) * tab->hx - cell.cx,
+                               o.cy + static_cast<double>(e.dr) * tab->hy - cell.cy});
+            }
+        };
+        // 按角度排序（参考 Python 分析：sorted((atan2, hyp))）
+        auto angleOf = [](const std::array<double, 2>& p) { return std::atan2(p[1], p[0]); };
+        auto rotPt = [](const std::array<double, 2>& p, double a) {
+            const double c = std::cos(a), s = std::sin(a);
+            return std::array<double, 2>{p[0] * c - p[1] * s, p[0] * s + p[1] * c};
+        };
+        std::vector<std::array<double, 2>> refOff, bOff, work;
+        for (int b = 0; b < B; ++b) {
+            const int n = tab->cells[static_cast<size_t>(b)].n;
+            const int ref = (n >= 0 && n <= kMaxPolygonVerts) ? firstOfN[static_cast<size_t>(n)] : -1;
+            if (ref < 0 || ref == b) continue;
+            offsetsOf(ref, refOff);
+            offsetsOf(b, bOff);
+            if (refOff.size() != bOff.size() || refOff.empty()) {
+                spdlog::warn("TilingTable: anchor transform for {} base {} skipped (offset count mismatch)",
+                             name, b);
+                continue;
+            }
+            // 先按角度排序（参考=refOff、目标=bOff）
+            std::sort(refOff.begin(), refOff.end(), [&](const auto& p, const auto& q) {
+                return angleOf(p) < angleOf(q);
+            });
+            std::sort(bOff.begin(), bOff.end(), [&](const auto& p, const auto& q) {
+                return angleOf(p) < angleOf(q);
+            });
+            bool found = false;
+            // 尝试 镜像与否 × 候选旋转角（用 ref 的每个偏移角与 b 的每个偏移角之差）
+            for (int reflect = 0; reflect <= 1 && !found; ++reflect) {
+                work.clear();
+                for (const auto& p : refOff)
+                    work.push_back(reflect ? std::array<double, 2>{p[0], -p[1]} : p);
+                std::vector<std::array<double, 2>> rotWork(work.size());
+                for (const auto& rp : work) {
+                    for (const auto& bp : bOff) {
+                        const double ang = angleOf(bp) - angleOf(rp);
+                        for (size_t i = 0; i < work.size(); ++i)
+                            rotWork[i] = rotPt(work[i], ang);
+                        std::vector<std::array<double, 2>> rotSorted = rotWork;
+                        std::sort(rotSorted.begin(), rotSorted.end(), [&](const auto& p, const auto& q) {
+                            return angleOf(p) < angleOf(q);
+                        });
+                        bool ok = true;
+                        for (size_t i = 0; i < bOff.size() && ok; ++i) {
+                            if (dist2(rotSorted[i], bOff[i]) > 1e-8) ok = false;
+                        }
+                        if (ok) {
+                            auto& cell = tab->cells[static_cast<size_t>(b)];
+                            cell.rotAngle = ang;
+                            cell.reflect = (reflect != 0);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) break;
+                }
+            }
+            if (!found)
+                spdlog::warn("TilingTable: no anchor transform for {} base {}", name, b);
         }
     }
     return tab;
@@ -805,6 +916,113 @@ int TilingGeom::crossEdge(int index, double& x, double& y, double angle, double&
     constexpr double kVertexTol = 1e-9;
     if (minU <= kVertexTol || minU >= 1.0 - kVertexTol) return -1;
     return bestK;
+}
+
+bool TilingGeom::baseCellTransform(int baseB, double& angleRad, bool& reflect) const {
+    angleRad = 0.0;
+    reflect = false;
+    if (!isTableType(type)) return true;  // 方/六/三无变换（恒等）
+    ensureTable();
+    if (!table_ || baseB < 0 || baseB >= static_cast<int>(table_->cells.size())) return false;
+    const auto& c = table_->cells[static_cast<size_t>(baseB)];
+    angleRad = c.rotAngle;
+    reflect = c.reflect;
+    return true;
+}
+
+int TilingGeom::shapeReferenceBase(int anchorN, std::uint32_t anchorBaseMask) const {
+    if (anchorBaseMask != 0) {
+        // 锚点基础格限制位掩码：取最低置位（形状按该朝向族编写，如 Arch3464 L1/L2 b=2/8）。
+        for (int b = 0; b < 31; ++b)
+            if (anchorBaseMask & (1u << static_cast<unsigned>(b))) return b;
+    }
+    if (!isTableType(type)) return -1;
+    ensureTable();
+    if (!table_) return -1;
+    const int B = static_cast<int>(table_->cells.size());
+    for (int b = 0; b < B; ++b)
+        if (table_->cells[static_cast<size_t>(b)].n == anchorN) return b;  // 同边数第一个基础格
+    return -1;
+}
+
+bool TilingGeom::applyAnchorOrientation(int index, int anchorN, std::uint32_t anchorBaseMask,
+                                        double& ox, double& oy) const {
+    if (!isTableType(type)) return true;  // 方/六/三无变换
+    ensureTable();
+    if (!table_ || index < 0 || index >= cellCount()) return false;
+    const int B = static_cast<int>(table_->cells.size());
+    const int anchorB = index % B;
+    const int refB = shapeReferenceBase(anchorN, anchorBaseMask);
+    if (refB < 0 || refB >= B) return false;
+    double aAng, rAng;
+    bool aRefl, rRefl;
+    if (!baseCellTransform(anchorB, aAng, aRefl)) return false;
+    if (!baseCellTransform(refB, rAng, rRefl)) return false;
+    // 变换合成：offset_in_anchor = T_anchor ∘ T_ref⁻¹ (offset_in_ref)。
+    // T = R(θ) ∘ F（F = 镜像）；T⁻¹ = F ∘ R(-θ)（先撤销旋转、再撤销镜像）。
+    // 因此整体应用序：R(-rAng) → F(rRefl) → F(aRefl) → R(aAng)。
+    if (rAng != 0.0) {
+        const double c = std::cos(-rAng), s = std::sin(-rAng);
+        const double nx = ox * c - oy * s, ny = ox * s + oy * c;
+        ox = nx;
+        oy = ny;
+    }
+    if (rRefl) oy = -oy;
+    if (aRefl) oy = -oy;
+    if (aAng != 0.0) {
+        const double c = std::cos(aAng), s = std::sin(aAng);
+        const double nx = ox * c - oy * s, ny = ox * s + oy * c;
+        ox = nx;
+        oy = ny;
+    }
+    return true;
+}
+
+void chooseTableDomain(int tilingType, int userLength, int userWidth, int& cols, int& rows) {
+    cols = std::max(1, userLength);
+    rows = std::max(1, userWidth);
+    const TilingType t = static_cast<TilingType>(tilingType);
+    if (static_cast<int>(t) <= static_cast<int>(TilingType::Tri)) return;  // 方/六/三原语义
+    const TilingGeom probe{t, 1, 1};
+    const int B = std::max(1, probe.baseCount());
+    // 用户宽向上取整到 B 的倍数（保证长*宽=总格数精确成立），并按生成器上限 200
+    // 向下取整到 ≤200 的 B 倍数（与 MapGenerator::generate 的 clamp 语义一致）。
+    int W = std::max(1, userWidth);
+    int snappedW = ((W + B - 1) / B) * B;
+    if (snappedW > 200) snappedW = (200 / B) * B;
+    W = std::max(B, snappedW);
+    const int total = std::max(1, userLength) * W;
+    const int P = total / B;  // 周期域对数
+    if (P <= 0) {
+        cols = 1;
+        rows = 1;
+        return;
+    }
+    const double wx = probe.worldWidth();
+    const double hy = probe.worldHeight();
+    if (wx <= 0.0 || hy <= 0.0) {
+        cols = P;
+        rows = 1;
+        return;
+    }
+    // 目标视觉宽高比 = 用户长/宽（宽用取整后的有效值）；域宽高比 = wx/hy。
+    const double targetAspect = static_cast<double>(userLength) / static_cast<double>(W);
+    double bestScore = std::numeric_limits<double>::max();
+    int bestC = 1, bestR = 1;
+    for (int r = 1; r <= P; ++r) {
+        if (P % r != 0) continue;
+        const int c = P / r;
+        const double aspect = (wx * c) / (hy * r);
+        const double score = std::fabs(std::log(std::max(aspect, 1e-12))
+                                       - std::log(std::max(targetAspect, 1e-12)));
+        if (score < bestScore) {
+            bestScore = score;
+            bestC = c;
+            bestR = r;
+        }
+    }
+    cols = bestC;
+    rows = bestR;
 }
 
 }  // namespace lw

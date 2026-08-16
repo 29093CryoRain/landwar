@@ -362,7 +362,1799 @@
         "secondary": 0.1,
         "black": 0.2
       },
-      "iconScale": [0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85]
+      "iconScale": [0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85],
+      "iconFitScale": {
+        "hex": {
+          "1": 0.7925999760627747,
+          "3": 0.6779000163078308,
+          "4": 1.2999000549316406,
+          "6": 2.0118000507354736,
+          "7": 2.1461000442504883,
+          "9": 2.3954999446868896
+        },
+        "tri": {
+          "1": 0.7465000152587891,
+          "2": 0.7829999923706055,
+          "4": 1.4061000347137451,
+          "6": 1.9392000436782837,
+          "8": 2.4860999584198
+        },
+        "arch_3464": {
+          "1": 0.752682089805603,
+          "2": 0.7833999991416931,
+          "8": 1.926200032234192,
+          "10": 2.9410998821258545
+        },
+        "arch_3636": {
+          "2": 0.767020583152771,
+          "3": 0.8312000036239624,
+          "4": 1.423699975013733,
+          "5": 1.5395281314849854,
+          "8": 2.436300039291382
+        },
+        "arch_31212": {
+          "3": 0.6912000179290771,
+          "4": 1.2728999853134155,
+          "6": 1.357800006866455,
+          "9": 1.8612096309661865,
+          "10": 2.3951001167297363
+        },
+        "arch_4612": {
+          "1": 0.7005000114440918,
+          "3": 0.7372999787330627,
+          "5": 1.8801000118255615,
+          "10": 2.8361001014709473
+        },
+        "arch_488": {
+          "2": 0.6266999840736389,
+          "3": 0.5806000232696533,
+          "4": 1.1523000001907349,
+          "7": 2.0034000873565674,
+          "8": 2.8606998920440674
+        },
+        "laves_3636": {
+          "1": 0.6819999814033508,
+          "3": 0.6636000275611877,
+          "5": 1.833299994468689,
+          "6": 1.749899983406067,
+          "10": 3.1735000610351562
+        },
+        "laves_31212": {
+          "2": 0.5806000232696533,
+          "3": 0.6359000205993652,
+          "6": 1.8867000341415405,
+          "10": 2.6940999031066895
+        },
+        "laves_4612": {
+          "2": 0.6772000193595886,
+          "4": 1.2350000143051147,
+          "6": 1.5703999996185303,
+          "10": 3.1691999435424805
+        },
+        "laves_488": {
+          "2": 0.6820999979972839,
+          "4": 1.4743589162826538,
+          "8": 2.5576000213623047
+        },
+        "laves_3464": {
+          "1": 0.7134000062942505,
+          "3": 0.7558000087738037,
+          "6": 1.819000005722046,
+          "9": 2.6837000846862793
+        }
+      },
+      "iconFitOffsetY": {
+        "hex": [
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.07370000332593918
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.09220000356435776
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.33180001378059387
+          },
+          {
+            "iconLevel": 7,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.11060000211000443
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.20280000567436218
+          }
+        ],
+        "tri": [
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.04610000178217888
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.11060000211000443
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.11060000211000443
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.11060000211000443
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.1289999932050705
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.1289999932050705
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.29499998688697815
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.29499998688697815
+          }
+        ],
+        "arch_3464": [
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.09220000356435776
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.09220000356435776
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.2303999960422516
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 6,
+            "value": 0.2303999960422516
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.1289999932050705
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 6,
+            "value": 0.1289999932050705
+          }
+        ],
+        "arch_3636": [
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.16590000689029694
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.16590000689029694
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.19349999725818634
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.19349999725818634
+          },
+          {
+            "iconLevel": 5,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 5,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.1843000054359436
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.09220000356435776
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.1843000054359436
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.09220000356435776
+          }
+        ],
+        "arch_31212": [
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.07370000332593918
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.07370000332593918
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.10140000283718109
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.10140000283718109
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.04610000178217888
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.04610000178217888
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.19349999725818634
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 3,
+            "value": -0.21199999749660492
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 1,
+            "anchorB": 0,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 1,
+            "anchorB": 3,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 1,
+            "anchorB": 4,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 1,
+            "anchorB": 5,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 1,
+            "value": -0.11060000211000443
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 2,
+            "value": -0.11060000211000443
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 1,
+            "value": 0.24879999458789825
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 2,
+            "value": 0.24879999458789825
+          }
+        ],
+        "arch_4612": [
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.06449999660253525
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.06449999660253525
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 7,
+            "value": 0.06449999660253525
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.06449999660253525
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 5,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.19349999725818634
+          },
+          {
+            "iconLevel": 5,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.19349999725818634
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.11060000211000443
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.11060000211000443
+          }
+        ],
+        "arch_488": [
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.09220000356435776
+          },
+          {
+            "iconLevel": 7,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.2581000030040741
+          }
+        ],
+        "laves_3636": [
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 5,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 5,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.20280000567436218
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.20280000567436218
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.20280000567436218
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.20280000567436218
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.20280000567436218
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.20280000567436218
+          }
+        ],
+        "laves_31212": [
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 0,
+            "value": -0.16590000689029694
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 1,
+            "value": -0.16590000689029694
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 2,
+            "value": -0.16590000689029694
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.22130000591278076
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.22130000591278076
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 5,
+            "value": -0.16590000689029694
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 6,
+            "value": -0.16590000689029694
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 7,
+            "value": 0.22130000591278076
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.22130000591278076
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.22130000591278076
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.22130000591278076
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 11,
+            "value": -0.16590000689029694
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 6,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 7,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 0,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 1,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 2,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 3,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 4,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 5,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 6,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 7,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 8,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 9,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 10,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 1,
+            "anchorB": 11,
+            "value": 0.17509999871253967
+          },
+          {
+            "iconLevel": 6,
+            "variant": 2,
+            "anchorB": 0,
+            "value": 0.32249999046325684
+          },
+          {
+            "iconLevel": 6,
+            "variant": 2,
+            "anchorB": 11,
+            "value": 0.32249999046325684
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 6,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 7,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.0
+          }
+        ],
+        "laves_4612": [
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.06449999660253525
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.06449999660253525
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.06449999660253525
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 14,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 20,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 21,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 4,
+            "variant": 1,
+            "anchorB": 0,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 4,
+            "variant": 1,
+            "anchorB": 11,
+            "value": 0.03680000081658363
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 6,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 7,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 12,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 13,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 14,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 15,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 16,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 17,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 18,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 19,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 20,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 21,
+            "value": 0.23960000276565552
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 22,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 23,
+            "value": 0.018400000408291817
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 6,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 7,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 12,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 13,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 14,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 15,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 16,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 17,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 18,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 19,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 20,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 21,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 22,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 0,
+            "anchorB": 23,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 0,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 1,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 2,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 3,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 4,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 5,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 6,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 7,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 8,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 9,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 10,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 11,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 12,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 13,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 14,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 15,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 16,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 17,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 18,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 19,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 20,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 21,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 22,
+            "value": 0.22120000422000885
+          },
+          {
+            "iconLevel": 10,
+            "variant": 1,
+            "anchorB": 23,
+            "value": 0.22120000422000885
+          }
+        ],
+        "laves_488": [
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.04610000178217888
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.04610000178217888
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.04610000178217888
+          },
+          {
+            "iconLevel": 2,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.04610000178217888
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 4,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.0
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.40560001134872437
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.40560001134872437
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.40560001134872437
+          },
+          {
+            "iconLevel": 8,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.40560001134872437
+          }
+        ],
+        "laves_3464": [
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.03689999878406525
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.02759999968111515
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.02759999968111515
+          },
+          {
+            "iconLevel": 1,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.03689999878406525
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.359499990940094
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.359499990940094
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.359499990940094
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 3,
+            "value": -0.156700000166893
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 4,
+            "value": -0.156700000166893
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 5,
+            "value": -0.156700000166893
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 6,
+            "value": -0.156700000166893
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 7,
+            "value": -0.156700000166893
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.359499990940094
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 9,
+            "value": -0.156700000166893
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.359499990940094
+          },
+          {
+            "iconLevel": 3,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.359499990940094
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 3,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 4,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 5,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 6,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 7,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 9,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 6,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.13819999992847443
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 0,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 1,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 2,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 3,
+            "value": -0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 4,
+            "value": -0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 5,
+            "value": -0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 6,
+            "value": -0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 7,
+            "value": -0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 8,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 9,
+            "value": -0.0
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 10,
+            "value": 0.05530000105500221
+          },
+          {
+            "iconLevel": 9,
+            "variant": 0,
+            "anchorB": 11,
+            "value": 0.05530000105500221
+          }
+        ]
+      }
     },
     "capital": {
       "_comment": "P15 首都渲染：minIconSizePx=低缩放正式首都/候补图标保底最小宽（不随缩放继续缩小；2026-08-08 用户定夺：缩到最小时首都渲染得更大，原 city.minIconSizePx=12 → 本值 20，待实验）；iconScale[9]=首都图标按等级缩放表（下标=等级-1，语义同 city.iconScale：按基建地块框自适应，1.0=填满框，待实验）；lineThickness=正式首都基建区细线宽（比普通城市粗）；designatedAlpha=候补指定新都虚化首都图标透明度（0-1）。放大/缩小行为复用普通城市（city.lineMinCellPx）。",

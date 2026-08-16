@@ -25,6 +25,8 @@ struct City {
     double level = 1.0;        // 等级（实数；半正=面积和，Laves/方/六/三=格数）
     int baseX = 0, baseY = 0;  // 锚点坐标（方：(x,y)；六/三：(c,r)；快照序列化）
     int baseIndex = -1;        // 锚点格下标（P12；快照序列化）
+    int shapeVariant = 0;      // 形状表变体下标（同级多形状时放置选定，快照序列化；
+                               // 渲染/读档用同一变体保证形状一致；旧档默认 0）。
     int w = 1, h = 1;          // 形状 AABB 格数（方：w×h 语义不变；六/三：AABB 列/行，显示用）
     int lastProduceArmyN = 0;  // 产兵计数（保留原语义；公平调度 least-recent 排序键）
     std::uint64_t lastCapturedTick = 0;  // 最近一次整城易主/建立 tick（P15 首都"最久未被攻破"）
@@ -78,6 +80,8 @@ public:
     bool loadFromLwmap(const std::string& path, Rng& rng);
     // 格坐标 (c, r) → 格下标（P12；方 = r*width+c；六 = r*cols+c；三 = 正三角锚）。
     int cellIndexAt(int c, int r) const;
+    // 带基础格序号的版本（半正/Laves 用；方/六忽略 b，三 = b 取 0 正/1 反）。
+    int cellIndexAt(int c, int r, int b) const;
 
     // 邻海修正（P5）：任何山格 8 邻域（含对角）有海格 → 置为普通陆。纯循环、无 RNG、确定性。
     void correctMountainCoast();
@@ -112,6 +116,8 @@ public:
     int totalCities() const { return static_cast<int>(cities_.size()); }
     int capitalX(int index) const { return capitalX_[static_cast<size_t>(index)]; }
     int capitalY(int index) const { return capitalY_[static_cast<size_t>(index)]; }
+    // 表驱动密铺的首都基础格 b（每周期域内基础格序号；方/六/三恒 0）。
+    int capitalB(int index) const { return capitalB_[static_cast<size_t>(index)]; }
     int capitalCount() const { return static_cast<int>(capitalX_.size()); }
     int blockSize() const { return blockSize_; }
     int panelWidth() const { return panelWidth_; }
@@ -132,15 +138,19 @@ public:
     City& city(int id) { return cities_[static_cast<size_t>(id)]; }
     // P12：城市基建格下标集合（形状 = 锚点 + level 查密铺形状表，经世界偏移解析）。
     std::vector<int> cityCells(const City& c) const;
-    // P12：形状 → 基建格下标（level + 锚点格 index；界外格 = -1）。公开供放置/渲染/测试。
-    std::vector<int> shapeCells(double level, int anchorIndex) const;
+    // P12：形状 → 基建格下标（level + 锚点格 index + 变体 variant；界外格 = -1）。
+    // 公开供放置/渲染/测试。variant < 0 时按锚点确定性选取（旧行为，测试用）。
+    std::vector<int> shapeCells(double level, int anchorIndex, int variant = -1) const;
     // P12：城市形状几何中心（世界坐标；= 全部基建格中心平均；方 = baseX+w/2 同旧式）。
     void cityCenter(const City& c, double& wx, double& wy) const;
     // P12：重算全部城市的 baseIndex/AABB/几何中心（快照读档后调用）。
     void recomputeCityGeometry();
     // 注册新城市（锚点格 index，形状由 level + tiling 推导）。占用/陆地/可成城校验由
     // 调用方先行完成（loadFromBmp 经 canPlaceCity；placeCapitals 自身保证）。返回新 cityId。
-    int addCity(double level, int index);
+    // rng 非空且同级多形状（变体>1）时：从"能放下的变体"中随机选（保证同级不同形状
+    // 都能出现，2026-08-17 修复：旧逻辑总选第一个变体 → 后续变体永不出现，如 Laves31212
+    // 的菱形 6 级城）。rng 为空 → 第一个能放下的变体（测试/兼容路径）。
+    int addCity(double level, int index, Rng* rng = nullptr);
     // 兼容重载：正方形 (baseX, baseY) 锚点（旧签名，测试用；等价 index = baseY*width+baseX）。
     int addCity(double level, int baseX, int baseY) { return addCity(level, baseY * width_ + baseX); }
     // 锚点 (index) 处放置 level 级城的形状占用检查：界内 ∧ 锚点可成城 ∧ 全部基建格
@@ -152,6 +162,14 @@ public:
     }
 
 private:
+    // canPlaceCity 的实现；requireAllowed=false 时跳过"锚点可成城"校验（首都回退到任意陆地）。
+    bool canPlaceCityImpl(double level, int index, bool requireAllowed) const;
+    // 返回 index 处放置 level 级城时第一个能放下的变体下标（-1 = 无变体可放）。
+    // 与 canPlaceCityImpl 判定一致（同密铺同形状集），供 addCity 选定并持久化到 City。
+    int placeableVariant(double level, int index, bool requireAllowed) const;
+    // 返回全部能放下的变体下标（2026-08-17：addCity 用它 + rng 随机选，保证同级不同
+    // 形状都能出现；placeableVariant = 本列表首元素或 -1）。
+    std::vector<int> placeableVariants(double level, int index, bool requireAllowed) const;
     // 每格概率通道（地形基图：海/陆确定性 + 山 R / 城 G 概率通道）。方/六/三共用。
     struct CellChannels {
         bool sea;
@@ -174,6 +192,7 @@ private:
     std::vector<MapCell> cells_;  // index = y*width_ + x
     std::vector<int> capitalX_;
     std::vector<int> capitalY_;
+    std::vector<int> capitalB_;   // 首都基础格序号（半正/Laves；方/六/三 = 0）
     std::vector<City> cities_;  // 城市注册表（P13）
 };
 

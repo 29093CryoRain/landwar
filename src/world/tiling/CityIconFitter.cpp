@@ -20,7 +20,8 @@ namespace lw {
 namespace {
 
 constexpr double kEps = 1e-9;
-constexpr double kTol = 1e-7;  // 合并覆盖区间/边匹配容差
+constexpr double kTol = 1e-7;  // 合并覆盖区间容差
+constexpr double kEdgeTol2 = 1e-12;  // 边/顶点匹配容差（表驱动密铺顶点有 ~1e-7 舍入差）
 
 double dist2(const FitPoint& a, const FitPoint& b) {
     const double dx = a[0] - b[0], dy = a[1] - b[1];
@@ -148,8 +149,7 @@ bool segmentCovered(const std::vector<FitPoly>& cells, const FitPoint& a, const 
 bool sameEdge(const FitPoint& a1, const FitPoint& b1, const FitPoint& a2, const FitPoint& b2) {
     const double d1 = dist2(a1, a2) + dist2(b1, b2);
     const double d2 = dist2(a1, b2) + dist2(b1, a2);
-    const double tol = kTol * kTol;
-    return d1 < tol || d2 < tol;
+    return d1 < kEdgeTol2 || d2 < kEdgeTol2;
 }
 
 // 收集基建地块并集的外边界边（只出现一次的格边）与外边界顶点。
@@ -189,7 +189,7 @@ void buildBoundary(const std::vector<FitPoly>& cells, std::vector<std::pair<FitP
     for (const auto& v : vertices) {
         bool dup = false;
         for (const auto& u : uniq)
-            if (dist2(u, v) < kTol * kTol) {
+            if (dist2(u, v) < kEdgeTol2) {
                 dup = true;
                 break;
             }
@@ -318,16 +318,25 @@ bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, do
     scale = 0.0;
     cx = avg[0];
     cy = avg[1];
+    // 平移搜索的更新准则：只有"显著更大"才替换；近似打平时偏好离几何中心更近的点，
+    // 避免对称形状在数值噪声下漂到远离视觉中心的等价位置。
+    const double centerScale = maxScaleAtRegion(region, baseW, baseH, avg[0], avg[1]);
+    if (centerScale > 0.0) scale = centerScale;
+    const auto accept = [&](double s, double px, double py) {
+        const double rel = scale > 0.0 ? (s - scale) / scale : 1.0;
+        if (rel > 1e-6 || (std::fabs(rel) <= 1e-6 && dist2({px, py}, {avg[0], avg[1]}) <
+                                                           dist2({cx, cy}, {avg[0], avg[1]}))) {
+            scale = s;
+            cx = px;
+            cy = py;
+        }
+    };
     for (const auto& c : candidates) {
         const double s = maxScaleAtRegion(region, baseW, baseH, c[0], c[1]);
-        if (s > scale) {
-            scale = s;
-            cx = c[0];
-            cy = c[1];
-        }
+        accept(s, c[0], c[1]);
     }
 
-    // 模式搜索局部精修（8 邻域；步长逐半衰减）。步长从包围盒/128 起步，
+    // 模式搜索局部精修（8 邻域；步长逐半衰减）。步长从包围盒/32 起步，
     // 保证网格候选之间的空洞可被局部爬山覆盖。
     double step = std::max(maxX - minX, maxY - minY) / 32.0;
     while (step > 1e-8) {
@@ -339,7 +348,7 @@ bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, do
                 if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
                 if (!pointInRegion(cells, {nx, ny})) continue;
                 const double s = maxScaleAtRegion(region, baseW, baseH, nx, ny);
-                if (s > scale) {
+                if (s > scale * (1.0 + 1e-6)) {
                     scale = s;
                     cx = nx;
                     cy = ny;
@@ -349,6 +358,12 @@ bool CityIconFitter::compute(const std::vector<FitPoly>& cells, double baseW, do
             }
         }
         if (!improved) step *= 0.5;
+    }
+    // 中心缩放与最优几乎打平（<0.01%）→ 回中心（用户视觉中心优先；左右对称形状尤其重要）。
+    if (centerScale > 0.0 && centerScale >= scale * (1.0 - 1e-6)) {
+        scale = std::max(scale, centerScale);
+        cx = avg[0];
+        cy = avg[1];
     }
     return scale > 0.0;
 }

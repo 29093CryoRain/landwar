@@ -297,47 +297,58 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         // ---- 随机地图参数 ----
         ImGui::TextUnformatted("随机地图参数");
         // P12：密铺模式下拉（六/三角随机图；预装 BMP 恒为方形）。
-        // 2026-08-16：加入已接入几何的 5 种阿基米德密铺。
-        static const char* kTilingItems[13] = {
-            "正方形", "六边形", "三角形", "3.4.6.4", "3.6.3.6", "3.12.12", "4.6.12",
-            "4.8.8", "Laves 3.4.6.4", "Laves 3.6.3.6", "Laves 3.12.12",
-            "Laves 4.6.12", "Laves 4.8.8"};
-        static const TilingType kTilingValues[13] = {
-            TilingType::Square,      TilingType::Hex,       TilingType::Tri,
-            TilingType::Arch3464,    TilingType::Arch3636,  TilingType::Arch31212,
-            TilingType::Arch4612,    TilingType::Arch488,   TilingType::Laves3464,
+        // 2026-08-16：加入全部 7 种阿基米德密铺与 7 种 Laves 密铺。
+        static const char* kTilingItems[17] = {
+            "正方形", "六边形", "三角形",
+            "3.3.3.3.6", "3.3.4.3.4", "3.4.6.4", "3.6.3.6", "3.12.12", "4.6.12",
+            "4.8.8",
+            "Laves 3.6.3.6", "Laves 3.12.12", "Laves 4.6.12", "Laves 4.8.8",
+            "Laves 3.3.4.3.4", "Laves 3.3.3.3.6", "Laves 3.4.6.4"};
+        static const TilingType kTilingValues[17] = {
+            TilingType::Square,      TilingType::Hex,        TilingType::Tri,
+            TilingType::Arch33336,   TilingType::Arch33434,  TilingType::Arch3464,
+            TilingType::Arch3636,    TilingType::Arch31212,  TilingType::Arch4612,
+            TilingType::Arch488,
             TilingType::Laves3636,   TilingType::Laves31212, TilingType::Laves4612,
-            TilingType::Laves488};
+            TilingType::Laves488,    TilingType::Laves33434, TilingType::Laves33336,
+            TilingType::Laves3464};
         int tilingIdx = 0;
-        for (int i = 0; i < 13; ++i)
+        for (int i = 0; i < 17; ++i)
             if (st.tiling == kTilingValues[i]) tilingIdx = i;
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        if (ImGui::Combo("密铺模式", &tilingIdx, kTilingItems, 13)) {
+        if (ImGui::Combo("密铺模式", &tilingIdx, kTilingItems, 17)) {
             st.tiling = kTilingValues[tilingIdx];
             st.previews.clear();  // 密铺变了 → 预览失效
         }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        // 三角"长"（视觉列数）生成时减半 → 步进 2 并强制偶；半正/Laves 每周期域含 B 个
-        // 基础格，为保证"长*宽=总格数"，长必须为 B 的倍数 → 步进 B。
+        // 三角"长"（视觉列数）生成时减半 → 步进 2 并强制偶。
         int wStep = 1;
         if (st.tiling == TilingType::Tri) {
             wStep = 2;
-        } else if (static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri)) {
-            const TilingGeom probe{st.tiling, 1, 1};
-            wStep = std::max(1, probe.baseCount());
         }
         ImGui::InputInt("长", &st.randW, wStep, 8);
         // P12 六/三角：行数强制偶数 → "宽"的 "-"/"+" 步进 2（避免点一次不变/偶奇来回跳）。
+        // 半正/Laves：为保证"长*宽=总格数"，宽必须为 B 的倍数（B=每周期域基础格数），
+        // 且实际周期域行数 = 宽/B，所以宽至少为一个 B；下方向上取整到 B 的倍数。
         const bool needEvenRows = (st.tiling == TilingType::Hex || st.tiling == TilingType::Tri);
-        const int hStep = needEvenRows ? 2 : 1;
+        const bool isTableTiling = static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri);
+        int hStep = 1;
+        if (needEvenRows) {
+            hStep = 2;
+        } else if (isTableTiling) {
+            const TilingGeom probe{st.tiling, 1, 1};
+            hStep = std::max(1, probe.baseCount());
+        }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         ImGui::InputInt("宽", &st.randH, hStep, 8);
         st.randW = std::clamp(st.randW, 32, 200);
         st.randH = std::clamp(st.randH, 32, 200);
         if (needEvenRows && (st.randH & 1)) --st.randH;  // P12：偶数行
         if (st.tiling == TilingType::Tri && (st.randW & 1)) --st.randW;     // 三角：列对数整数
-        if (static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri))
-            st.randW = std::max(wStep, (st.randW / wStep) * wStep);  // 半正/Laves：长为 B 的倍数
+        if (isTableTiling) {
+            st.randH = ((st.randH + hStep - 1) / hStep) * hStep;  // 向上取整到 B 的倍数
+            if (st.randH > 200) st.randH = (200 / hStep) * hStep;
+        }
         // 强制边缘为海（在陆地占比条上方，用户要求调换位置，2026-08-06）。
         ImGui::Checkbox("强制边缘为海", &st.forceCoast);
         // 陆地占比：显式小数（1.00 = 全陆地；配合强制边缘为海 → 只有一圈海）。此前用 "%.0f%%"

@@ -178,8 +178,8 @@ void initDefaultCity(Config::City& c) {
     //   L6 = 6 格正六边形（左右顶点、上下平边；3 正 3 反；锚镜像同形，1 种模式）
     //   L8 = L6 + 顶上正 + 底下反（≡ 两个 4 级城拼接；锚镜像旋转 180° 同构，1 种模式）
     c.tri.levels = {1, 2, 4, 6, 8};
-    // 2026-08-16：已接入几何的 5 种阿基米德密铺先给 1 级城（单格）占位，
-    // 完整等级形状表待各密铺城市基建形状数据补全。
+    // 2026-08-16：先给 1 级城（单格）兜底占位；下面每个已接入几何的密铺都会
+    // 用完整等级形状表整体覆盖（开发思路.txt 没提 1 级城的密铺不会被覆盖成 1 级）。
     {
         const auto single = [] {
             Shape sh;
@@ -187,18 +187,21 @@ void initDefaultCity(Config::City& c) {
             return sh;
         };
         for (const TilingType t :
-             {TilingType::Arch3464, TilingType::Arch3636, TilingType::Arch31212,
-              TilingType::Arch4612, TilingType::Arch488, TilingType::Laves3464,
-              TilingType::Laves3636, TilingType::Laves31212, TilingType::Laves4612,
-              TilingType::Laves488}) {
+             {TilingType::Arch33336, TilingType::Arch33434, TilingType::Arch3464,
+              TilingType::Arch3636, TilingType::Arch31212, TilingType::Arch4612,
+              TilingType::Arch488, TilingType::Laves3636, TilingType::Laves31212,
+              TilingType::Laves4612, TilingType::Laves488, TilingType::Laves33434,
+              TilingType::Laves33336, TilingType::Laves3464}) {
             auto& set = c.sets[static_cast<size_t>(static_cast<int>(t))];
             set.levels = {1.0};
             set.shapes = {single()};
         }
         // 完整城市形状表构造辅助（2026-08-16）。
-        const auto shp = [](int anchorN, const std::vector<std::array<double, 3>>& cells) {
+        const auto shp = [](int anchorN, const std::vector<std::array<double, 3>>& cells,
+                            std::uint32_t anchorBaseMask = 0) {
             Shape sh;
             sh.anchorN = anchorN;
+            sh.anchorBaseMask = anchorBaseMask;
             for (const auto& cl : cells)
                 sh.cells.push_back(ShapeCell{cl[0], cl[1], static_cast<int>(cl[2])});
             return sh;
@@ -236,19 +239,33 @@ void initDefaultCity(Config::City& c) {
                         {1.4142135, 0.0, 0}}),
             };
         }
-        // Arch3636（3.6.3.6）完整城市形状表。anchorN：6=六边形锚（L2/L3/L5）、3=三角形锚（L8）。
+        // Arch3636（3.6.3.6）完整城市形状表。anchorN：6=六边形锚（L2/L3/L4/L5）、3=三角形锚（L8）。
+        // 2026-08-17：新增 4 级城（实际等级 4.5 = 六边形 2.25 + 6 个边邻三角形 6×0.375，
+        // 贴图等级显式 4——用户"使用 4 级贴图，作为特例之一"）。
         {
             auto& a3636 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Arch3636))];
-            a3636.levels = {2.25, 3.0, 5.25, 8.25};
+            a3636.levels = {2.25, 3.0, 4.5, 5.25, 8.25};
+            a3636.iconLevels = {2, 3, 4, 5, 8};
             a3636.shapes = {
                 shp(6, {{0.0, 0.0, 0}}),
                 shp(6, {{-1.074569936352, 0.0, 0},
                         {0.0, 0.0, 0},
                         {1.074569931824, 0.0, 0}}),
+                // L4（4.5 级）：六边形 + 6 个边邻三角形（六边形的 6 条边各邻一个三角形，
+                // 运行时 rel = (±0.9306,∓0.5373)、(±0.9306,±0.5373)、(0,±1.0746)）。
                 shp(6, {{0.0, 0.0, 0},
+                        {-0.537284965912, -0.930604859102, 0},
+                        {0.537284965912, -0.930604859102, 0},
+                        {-0.537284965912, 0.930604740898, 0},
                         {0.537284965912, 0.930604740898, 0},
-                        {1.074569931823, 0.0, 0},
-                        {1.611854902264, 0.930604740898, 0}}),
+                        {-1.074569936352, 0.0, 0},
+                        {1.074569931824, 0.0, 0}}),
+                // L5：顶点周围 2 三角 + 2 六边，限定左右/上下对称；运行时旋转后
+                // 两个六边形在左右方、两个三角形在上下方（锚 = 右六边形，左六边形+上/下三角）。
+                shp(6, {{-0.537284970441, 0.930604859102, 0},
+                        {0.0, 0.0, 0},
+                        {0.0, 1.8612096, 0},
+                        {0.537284965912, 0.930604859102, 0}}),
                 shp(3, {{-1.074569936353, 0.0, 0},
                         {-0.537284965912, -0.930604859102, 0},
                         {-0.537284965912, 0.930604740898, 0},
@@ -263,11 +280,18 @@ void initDefaultCity(Config::City& c) {
             auto& a3464 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Arch3464))];
             a3464.levels = {0.9282032302755092, 1.7320508075688774, 7.98076211353316,
                             10.392304845413264};
+            a3464.iconLevels = {1, 2, 8, 10};
+            // L1/L2 锚点仅限“朝向横平竖直”的正方形：运行时旋转后的基础格 b=2 与 b=8
+            //（顶点在 45°/135°/-135°/-45° 方向，即边水平/竖直）。
+            constexpr std::uint32_t kAxisAlignedSquareMask = (1u << 2) | (1u << 8);
             a3464.shapes = {
-                shp(4, {{0.0, 0.0, 0}}),
+                shp(4, {{0.0, 0.0, 0}}, kAxisAlignedSquareMask),
+                // L2 = 正方形（横平竖直）及其上下两个三角形。运行时旋转后正方形 b=2/b=8
+                // 上下（±y）为三角形邻格（verify_neighbor_types.py：dir=90/270 type=3），
+                // 偏移取 (0, ±0.759835685652)（运行时）→ Config 存 (±0.759835685652, 0)。
                 shp(4, {{0.0, 0.0, 0},
-                        {0.379917828916, -0.658037006476, 0},
-                        {-0.379917842826, 0.658036980572, 0}}),
+                        {0.759835685652, 0.0, 0},
+                        {-0.759835685651, 0.0, 0}}, kAxisAlignedSquareMask),
                 shp(6, {{-1.139753514567, -0.658037006476, 0},
                         {-1.139753514567, 0.658036980572, 0},
                         {0.0, -1.316074012952, 0},
@@ -293,10 +317,13 @@ void initDefaultCity(Config::City& c) {
         // Arch31212（3.12.12）完整城市形状表。anchorN：12=十二边形锚（L3/L4/L6/L10）、3=三角形锚（L9）。
         // 说明：L10 按“三角形周围3个互相共边的十二边形 + 其全部三角邻格”在本生成朝向下为
         // 3十二边形+13三角（文档写12三角，待用户测试确认；贴图等级四舍五入均为10）。
+        // 2026-08-17：L9/L10 各加“反变体”（偏移旋转 180°），满足文档“有正反两种”。
+        // shapeLevelIndex = {L3,L4,L6, L9正,L9反, L10正,L10反}；iconLevels 显式（4 级特例）。
         {
             auto& a31212 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Arch31212))];
             a31212.levels = {3.0, 3.4307806183469456, 5.784609690826529, 8.78460969082653,
                              9.753866082107155};
+            a31212.iconLevels = {3, 4, 6, 9, 10};
             a31212.shapes = {
                 shp(12, {{-1.074569936352, 0.0, 0},
                          {0.0, 0.0, 0},
@@ -319,6 +346,14 @@ void initDefaultCity(Config::City& c) {
                         {0.537284965912, -0.930604859102, 0},
                         {0.537284965912, 0.930604740898, 0},
                         {1.074569931824, 0.0, 0}}),
+                // L9 反变体
+                shp(3, {{1.074569936353, 0.0, 0},
+                        {0.537284965912, 0.930604859102, 0},
+                        {0.537284965912, -0.930604740898, 0},
+                        {0.0, 0.0, 0},
+                        {-0.537284965912, 0.930604859102, 0},
+                        {-0.537284965912, -0.930604740898, 0},
+                        {-1.074569931824, 0.0, 0}}),
                 shp(12, {{-2.686424834088, -0.930604859102, 0},
                          {-2.686424834088, 0.930604740898, 0},
                          {-2.149139868177, -1.8612096, 0},
@@ -335,23 +370,37 @@ void initDefaultCity(Config::City& c) {
                          {0.537284965912, -0.930604859102, 0},
                          {0.537284965912, 0.930604740898, 0},
                          {1.074569931823, 0.0, 0}}),
+                // L10 反变体
+                shp(12, {{2.686424834088, 0.930604859102, 0},
+                         {2.686424834088, -0.930604740898, 0},
+                         {2.149139868177, 1.8612096, 0},
+                         {2.149139868177, 0.0, 0},
+                         {2.149139868177, -1.8612096, 0},
+                         {1.611854897736, 0.930604859102, 0},
+                         {1.611854897736, -0.930604740898, 0},
+                         {1.074569931824, 1.8612096, 0},
+                         {1.074569931824, 0.0, 0},
+                         {1.074569931824, -1.8612096, 0},
+                         {0.537284965912, 0.930604859102, 0},
+                         {0.537284965912, -0.930604740898, 0},
+                         {0.0, 0.0, 0},
+                         {-0.537284965912, 0.930604859102, 0},
+                         {-0.537284965912, -0.930604740898, 0},
+                         {-1.074569931823, 0.0, 0}}),
             };
+            a31212.shapeLevelIndex = {0, 1, 2, 3, 3, 4, 4};
         }
-        // Arch4612（4.6.12）完整城市形状表。anchorN：6=六边形锚（L1/L2两种变体）、12=十二边形锚（L3/L5/L10）。
+        // Arch4612（4.6.12）完整城市形状表。anchorN：6=六边形锚（L1/L2）、12=十二边形锚（L3/L5/L10）。
+        // L2 文档："一个六边形及其周围三个正方形. 存在两种可能的结构, 互相左右称置"——
+        // 两种结构 = 六边形两种朝向（base1/9 型正方形在 0/120/240°、base3/7 型在 60/180/300°），
+        // 由锚朝向变换自动处理（applyAnchorOrientation 旋转偏移），形状表只需一种排布。
         {
             auto& a4612 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Arch4612))];
-            a4612.levels = {0.803847577293368, 1.7320508075688767, 3.4641016151377544,
-                            5.320508075688772, 10.143593539448979};
+            a4612.levels = {0.803847577293368, 3.4641016151377544, 5.320508075688772,
+                            10.143593539448979};
+            a4612.iconLevels = {1, 3, 5, 10};
             a4612.shapes = {
                 shp(6, {{0.0, 0.0, 0}}),
-                shp(6, {{-0.658037009739, 0.379917837175, 0},
-                        {0.0, -0.759835618454, 0},
-                        {0.0, 0.0, 0},
-                        {0.658037003213, 0.379917848478, 0}}),
-                shp(6, {{-0.658037003213, -0.379917848477, 0},
-                        {0.0, 0.759835685652, 0},
-                        {0.0, 0.0, 0},
-                        {0.65803694484, -0.379917848477, 0}}),
                 shp(12, {{0.0, 0.0, 0}}),
                 shp(12, {{-1.316073948053, 0.0, 0},
                          {-0.658036996687, -1.139753522826, 0},
@@ -374,181 +423,198 @@ void initDefaultCity(Config::City& c) {
                          {1.316074019478, -0.759835674349, 0},
                          {1.316074045582, 0.759835629757, 0}}),
             };
-            // 形状顺序对应 levels：L1, L2变体A, L2变体B, L3, L5, L10。
-            a4612.shapeLevelIndex = {0, 1, 1, 2, 3, 4};
+            // 形状顺序对应 levels：L1, L3, L5, L10（2026-08-17 删除 L2：六边形+3 正方形，用户弃用）。
+            a4612.shapeLevelIndex = {0, 1, 2, 3};
         }
         // Laves3464（对偶3.4.6.4：筝形密铺）完整城市形状表。anchorN=4（筝形）。
+        // 2026-08-17：按开发思路.txt 语义重写（b=0 为锚；L3=3-valent 周围 3 格，
+        // L6=6-valent 周围 6 格，L9=L3+边邻）。L1 锚定方向：仅左右对称的筝形
+        // （竖直镜像对称；基础格 b=0/4/9/11，mask=0xa11）。
         {
             auto& l3464 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Laves3464))];
             l3464.levels = {1.0, 3.0, 6.0, 9.0};
             l3464.shapes = {
-                shp(4, {{0.0, 0.0, 0}}),
+                shp(4, {{0.0, 0.0, 0}}, 0xa11),
+                shp(4, {{-0.854815146358, 0.493527754857, 0},
+                        {-0.854815146358, -0.493527754857, 0},
+                        {0.0, 0.0, 0}}),
                 shp(4, {{0.0, 0.0, 0},
-                        {0.0, 0.987055509714, 0},
-                        {0.854815146358, 0.493527754857, 0}}),
-                shp(4, {{-0.474897303532, 0.822546258095, 0},
+                        {0.474897303532, 0.822546258095, 0},
+                        {1.899589214129, 0.0, 0},
+                        {1.424691910596, 0.822546258095, 0},
+                        {0.474897303532, -0.822546258095, 0},
+                        {1.424691910596, -0.822546258095, 0}}),
+                shp(4, {{0.474897303532, -0.822546258095, 0},
+                        {0.474897303532, 0.822546258095, 0},
+                        {-0.379917842826, -1.316073987048, 0},
                         {0.0, 0.0, 0},
-                        {0.0, 1.64509251619, 0},
-                        {0.949794607064, 0.0, 0},
-                        {0.949794607064, 1.64509251619, 0},
-                        {1.424691910597, 0.822546258095, 0}}),
-                shp(4, {{-0.949794607065, 0.0, 0},
-                        {-0.949794607065, 0.987055509714, 0},
-                        {0.0, 0.0, 0},
-                        {0.0, 0.987055509714, 0},
-                        {0.474897303532, -0.822546232191, 0},
-                        {0.474897303532, 1.809601767809, 0},
-                        {0.854815146358, 0.493527754857, 0},
-                        {1.32971244989, -0.329018503238, 0},
-                        {1.32971244989, 1.316074012952, 0}}),
+                        {-0.854815146358, -0.493527754857, 0},
+                        {-0.379917842826, 1.316074012952, 0},
+                        {-0.854815146358, 0.493527754857, 0},
+                        {-1.804609753423, -0.493527754857, 0},
+                        {-1.804609753423, 0.493527754857, 0}}),
             };
         }
         // Laves488（对偶4.8.8：等腰直角三角形密铺）完整城市形状表。anchorN=3（三角形）。
+        // 2026-08-17：按开发思路.txt 语义重写（b=0 为锚；L2=底边公共正方形，
+        // L4=直角(4-valent)周围 4 格大等腰直角三角形，L8=L4+边邻大正方形）。
         {
             auto& l488 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Laves488))];
             l488.levels = {2.0, 4.0, 8.0};
             l488.shapes = {
                 shp(3, {{0.0, 0.0, 0},
                         {0.666666578457, 0.0, 0}}),
-                shp(3, {{-0.666666666667, -1.333333245124, 0},
-                        {-0.666666666667, -0.666666666667, 0},
-                        {0.0, -1.999999911791, 0},
-                        {0.0, 0.0, 0}}),
                 shp(3, {{-1.333333333334, 0.0, 0},
-                        {-1.333333333334, 1.999999911791, 0},
-                        {-0.666666666667, -1.333333245124, 0},
                         {-0.666666666667, -0.666666666667, 0},
-                        {-0.666666666667, 0.666666666667, 0},
+                        {0.0, 0.0, 0},
+                        {-0.666666666667, 0.666666666667, 0}}),
+                shp(3, {{-1.333333333334, 0.0, 0},
+                        {-0.666666666667, -1.333333245124, 0},
                         {-0.666666666667, 1.333333245124, 0},
-                        {0.0, -1.999999911791, 0},
-                        {0.0, 0.0, 0}}),
+                        {0.0, 0.0, 0},
+                        {-1.999999911791, 0.0, 0},
+                        {-0.666666666667, 0.666666666667, 0},
+                        {0.666666578457, 0.0, 0},
+                        {-0.666666666667, -0.666666666667, 0}}),
             };
         }
         // Laves31212（对偶3.12.12：等腰三角形密铺）完整城市形状表。anchorN=3（三角形）。
-        // L6 有三个变体：六边形两种取向 + 两个L3拼成的菱形（同级同贴图）。
+        // 2026-08-17：按开发思路.txt 语义重写（b=0 为锚）。
+        // L6 三个变体：L6a=正L3+边邻（大六边形，顶角朝下），L6b=反L3+边邻（大六边形，顶角朝上），
+        // L6c=正L3+反L3（菱形，公共边水平）。L2 锚定方向：底边（长对角线）水平
+        //（等腰三角形底边水平 = 菱形长对角线水平；基础格 b=0/3/10/11，mask=0xc09）。
         {
             auto& l31212 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Laves31212))];
             l31212.levels = {2.0, 3.0, 6.0, 12.0};
             l31212.shapes = {
                 shp(3, {{0.0, 0.0, 0},
-                        {0.506557123767, 0.0, 0}}),
-                shp(3, {{0.0, 0.0, 0},
-                        {0.0, 0.877382675301, 0},
-                        {0.759835692057, 0.43869133765, 0}}),
-                shp(3, {{0.0, 0.0, 0},
-                        {0.253278561884, 1.316073845787, 0},
-                        {1.013114253941, -0.877382675302, 0},
-                        {1.519671377709, 1.754765183437, 0},
-                        {2.27950706336, -0.438691337651, 0},
-                        {2.532785625244, 0.877382508136, 0}}),
-                shp(3, {{-0.253278561884, 1.316073845787, 0},
+                        {0.506557123767, 0.0, 0}}, 0xc09),
+                shp(3, {{-0.759835685652, 0.438691337651, 0},
                         {0.0, 0.0, 0},
-                        {0.759835692057, 2.193456521088, 0},
-                        {1.266392815825, -0.438691337651, 0},
-                        {2.026228501476, 1.754765183438, 0},
-                        {2.27950706336, 0.438691170485, 0}}),
-                shp(3, {{-1.013114247535, -0.877382508136, 0},
-                        {-0.253278561884, -1.316073845786, 0},
-                        {-0.253278561884, -0.438691170485, 0},
+                        {-0.759835685652, -0.438691337651, 0}}),
+                shp(3, {{-1.013114247536, 0.877382675302, 0},
+                        {0.506557123767, 0.0, 0},
                         {0.0, 0.0, 0},
-                        {0.0, 0.877382675302, 0},
-                        {0.759835685652, 0.438691337651, 0}}),
-                shp(3, {{0.0, 0.0, 0},
-                        {0.0, 0.877382508136, 0},
-                        {0.253278561884, -0.438691337651, 0},
-                        {0.253278561884, 1.316073845787, 0},
-                        {1.013114253941, -0.877382675302, 0},
-                        {1.013114253941, 1.754765183437, 0},
-                        {1.519671377709, -0.877382675302, 0},
-                        {1.519671377709, 1.754765183437, 0},
-                        {2.27950706336, -0.438691337651, 0},
-                        {2.27950706336, 1.316073845787, 0},
-                        {2.532785625244, 0.0, 0},
-                        {2.532785625244, 0.877382508136, 0}}),
+                        {-1.013114247536, -0.877382508136, 0},
+                        {-0.759835685652, -0.438691337651, 0},
+                        {-0.759835685652, 0.438691337651, 0}}),
+                shp(3, {{1.266392809419, -0.438691170485, 0},
+                        {0.506557123767, 0.0, 0},
+                        {0.0, 0.0, 0},
+                        {1.266392809419, 0.438691337651, 0},
+                        {1.519671371303, 0.877382675302, 0},
+                        {1.519671371303, -0.877382508136, 0}}),
+                shp(3, {{1.266392809419, -0.438691170485, 0},
+                        {0.506557123767, 0.0, 0},
+                        {-0.759835685652, 0.438691337651, 0},
+                        {0.0, 0.0, 0},
+                        {-0.759835685652, -0.438691337651, 0},
+                        {1.266392809419, 0.438691337651, 0}}, 0x801),
+                shp(3, {{-0.759835685652, -2.193456521088, 0},
+                        {-0.759835685652, -0.438691337651, 0},
+                        {-1.013114247536, -0.877382508136, 0},
+                        {-1.013114247536, -1.754765183437, 0},
+                        {0.0, 0.0, 0},
+                        {0.506557123767, 0.0, 0},
+                        {0.0, -2.632147858739, 0},
+                        {0.506557123767, -2.632147858739, 0},
+                        {1.266392809419, -2.193456521088, 0},
+                        {1.519671371303, -1.754765183437, 0},
+                        {1.519671371303, -0.877382508136, 0},
+                        {1.266392809419, -0.438691170485, 0}}),
             };
             l31212.shapeLevelIndex = {0, 1, 2, 2, 2, 3};
         }
         // Laves4612（对偶4.6.12：不等边三角形密铺）完整城市形状表。anchorN=3（三角形）。
-        // L4 两个变体（长腿邻接菱形 / 直角顶点共点菱形）；L12 两个变体（12点大六边形 / L6+边邻）。
+        // 2026-08-17：按开发思路.txt 语义重写（b=0 为锚；spec 已旋转使运行时斜边竖直）。
+        // L4 两个变体（长直角边邻接菱形 / 直角顶点共点菱形）；L12 两个变体（12点大六边形 / L6+边邻）。
+        // L2 锚定方向：斜边竖直的**两种朝向**（用户 2026-08-17：2 级城应有两种朝向）。
+        // 斜边竖直基础格 = b=0/2/4/10/11/14/20/21（mask=0x304c15），解析出两种形态：
+        // 筝形开口朝右（b=0/11/14/20）与朝左（b=2/4/10/21）。
+        // L4/L4b 锚定方向：同一菱形朝向（mask=0x801，b=0/11 参考族）。
         {
             auto& l4612 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Laves4612))];
             l4612.levels = {2.0, 4.0, 6.0, 12.0};
             l4612.shapes = {
-                shp(3, {{-0.620403239402, 0.0, 0},
-                        {0.0, 0.0, 0}}),
-                shp(3, {{-1.240806390097, 0.358189998588, 0},
-                        {-0.620403239402, 0.0, 0},
-                        {0.0, 0.0, 0},
-                        {0.620403242477, 0.358189982603, 0}}),
-                shp(3, {{-0.62040324863, 1.074569926495, 0},
-                        {0.0, 1.432759909098, 0},
-                        {0.0, 0.0, 0},
-                        {0.620403236325, 0.358189982603, 0}}),
                 shp(3, {{0.0, 0.0, 0},
-                        {0.310201624315, -0.537284963248, 0},
-                        {0.620403230172, 1.074569937152, 0},
-                        {1.240806469574, 1.07456994248, 0},
-                        {1.551008103118, -0.537284952591, 0},
-                        {1.861209718204, 0.0, 0}}),
-                shp(3, {{-1.551008112347, 1.611854884415, 0},
-                        {-1.551008014413, 0.895474961836, 0},
-                        {-1.240806497261, 2.149139852991, 0},
-                        {-1.240806390097, 0.358189998588, 0},
-                        {-0.620403260936, 2.507329835593, 0},
-                        {-0.620403239402, 0.0, 0},
-                        {0.0, 2.507329840922, 0},
+                        {0.000000005328, -0.620403239402, 0}}, 0x304c15),
+                shp(3, {{-0.358189998588, -1.240806390097, 0},
                         {0.0, 0.0, 0},
-                        {0.620403242477, 0.358189982603, 0},
-                        {0.620403242477, 2.149139868976, 0},
-                        {0.930604845258, 1.611854905728, 0},
-                        {0.930604851411, 0.895474951179, 0}}),
-                shp(3, {{-0.620403150696, 0.358190003916, 0},
+                        {-0.358189982603, 0.620403242477, 0},
+                        {0.000000005328, -0.620403239402, 0}}, 0x801),
+                shp(3, {{-0.358189998588, -1.240806390097, 0},
                         {0.0, 0.0, 0},
-                        {0.0, 1.432759941068, 0},
-                        {0.310201624315, -0.537284963248, 0},
-                        {0.31020172225, -1.253664885827, 0},
-                        {0.620403230172, 1.074569937152, 0},
-                        {1.240806469574, 1.07456994248, 0},
-                        {1.551008103118, -0.537284952591, 0},
-                        {1.55100810927, -1.25366490714, 0},
-                        {1.861209712051, 1.432759925083, 0},
-                        {1.861209718204, 0.0, 0},
-                        {2.481612954529, 0.358189998588, 0}}),
+                        {-0.358189982603, 0.620403242477, 0},
+                        {0.000000005328, -0.620403239402, 0}}, 0x801),
+                shp(3, {{0.0, 0.0, 0},
+                        {0.000000005328, -0.620403239402, 0},
+                        {1.074569926495, 0.620403248630, 0},
+                        {1.074569942480, -1.240806469574, 0},
+                        {1.611854905728, -0.930604845259, 0},
+                        {1.611854895071, 0.310201633544, 0}}),
+                shp(3, {{-0.358189982603, 0.620403242477, 0},
+                        {-0.895474951179, 0.930604851411, 0},
+                        {-1.611854905728, 0.930604845258, 0},
+                        {-2.149139868976, 0.620403242477, 0},
+                        {0.0, 0.0, 0},
+                        {0.000000005328, -0.620403239402, 0},
+                        {-0.358189998588, -1.240806390097, 0},
+                        {-0.895474961836, -1.551008014413, 0},
+                        {-2.507329840922, 0.0, 0},
+                        {-2.507329835593, -0.620403260936, 0},
+                        {-2.149139852991, -1.240806497261, 0},
+                        {-1.611854884415, -1.551008112347, 0}}),
+                shp(3, {{0.0, 0.0, 0},
+                        {1.611854895071, 0.310201633544, 0},
+                        {2.328234828307, -0.930604747324, 0},
+                        {1.611854905728, -0.930604845259, 0},
+                        {0.716379938564, -1.861209620270, 0},
+                        {0.716379943892, 1.240806484955, 0},
+                        {-0.358189998588, -1.240806390097, 0},
+                        {2.328234849620, 0.310201639696, 0},
+                        {0.000000005328, -0.620403239402, 0},
+                        {1.074569942480, -1.240806469574, 0},
+                        {1.074569926495, 0.620403248630, 0},
+                        {-0.358189982603, 0.620403242477, 0}}),
             };
             l4612.shapeLevelIndex = {0, 1, 1, 2, 3, 3};
         }
         // Laves3636（菱形密铺）完整城市形状表。anchorN=4（菱形）。
+        // 2026-08-17：按开发思路.txt 语义重写（b=0 为锚；L3=3-valent 周围 3 格六边形，
+        // L5=锚+4 边邻，L6=6-valent 周围 6 格雪花，L12=L6+边邻大正六边形）。
+        // L1/L5 锚定方向：长对角线水平、短对角线竖直的菱形（基础格 b=0/5，mask=0x21）
+        // —— L5 文档"长对角线水平菱形及与其有公共边的四个菱形"，朝向应唯一。
         {
             auto& l3636 = c.sets[static_cast<size_t>(static_cast<int>(TilingType::Laves3636))];
             l3636.levels = {1.0, 3.0, 5.0, 6.0, 12.0};
             l3636.shapes = {
-                shp(4, {{0.0, 0.0, 0}}),
-                shp(4, {{-0.805927448868, 0.465302429551, 0},
-                        {0.0, 0.0, 0},
-                        {0.0, 0.930604740898, 0}}),
-                shp(4, {{-0.805927448868, -0.465302429551, 0},
-                        {-0.805927448868, 0.465302429551, 0},
-                        {0.0, 0.0, 0},
-                        {0.805927448867, -0.465302311347, 0},
-                        {0.805927448867, 0.465302429551, 0}}),
+                shp(4, {{0.0, 0.0, 0}}, 0x21),
                 shp(4, {{0.0, 0.0, 0},
-                        {0.0, 0.930604740898, 0},
-                        {0.805927448868, -0.465302429551, 0},
-                        {0.805927448868, 1.395907170449, 0},
-                        {1.611854897735, 0.0, 0},
-                        {1.611854897735, 0.930604859102, 0}}),
-                shp(4, {{-0.805927448868, 0.465302429551, 0},
-                        {0.0, -0.930604859102, 0},
+                        {0.805927448867, 0.465302429551, 0},
+                        {0.805927448867, -0.465302311347, 0}}),
+                shp(4, {{0.0, 0.0, 0},
+                        {0.805927448867, -0.465302311347, 0},
+                        {0.805927448867, 0.465302429551, 0},
+                        {-0.805927448868, 0.465302429551, 0},
+                        {-0.805927448868, -0.465302429551, 0}}, 0x21),
+                shp(4, {{-0.805927448868, -1.395907170449, 0},
+                        {-0.805927448868, -0.465302429551, 0},
                         {0.0, 0.0, 0},
-                        {0.0, 0.930604740898, 0},
-                        {0.0, 1.8612096, 0},
-                        {0.805927448868, -0.465302429551, 0},
-                        {0.805927448868, 1.395907170449, 0},
-                        {1.611854897735, -0.930604740898, 0},
-                        {1.611854897735, 0.0, 0},
-                        {1.611854897735, 0.930604859102, 0},
-                        {1.611854897735, 1.8612096, 0},
-                        {2.417782351132, 0.465302429551, 0}}),
+                        {0.0, -1.8612096, 0},
+                        {0.805927448867, -1.395907170449, 0},
+                        {0.805927448867, -0.465302311347, 0}}),
+                shp(4, {{0.805927448867, -0.465302311347, 0},
+                        {0.0, 0.0, 0},
+                        {-0.805927448868, -1.395907170449, 0},
+                        {1.611854902264, -0.930604740898, 0},
+                        {-0.805927448868, -0.465302429551, 0},
+                        {0.805927448867, -2.326511911347, 0},
+                        {0.0, -1.8612096, 0},
+                        {0.805927448867, 0.465302429551, 0},
+                        {-0.805927448868, -2.326512029551, 0},
+                        {-1.611854897736, -0.930604740898, 0},
+                        {-0.805927448868, 0.465302429551, 0},
+                        {0.805927448867, -1.395907170449, 0}}),
             };
         }
     }
@@ -726,7 +792,7 @@ void validateConfigKeys(const Json& root) {
                     "render");
     warnUnknownKeys(child(ren, "city"),
                     {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "iconScale",
-                     "mix"},
+                     "iconFitScale", "iconFitOffsetY", "mix"},
                     "render.city");
     warnUnknownKeys(child(child(ren, "city"), "mix"),
                     {"primary", "secondary", "black"},
@@ -743,7 +809,7 @@ void validateConfigKeys(const Json& root) {
                             "tilings"},
                     "city");
     const V kShapeKeys = {"level", "w", "h"};
-    const V kHexTriShapeKeys = {"level", "anchorN", "cells"};
+    const V kHexTriShapeKeys = {"level", "anchorN", "anchorBaseMask", "cells"};
     // 数组段（units / factions 在根；city.shapes 在 city 下）。unitPreference 键为动态
     // 兵种名（normal/vanguard/…）→ 列在已知集合里自然跳过动态校验。
     const V kUnitKeys = {"type",          "cost",              "speedMult",
@@ -1079,6 +1145,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
                     if (idx < 0 || !s.contains("cells") || !s["cells"].is_array()) continue;
                     Config::City::Shape sh;
                     sh.anchorN = getInt(s, "anchorN", 0);
+                    sh.anchorBaseMask = static_cast<std::uint32_t>(
+                        std::max(0, getInt(s, "anchorBaseMask", 0)));
                     for (const auto& cl : s["cells"]) {
                         if (!cl.is_array() || cl.size() < 2) continue;
                         const int orient = (cl.size() >= 3) ? cl[2].get<int>() : 0;
@@ -1088,6 +1156,12 @@ Config Config::loadFromJson(const std::string& jsonText) {
                     set.shapes.push_back(std::move(sh));
                     set.shapeLevelIndex.push_back(idx);
                 }
+            }
+            // 2026-08-17：贴图等级显式映射（可选；空或缺省 = lround 推导）。
+            set.iconLevels.clear();
+            if (sub.contains("iconLevels") && sub["iconLevels"].is_array()) {
+                for (const auto& iv : sub["iconLevels"])
+                    if (iv.is_number()) set.iconLevels.push_back(iv.get<int>());
             }
         };
         if (cityJson.contains("hex") && cityJson["hex"].is_object())
@@ -1152,6 +1226,42 @@ Config Config::loadFromJson(const std::string& jsonText) {
                      ++i)
                     if (rc["iconScale"][i].is_number())
                         cfg.render.city.iconScale[i] = rc["iconScale"][i].get<double>();
+            // iconFitScale：预计算贴图最大内接框宽（世界单位；键 tilingName -> 贴图等级 -> fitW）。
+            // 2026-08：由 tools/city_icon_fit_tool 生成，写入 data/config.json render.city。
+            if (rc.contains("iconFitScale") && rc["iconFitScale"].is_object()) {
+                cfg.render.city.iconFitScale.clear();
+                for (auto it = rc["iconFitScale"].begin(); it != rc["iconFitScale"].end(); ++it) {
+                    if (!it.value().is_object()) continue;
+                    for (auto lv = it.value().begin(); lv != it.value().end(); ++lv) {
+                        if (!lv.value().is_number()) continue;
+                        int level = 0;
+                        try {
+                            level = std::stoi(lv.key());
+                        } catch (...) {
+                            continue;
+                        }
+                        if (level < 1 || level > 10) continue;
+                        cfg.render.city.iconFitScale[it.key()][level] = lv.value().get<double>();
+                    }
+                }
+            }
+            // iconFitOffsetY：贴图竖直平移（世界单位）。每个 tiling 下是数组，
+            // 每项 = 某贴图等级 + 某形状变体 + 某锚朝向 的独立偏移。
+            if (rc.contains("iconFitOffsetY") && rc["iconFitOffsetY"].is_object()) {
+                cfg.render.city.iconFitOffsetY.clear();
+                for (auto it = rc["iconFitOffsetY"].begin(); it != rc["iconFitOffsetY"].end(); ++it) {
+                    if (!it.value().is_array()) continue;
+                    for (const auto& rec : it.value()) {
+                        if (!rec.is_object()) continue;
+                        Config::Render::City::IconFitOffsetY o;
+                        o.iconLevel = getInt(rec, "iconLevel", 1);
+                        o.variant = getInt(rec, "variant", 0);
+                        o.anchorB = getInt(rec, "anchorB", 0);
+                        o.value = getNum(rec, "value", 0.0);
+                        cfg.render.city.iconFitOffsetY[it.key()].push_back(o);
+                    }
+                }
+            }
         }
         // 双色系统（⑫）：地块格 主:副:白 混合比例（render.tile）。
         if (renderJson.contains("tile") && renderJson["tile"].is_object()) {
@@ -1372,11 +1482,18 @@ std::string Config::toJson() const {
             const int li = (s < static_cast<int>(set.shapeLevelIndex.size()))
                                ? set.shapeLevelIndex[static_cast<size_t>(s)]
                                : 0;
-            shapes.push_back({{"level", set.levels[static_cast<size_t>(li)]},
-                              {"anchorN", set.shapes[static_cast<size_t>(s)].anchorN},
-                              {"cells", cells}});
+            Json shapeJ = {{"level", set.levels[static_cast<size_t>(li)]},
+                           {"anchorN", set.shapes[static_cast<size_t>(s)].anchorN},
+                           {"cells", cells}};
+            if (set.shapes[static_cast<size_t>(s)].anchorBaseMask != 0)
+                shapeJ["anchorBaseMask"] = set.shapes[static_cast<size_t>(s)].anchorBaseMask;
+            shapes.push_back(std::move(shapeJ));
         }
-        return Json{{"levels", set.levels}, {"shapes", std::move(shapes)}};
+        Json result = Json{{"levels", set.levels}, {"shapes", std::move(shapes)}};
+        // 2026-08-17：贴图等级显式映射（缺省推导时不输出；与 levels 等长才输出）。
+        if (!set.iconLevels.empty() && set.iconLevels.size() == set.levels.size())
+            result["iconLevels"] = set.iconLevels;
+        return result;
     };
     // 2026-08-16：半正/Laves 形状表统一放 city.tilings.<tilingName>；缺省为空集。
     Json tilingsJ = Json::object();
@@ -1397,35 +1514,61 @@ std::string Config::toJson() const {
     j["sim"] = {{"tickRate", sim.tickRate}, {"maxArmyGuard", sim.maxArmyGuard}};
 
     // P13 城市渲染常数：iconScale[]（9 项，下标 = 等级-1，与 data/tower/tower<N>.png 对应）。
-    j["render"] = {
-        {"windowWidth", render.windowWidth},
-        {"windowHeight", render.windowHeight},
-        {"spriteSize", render.spriteSize},
-        {"armyDrawSize", render.armyDrawSize},
+    {
+        Json renderJ;
+        renderJ["windowWidth"] = render.windowWidth;
+        renderJ["windowHeight"] = render.windowHeight;
+        renderJ["spriteSize"] = render.spriteSize;
+        renderJ["armyDrawSize"] = render.armyDrawSize;
         // 双色系统（⑫）：地块格 主:副:白 混合比例。
-        {"tile",
-         {{"primary", render.tileMix.primary},
-          {"secondary", render.tileMix.secondary},
-          {"white", render.tileMix.white}}},
-        {"city",
-         {{"lineMinCellPx", render.city.lineMinCellPx},
-          {"lineThickness", render.city.lineThickness},
-          {"lineDarken", render.city.lineDarken},
-          {"iconDarken", render.city.iconDarken},
-          // 双色系统（⑫）：城市图标 主:副:黑 混合比例。
-          {"mix",
-           {{"primary", render.city.mix.primary},
-            {"secondary", render.city.mix.secondary},
-            {"black", render.city.mix.black}}},
-          {"iconScale", std::vector<double>(render.city.iconScale.begin(), render.city.iconScale.end())}}},
-        {"capital",
-         {{"minIconSizePx", render.capital.minIconSizePx},
-          {"lineThickness", render.capital.lineThickness},
-          {"designatedAlpha", render.capital.designatedAlpha},
-          {"iconScale", std::vector<double>(render.capital.iconScale.begin(),
-                                            render.capital.iconScale.end())}}},
-    };
+        renderJ["tile"] = {{"primary", render.tileMix.primary},
+                            {"secondary", render.tileMix.secondary},
+                            {"white", render.tileMix.white}};
 
+        Json cityJ;
+        cityJ["lineMinCellPx"] = render.city.lineMinCellPx;
+        cityJ["lineThickness"] = render.city.lineThickness;
+        cityJ["lineDarken"] = render.city.lineDarken;
+        cityJ["iconDarken"] = render.city.iconDarken;
+        // 双色系统（⑫）：城市图标 主:副:黑 混合比例。
+        cityJ["mix"] = {{"primary", render.city.mix.primary},
+                        {"secondary", render.city.mix.secondary},
+                        {"black", render.city.mix.black}};
+        cityJ["iconScale"] =
+            std::vector<double>(render.city.iconScale.begin(), render.city.iconScale.end());
+
+        Json fitJ = Json::object();
+        for (const auto& [tname, lvmap] : render.city.iconFitScale) {
+            Json lvJ = Json::object();
+            for (const auto& [lv, val] : lvmap) lvJ[std::to_string(lv)] = val;
+            fitJ[tname] = std::move(lvJ);
+        }
+        cityJ["iconFitScale"] = std::move(fitJ);
+
+        Json offJ = Json::object();
+        for (const auto& [tname, vec] : render.city.iconFitOffsetY) {
+            Json arr = Json::array();
+            for (const auto& o : vec) {
+                arr.push_back({{"iconLevel", o.iconLevel},
+                               {"variant", o.variant},
+                               {"anchorB", o.anchorB},
+                               {"value", o.value}});
+            }
+            offJ[tname] = std::move(arr);
+        }
+        cityJ["iconFitOffsetY"] = std::move(offJ);
+        renderJ["city"] = std::move(cityJ);
+
+        Json capitalJ;
+        capitalJ["minIconSizePx"] = render.capital.minIconSizePx;
+        capitalJ["lineThickness"] = render.capital.lineThickness;
+        capitalJ["designatedAlpha"] = render.capital.designatedAlpha;
+        capitalJ["iconScale"] =
+            std::vector<double>(render.capital.iconScale.begin(), render.capital.iconScale.end());
+        renderJ["capital"] = std::move(capitalJ);
+
+        j["render"] = std::move(renderJ);
+    }
     j["player"] = {{"hoverCityRadius", player.hoverCityRadius},
                    {"markerAlpha", player.markerAlpha},
                    {"markerRotateSpeed", player.markerRotateSpeed},

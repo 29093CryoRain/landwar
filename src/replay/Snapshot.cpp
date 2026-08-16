@@ -73,15 +73,17 @@ std::string Snapshot::serialize(const Simulation& sim) {
     root["map"]["height"] = map.height();
     root["map"]["capitalsX"] = Json::array();
     root["map"]["capitalsY"] = Json::array();
+    root["map"]["capitalsB"] = Json::array();
     for (int i = 0; i < map.capitalCount(); ++i) {
         root["map"]["capitalsX"].push_back(map.capitalX(i));
         root["map"]["capitalsY"].push_back(map.capitalY(i));
+        root["map"]["capitalsB"].push_back(map.capitalB(i));
     }
     root["map"]["cities"] = Json::array();
     for (const auto& c : map.cities())
         root["map"]["cities"].push_back(
             {c.id, c.ownerId, c.level, c.baseX, c.baseY, c.w, c.h, c.lastProduceArmyN,
-             c.lastCapturedTick, c.baseIndex});
+             c.lastCapturedTick, c.baseIndex, c.shapeVariant});
     root["map"]["cells"] = Json::array();
     for (int idx = 0; idx < map.cellCount(); ++idx) {
         const MapCell& c = map.atIndex(idx);
@@ -235,6 +237,11 @@ bool Snapshot::deserialize(Simulation& sim, const std::string& json, std::string
     m.geom_ = TilingGeom{tilingFromName(sim.config_.map.tiling), m.width_, m.height_};
     m.capitalX_ = mj.at("capitalsX").get<std::vector<int>>();
     m.capitalY_ = mj.at("capitalsY").get<std::vector<int>>();
+    // 半正/Laves 首都基础格序号（旧档无此键 → 全 0，即 b=0 的旧语义）。
+    if (mj.contains("capitalsB") && mj["capitalsB"].is_array())
+        m.capitalB_ = mj["capitalsB"].get<std::vector<int>>();
+    else
+        m.capitalB_.assign(m.capitalX_.size(), 0);
     m.cityConfig_ = sim.config_.city;  // 城市形状表与快照 config 保持一致
     m.cities_.clear();
     if (mj.contains("cities") && mj["cities"].is_array()) {
@@ -254,6 +261,12 @@ bool Snapshot::deserialize(Simulation& sim, const std::string& json, std::string
                 c.baseIndex = cj[9].get<int>();
             else
                 c.baseIndex = m.cellIndexAt(c.baseX, c.baseY);
+            // 2026-08-16：shapeVariant（同级多形状的放置变体；旧档无该键 → 0，即参考朝向
+            // 第一变体，兼容旧行为）。
+            if (cj.size() > 10)
+                c.shapeVariant = cj[10].get<int>();
+            else
+                c.shapeVariant = 0;
             m.cities_.push_back(c);
         }
     }

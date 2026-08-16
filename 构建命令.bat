@@ -15,3 +15,5 @@ rem
 rem 运行（须从项目根；运行期产物写 userdata/，资产只读 data/）：
 rem   build\landwar.exe
 echo 命令速查见本文件注释（README.md 亦有）。
+
+pause

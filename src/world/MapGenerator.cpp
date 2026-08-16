@@ -157,10 +157,12 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
     if (p.tiling == TilingType::Tri) {
         p.width = (p.width / 2) & ~1;
     } else if (static_cast<int>(p.tiling) > static_cast<int>(TilingType::Tri)) {
-        // 半正/Laves：用户长*宽 = 总格数；每周期域 B 个基础格 → 域列数 = 用户长 / B。
-        const TilingGeom probe{p.tiling, 1, 1};
-        const int B = std::max(1, probe.baseCount());
-        p.width = std::max(1, p.width / B);
+        // 半正/Laves：用户长*宽 = 总格数。周期域列/行按“实际视觉宽高比尽量接近
+        // 用户长/宽比”选择（与 Map::configure 同一函数，lwmap 头尺寸匹配）。
+        int dc = p.width, dr = p.height;
+        chooseTableDomain(static_cast<int>(p.tiling), p.width, p.height, dc, dr);
+        p.width = dc;
+        p.height = dr;
     }
 
     if (p.tiling == TilingType::Square) return generateSquare(path, seed, p);
