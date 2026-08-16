@@ -105,7 +105,7 @@ TEST(Determinism, SmallTiledAllTilingsSameSeedSameHash) {
         ASSERT_TRUE(a.init());
         lw::Simulation b(cfg, 777, 777);
         ASSERT_TRUE(b.init());
-        for (int i = 0; i < 100; ++i) { a.tick(); b.tick(); }
+        for (int i = 0; i < 1000; ++i) { a.tick(); b.tick(); }
         EXPECT_EQ(lw::fnv1a64(lw::Snapshot::serialize(a)),
                   lw::fnv1a64(lw::Snapshot::serialize(b)))
             << "tiling " << lw::tilingName(t) << " 同 seed 哈希不一致";
