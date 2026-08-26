@@ -3,7 +3,9 @@
 
 #include <spdlog/spdlog.h>
 
+#include <array>
 #include <cmath>
+#include <vector>
 
 #include "world/Map.h"
 
@@ -71,43 +73,74 @@ SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
     }
 
     // P12 六/三角：逐格凸多边形扫描线填充（真实密铺形状，杜绝"横纹/单朝向块"假象）。
+    // 2026-08 斜周期（33336 系）：世界为平行四边形（W.y/H.x 剪切）。若按世界坐标画格
+    // 多边形，地图在缩略图中呈斜向细带（"只能看到地图一角"）。改为**旋转到常规矩形**：
+    // gridPolygon 用 R^{-1}（格基逆矩阵，"旋转矩阵"）把每格映射到格坐标（矩形）域，再填充。
     const TilingGeom& tg = map.geom();
-    const double cell = std::max(1.0, static_cast<double>(previewW) / tg.worldWidth());
-    const int tw = std::max(1, static_cast<int>(std::lround(tg.worldWidth() * cell)));
-    const int th = std::max(1, static_cast<int>(std::lround(tg.worldHeight() * cell)));
+    const bool skew = tg.hasSkewedPeriod();
+
+    // 逐格顶点（skew = 去剪切格坐标；否则世界坐标）→ 求坐标跨度（决定纹理尺寸/缩放）。
+    std::vector<std::vector<std::array<double, 2>>> vxSt(static_cast<size_t>(map.cellCount()));
+    std::vector<int> vn(static_cast<size_t>(map.cellCount()));
+    double sxmin = 1e18, sxmax = -1e18, symin = 1e18, symax = -1e18;
+    double tmpv[12], tmpg[12] = {0};
+    for (int idx = 0; idx < map.cellCount(); ++idx) {
+        const int n = skew ? tg.gridPolygon(idx, tmpv, tmpg, 12) : tg.cellPolygon(idx, tmpv, tmpg, 12);
+        vn[static_cast<size_t>(idx)] = n;
+        if (n < 3) continue;
+        auto& arr = vxSt[static_cast<size_t>(idx)];
+        arr.reserve(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            arr.push_back({tmpv[i], tmpg[i]});
+            sxmin = std::min(sxmin, tmpv[i]);
+            sxmax = std::max(sxmax, tmpv[i]);
+            symin = std::min(symin, tmpg[i]);
+            symax = std::max(symax, tmpg[i]);
+        }
+    }
+    if (sxmax <= sxmin) return nullptr;
+    const double spanX = sxmax - sxmin, spanY = symax - symin;
+    const double cell = std::max(1.0, static_cast<double>(previewW) / spanX);
+    const int tw = std::max(1, static_cast<int>(std::lround(spanX * cell)));
+    const int th = std::max(1, static_cast<int>(std::lround(spanY * cell)));
     SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, tw, th, 32, SDL_PIXELFORMAT_RGBA32);
     if (!surf) {
         spdlog::error("MapPreview: surface create failed: {}", SDL_GetError());
         return nullptr;
     }
     Uint32* px = static_cast<Uint32*>(surf->pixels);
-    const auto fillPoly = [&](const double* vx, const double* vy, int n, Uint32 col) {
-        double minY = vy[0], maxY = vy[0];
+
+    // 扫描线填充：世界/格坐标 → 屏幕像素（y 翻转：坐标顶 = 图像顶）。offset 为 (sxmin,symin)。
+    const auto fillPoly = [&](const std::vector<std::array<double, 2>>& v, Uint32 col) {
+        const int n = static_cast<int>(v.size());
+        double minY = v[0][1], maxY = v[0][1];
         for (int i = 1; i < n; ++i) {
-            minY = std::min(minY, vy[i]);
-            maxY = std::max(maxY, vy[i]);
+            minY = std::min(minY, v[static_cast<size_t>(i)][1]);
+            maxY = std::max(maxY, v[static_cast<size_t>(i)][1]);
         }
-        const int sy0 = std::max(0, static_cast<int>(std::floor((th - 1.0 - maxY * cell))));
-        const int sy1 = std::min(th - 1, static_cast<int>(std::ceil((th - 1.0 - minY * cell))));
+        const int sy0 = std::max(0, static_cast<int>(std::floor((th - 1.0 - (maxY - symin) * cell))));
+        const int sy1 = std::min(th - 1, static_cast<int>(std::ceil((th - 1.0 - (minY - symin) * cell))));
         for (int sy = sy0; sy <= sy1; ++sy) {
-            const double y = (th - 0.5 - sy) / cell;  // 世界 y（y 翻转：顶行 = 世界高）
+            const double y = symin + (th - 0.5 - sy) / cell;  // 坐标 y（顶行 = 坐标高）
             double xmin = 1e18, xmax = -1e18;
             for (int i = 0; i < n; ++i) {
                 const int j = (i + 1) % n;
-                const double yA = vy[i], yB = vy[j];
+                const double yA = v[static_cast<size_t>(i)][1], yB = v[static_cast<size_t>(j)][1];
                 if ((yA <= y && yB > y) || (yB <= y && yA > y)) {
                     const double t = (y - yA) / (yB - yA);
-                    const double x = vx[i] + t * (vx[j] - vx[i]);
+                    const double x = v[static_cast<size_t>(i)][0] +
+                                     t * (v[static_cast<size_t>(j)][0] - v[static_cast<size_t>(i)][0]);
                     xmin = std::min(xmin, x);
                     xmax = std::max(xmax, x);
                 }
             }
             if (xmax < xmin) continue;
-            const int sx0 = std::max(0, static_cast<int>(std::floor(xmin * cell)));
-            const int sx1 = std::min(tw - 1, static_cast<int>(std::ceil(xmax * cell)));
+            const int sx0 = std::max(0, static_cast<int>(std::floor((xmin - sxmin) * cell)));
+            const int sx1 = std::min(tw - 1, static_cast<int>(std::ceil((xmax - sxmin) * cell)));
             for (int sx = sx0; sx <= sx1; ++sx) px[static_cast<size_t>(sy) * tw + sx] = col;
         }
     };
+
     for (int idx = 0; idx < map.cellCount(); ++idx) {
         const MapCell& c = map.atIndex(idx);
         Uint8 r = kSeaR, gg = kSeaG, b = kSeaB;
@@ -127,9 +160,8 @@ SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
             }
         }
         const Uint32 col = SDL_MapRGBA(surf->format, r, gg, b, 255);
-        double vx[12], vy[12];
-        const int n = tg.cellPolygon(idx, vx, vy, 12);
-        if (n >= 3) fillPoly(vx, vy, n, col);
+        const int n = vn[static_cast<size_t>(idx)];
+        if (n >= 3) fillPoly(vxSt[static_cast<size_t>(idx)], col);
     }
     SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
     SDL_FreeSurface(surf);

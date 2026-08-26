@@ -43,6 +43,7 @@
 namespace {
 
 using nlohmann::ordered_json;
+using nlohmann::json;
 
 constexpr int kLogicalW = 1500;
 constexpr int kLogicalH = 900;
@@ -76,6 +77,77 @@ struct Item {
     int anchorB = 0;  // hex=0；tri=0正/1倒；表驱动=基础格 b
     std::string anchorDesc;
 };
+
+// 锚基础格类别：一个 baseGroups 数组算一类（如 "n3ua":[2,11] = 一类）。每类一个条目，
+// anchor 取该类最小基础格。从 data/city_shapes.json 读回（Config 只留掩码、丢失组名）。
+struct AnchorClass {
+    std::string name;  // 组名；纯数字锚无组时 = "base_<b>"
+    int anchorB;
+};
+
+// 每密铺每个形状（跳过 disabled，与 Config::parseTilingSetJson 次序一致）→ 其锚基础格类别列表。
+std::unordered_map<std::string, std::vector<std::vector<AnchorClass>>> g_anchorClasses;
+
+void loadAnchorClasses() {
+    std::ifstream ifs("data/city_shapes.json");
+    if (!ifs.is_open()) return;
+    json root;
+    try {
+        ifs >> root;
+    } catch (const std::exception&) {
+        return;
+    }
+    for (auto it = root.begin(); it != root.end(); ++it) {
+        if (!it.value().is_object()) continue;
+        const auto& tv = it.value();
+        std::unordered_map<std::string, std::vector<int>> bg;
+        if (tv.contains("baseGroups") && tv["baseGroups"].is_object())
+            for (auto g = tv["baseGroups"].begin(); g != tv["baseGroups"].end(); ++g) {
+                if (!g.key().empty() && g.key()[0] == '_') continue;  // 下划线键为注释
+                std::vector<int> bases;
+                if (g.value().is_array())
+                    for (const auto& b : g.value())
+                        if (b.is_number()) bases.push_back(b.get<int>());
+                bg[g.key()] = std::move(bases);
+            }
+        std::unordered_map<std::string, int> groupMin;
+        std::unordered_map<int, std::string> baseGroup;
+        for (auto& [nm, bases] : bg) {
+            if (bases.empty()) continue;
+            groupMin[nm] = *std::min_element(bases.begin(), bases.end());
+            for (int b : bases) baseGroup[b] = nm;
+        }
+        std::vector<std::vector<AnchorClass>> shapeClasses;
+        if (tv.contains("shapes") && tv["shapes"].is_array())
+            for (const auto& shp : tv["shapes"]) {
+                if (shp.contains("disabled") && shp["disabled"].is_boolean() &&
+                    shp["disabled"].get<bool>())
+                    continue;  // 与 parseTilingSetJson 一致：disabled 形状不生成条目
+                std::vector<AnchorClass> cls;
+                std::unordered_set<std::string> seen;
+                if (shp.contains("anchorBases") && shp["anchorBases"].is_array()) {
+                    for (const auto& e : shp["anchorBases"]) {
+                        if (e.is_string()) {
+                            const std::string nm = e.get<std::string>();
+                            if (seen.count(nm) || !bg.count(nm)) continue;
+                            seen.insert(nm);
+                            cls.push_back({nm, groupMin[nm]});
+                        } else if (e.is_number()) {
+                            const int b = e.get<int>();
+                            const std::string nm =
+                                baseGroup.count(b) ? baseGroup[b] : ("base_" + std::to_string(b));
+                            if (seen.count(nm)) continue;
+                            seen.insert(nm);
+                            cls.push_back({nm, baseGroup.count(b) ? groupMin[baseGroup[b]] : b});
+                        }
+                    }
+                }
+                if (cls.empty()) cls.push_back({"any", 0});
+                shapeClasses.push_back(std::move(cls));
+            }
+        g_anchorClasses[it.key()] = std::move(shapeClasses);
+    }
+}
 
 struct WorldEdge {
     double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
@@ -126,10 +198,9 @@ bool resolveCityCells(const lw::TilingGeom& geom, const lw::Config::City::Shape&
             wx = ax + sc.dx * lw::TilingGeom::kTriSide;
             wy = ay + (anchorUp ? sc.dy : -sc.dy) * lw::TilingGeom::kTriAlt;
         } else {
-            double ox = -sc.dy, oy = sc.dx;
-            geom.applyAnchorOrientation(anchorIndex, sh.anchorN, sh.anchorBaseMask, ox, oy);
-            wx = ax + ox;
-            wy = ay + oy;
+            // cells 已是世界坐标（2026-08-26 方案A 烘入），锚格朝向由数据保证，不再旋转。
+            wx = ax + sc.dx;
+            wy = ay + sc.dy;
         }
         const int idx = geom.worldToCell(wx, wy);
         if (idx < 0) return false;
@@ -382,6 +453,8 @@ void drawScene(SDL_Renderer* ren, const lw::TilingGeom& geom, const CurrentView&
 int main(int, char**) {
     const std::string cfgText = readFile("data/config.json");
     lw::Config cfg = lw::Config::loadFromJson(cfgText);
+    lw::Config::loadCityIconFits(cfg);  // iconFitScale/offsetY 已外置到 data/city_icon_fits.json
+    loadAnchorClasses();  // 生条目需 baseGroups 组名（Config 只留掩码）
 
     // 构建批次（密铺地图）与条目（城市等级/形状变体/锚朝向）。
     std::vector<lw::TilingGeom> geoms;
@@ -404,7 +477,6 @@ int main(int, char**) {
             if (li < 0 || li >= static_cast<int>(set.levels.size())) continue;
             const double level = set.levels[static_cast<std::size_t>(li)];
             const int iconLevel = set.iconLevelFor(level);
-            const auto& sh = set.shapes[si];
 
             int variantIndex = 0;
             for (std::size_t prev = 0; prev < si; ++prev) {
@@ -433,17 +505,18 @@ int main(int, char**) {
                 push(0, "正三角锚");
                 push(1, "倒三角锚");
             } else {
-                const int B = geom.baseCount();
-                for (int b = 0; b < B; ++b) {
-                    const int idx = geom.cellIndexAt(kAnchorR, kAnchorC, b);
-                    if (idx < 0) continue;
-                    if (sh.anchorN != 0 && geom.neighborCount(idx) != sh.anchorN) continue;
-                    if (sh.anchorBaseMask != 0) {
-                        const int bb = idx % std::max(1, B);
-                        if (bb < 0 || bb >= 31 || (sh.anchorBaseMask & (1u << bb)) == 0) continue;
+                // 半正/Laves：每城市每**类锚基础格**一条（baseGroups 每个数组 = 一类，如
+                // "n3ua":[2,11] 一类）。锚取该类最小基础格；形状已烘焙世界帧，同类别锚几何一致。
+                const auto itCls = g_anchorClasses.find(lw::tilingName(tt));
+                if (itCls != g_anchorClasses.end() && itCls->second.size() > si) {
+                    for (const AnchorClass& c : itCls->second[si]) {
+                        const int idx = geom.cellIndexAt(kAnchorR, kAnchorC, c.anchorB);
+                        push(c.anchorB, c.name + " (锚 " + std::to_string(c.anchorB) + ", " +
+                                             std::to_string(idx >= 0 ? geom.neighborCount(idx) : 0) +
+                                             "边)");
                     }
-                    push(b, "基础格 " + std::to_string(b) + " ("
-                               + std::to_string(geom.neighborCount(idx)) + "边)");
+                } else {
+                    push(0, "参考基础格 0");
                 }
             }
         }
@@ -585,7 +658,15 @@ int main(int, char**) {
 
         const std::string key = itemKey(it);
         const auto sit = savedScale.find(key);
-        const double initScale = (sit != savedScale.end()) ? sit->second : view.autoScale;
+        // 初始缩放：优先 config 的 render.city.iconFitScale[tiling][iconLevel]（= 游戏实际使用的
+        // 世界单位缩放，使显示与游戏一致）；其次手动保存值；最后用 CityIconFitter 自动建议。
+        double initScale = view.autoScale;
+        const auto tileIt = cfg.render.city.iconFitScale.find(lw::tilingName(it.tiling));
+        if (tileIt != cfg.render.city.iconFitScale.end()) {
+            const auto lvIt = tileIt->second.find(it.iconLevel);
+            if (lvIt != tileIt->second.end() && lvIt->second > 0.0) initScale = lvIt->second;
+        }
+        if (sit != savedScale.end() && savedScale.count(key) != 0) initScale = sit->second;
         const auto oit = savedOffsetY.find(key);
         const double initOff = (oit != savedOffsetY.end()) ? oit->second : view.autoOffsetY;
         sliderScale = static_cast<float>(initScale);

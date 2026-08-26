@@ -1,6 +1,7 @@
 #include "core/Simulation.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <numeric>
 
@@ -190,19 +191,47 @@ void Simulation::tick() {
     // §2.10 顺序：军队（移动+战斗）→ 势力8 免费兵（原版征服时即产，故紧随军队阶段）
     // → P9 周期射击（UnitAction）→ P9 子弹求解（Projectile）→ 经济（回合顺序洗牌 + 累积）
     // → 产兵 → 特效（爆炸/地雷/激光）→ 死亡处理 → ttime++ → 灭亡/统一检测（P4）→ go_sea。
-    MovementSystem::update(*this);
-    processPendingSpawns();
-    UnitActionSystem::update(*this);   // P9：周期发射（霰弹消耗 RNG；手枪 0）
-    ProjectileSystem::update(*this);   // P9：子弹移动/命中/占领/超时
-    EconomySystem::update(*this);
-    ProductionSystem::update(*this);
-    EffectSystem::update(*this);
-    DeathSystem::flush(*this);
-    CapitalSystem::update(*this);  // P15：迁都状态机（纯逻辑、无 RNG；先于灭亡检测，顺序固定）
-    TechSystem::update(*this);     // P8：科技（点累积 + 阈值科研；AI 消耗 RNG，确定性）
+    // 性能剖析（可选）：用单个 LAMBDA 把每阶段包成计时，非剖析态仅一次 bool 判断（零度量开销）。
+    using Clock = std::chrono::steady_clock;
+    const auto stage = [this](SimStage s, auto&& fn) {
+        if (!profiler_.enabled) {
+            fn();
+            return;
+        }
+        const auto t0 = Clock::now();
+        fn();
+        auto& p = profiler_.phases[static_cast<size_t>(s)];
+        p.ns += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count());
+        ++p.calls;
+    };
+    stage(SimStage::Movement, [&] { MovementSystem::update(*this); });
+    stage(SimStage::PendingSpawn, [&] { processPendingSpawns(); });
+    stage(SimStage::UnitAction, [&] { UnitActionSystem::update(*this); });   // P9：周期发射（霰弹消耗 RNG；手枪 0）
+    stage(SimStage::Projectile, [&] { ProjectileSystem::update(*this); });   // P9：子弹移动/命中/占领/超时
+    stage(SimStage::Economy, [&] { EconomySystem::update(*this); });
+    stage(SimStage::Production, [&] { ProductionSystem::update(*this); });
+    stage(SimStage::Effect, [&] { EffectSystem::update(*this); });
+    stage(SimStage::Death, [&] { DeathSystem::flush(*this); });
+    stage(SimStage::Capital, [&] { CapitalSystem::update(*this); });  // P15：迁都状态机（纯逻辑、无 RNG；先于灭亡检测，顺序固定）
+    stage(SimStage::Tech, [&] { TechSystem::update(*this); });     // P8：科技（点累积 + 阈值科研；AI 消耗 RNG，确定性）
+    const auto t_book = profiler_.enabled ? Clock::now() : Clock::time_point{};
     ++tickCount_;
-    detectAnnihilationAndUnification();  // 纯逻辑，不消耗 Rng
     goSeaProbability_ += config_.sea.goSeaIncrease;
+    if (profiler_.enabled) {
+        auto& p = profiler_.phases[static_cast<size_t>(SimStage::MiscTick)];
+        p.ns += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_book).count());
+        ++p.calls;
+        const auto t_det = Clock::now();
+        detectAnnihilationAndUnification();  // 纯逻辑，不消耗 Rng
+        auto& d = profiler_.phases[static_cast<size_t>(SimStage::Detect)];
+        d.ns += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_det).count());
+        ++d.calls;
+    } else {
+        detectAnnihilationAndUnification();
+    }
 }
 
 std::vector<DeathEvent> Simulation::takeDeaths() {

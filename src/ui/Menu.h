@@ -56,7 +56,6 @@ struct MenuState {
     // 山/城密度滑条位置（对数域 [0,1]，跨帧稳定——ImGui 直改它，避免每帧从密度重算导致手感黏滞）。
     float mtnT = 0.5f, cityT = 0.5f;
     bool forceCoast = false;      // 强制边缘为海（随机图）
-    bool wrap = false;            // 地图边界贯通（环绕，P10；预装/随机图通用）
     TilingType tiling = TilingType::Square;  // P12：密铺（随机图区下拉；预装恒方形）
     std::string genPath;          // 最近一次随机图生成的 BMP 路径（预览/开始复用）
     std::string genError;         // 随机图生成/加载失败信息（空 = 成功）

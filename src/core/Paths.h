@@ -23,6 +23,11 @@ constexpr const char* kScreenshotDir = "userdata/screenshots";  // 截图
 
 // ---- 默认文件路径（散落各处的字面量收敛到此，避免改一处漏一处）----
 inline const std::string kDefaultConfigPath = "data/config.json";
+// 半正/Laves 城市等级/形状表（2026-08-26 自 Config.cpp 内置表外置；tools/gen_city_shapes_json.py 生成）。
+inline const std::string kCityShapesPath = "data/city_shapes.json";
+// 城市贴图预计算缩放/竖直平移表（2026-08-26 自 config.json render.city 外置；由
+// tools/city_icon_fit_tool + tools/apply_city_icon_fit_scales.py 生成）。
+inline const std::string kCityIconFitsPath = "data/city_icon_fits.json";
 inline const std::string kDefaultOptionsPath = "userdata/options.json";
 inline const std::string kDefaultMapFile = "data/map_bigIslands.bmp";  // 默认地图（资产）
 

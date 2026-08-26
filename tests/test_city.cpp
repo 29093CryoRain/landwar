@@ -78,16 +78,16 @@ struct CityMap {
     }
 };
 
-// 等级采样分支（2026-08-17 调试期改**均匀分布**：u∈[0,1) → idx=int(u*5)，levels={1,2,4,6,9}：
-// u<0.2→1级、0.2~0.4→2级、0.4~0.6→4级、0.6~0.8→6级、0.8~1→9级。幂律待修正后恢复）。
+// 等级采样分支（修正幂律：P(x) ∝ n_x·(x+β)^-s，s=levelIncomeExponent+levelRankExponent=1.5，
+// β=(1−min)/2=0；等级 {1,2,4,6,9}）。累计分界 u：1级<0.632、2级<0.855、4级<0.934、6级<0.977、9级其余。
 TEST(City, LevelSamplingBranches) {
     const Config cfg = Config::loadFromJson("{}");
     struct Case {
         double u;
         int expect;
     };
-    const Case cases[] = {{0.1, 1}, {0.19, 1}, {0.2, 2},  {0.39, 2}, {0.4, 4},
-                          {0.59, 4}, {0.6, 6},  {0.79, 6}, {0.8, 9},  {0.99, 9}};
+    const Case cases[] = {{0.10, 1}, {0.60, 1}, {0.64, 2}, {0.80, 2}, {0.86, 4},
+                          {0.93, 4}, {0.94, 6}, {0.97, 6}, {0.98, 9}, {0.99, 9}};
     for (const auto& c : cases) {
         LevelRng rng;
         rng.units = {c.u};
@@ -206,8 +206,9 @@ TEST(City, LevelDistributionApproximatesPowerLaw) {
     }
     const int total = sim.map().totalCities();
     ASSERT_GE(total, 100) << "城概率格应产生足够城市样本";
-    // 均匀分布期望：P(L=each) ≈ 1/5 = 0.2（容差断言"大致均匀"）。
-    const double expect[5] = {0.2, 0.2, 0.2, 0.2, 0.2};
+    // 幂律分布期望（修正幂律 P∝n_x·(x+β)^-s，s=1.5，β=0；等级 {1,2,4,6,9} 归一化权重）：
+    // {0.631, 0.223, 0.079, 0.043, 0.023}（容差断言"大致符合幂律"；优先级递减）。
+    const double expect[5] = {0.631, 0.223, 0.079, 0.043, 0.023};
     for (int i = 0; i < 5; ++i) {
         const double observed = static_cast<double>(count[static_cast<size_t>(i)]) / total;
         EXPECT_NEAR(observed, expect[static_cast<size_t>(i)], 0.12) << "level bucket " << i;

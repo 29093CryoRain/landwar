@@ -50,12 +50,35 @@ struct TilingGeom {
 
     double worldHeight() const;
 
+    // ---- 世界坐标域（2026-08 斜周期：33336 系平行四边形周期域）----
+    // 平行四边形域的首格中心可落于负坐标（W.y/H.x 剪切），且 AABB 原点随 cols/rows 变化。
+    // 为使全体消费方（相机夹取 / 兵特效夹取 / 空间哈希）沿用 [0,worldWidth]x[0,worldHeight]，
+    // TilingGeom 统一把几何**平移**到该域（cellCenter/cellPolygon 输出已含 worldMin 偏移）。
+    // worldMinX/Y 即该平移量（域 AABB 下界；非表驱动恒 0）。
+    double worldMinX() const;
+    double worldMinY() const;
+    // 世界 AABB 上界 = worldMin + worldWidth/Height。
+    double worldMaxX() const { return worldMinX() + worldWidth(); }
+    double worldMaxY() const { return worldMinY() + worldHeight(); }
+    // 斜周期域（W.y 或 H.x 非 0）判定：此类地图几何经 worldMin 平移后仍为平行四边形，
+    // 渲染/预览/生成须按"常规矩形"（格坐标）处理（见 MapPreview/MapGenerator）。
+    bool hasSkewedPeriod() const;
+
     // 格下标 → 世界中心。
     void cellCenter(int index, double& wx, double& wy) const;
 
     // 格多边形顶点（世界坐标；六 6 / 三 3 顶点，逆时针）。返回顶点数（方返回 0）。
     // 渲染/预览/边界描线共用；maxVerts 至少 6（六边形）。
     int cellPolygon(int index, double* wx, double* wy, int maxVerts) const;
+
+    // 格多边形顶点在**常规矩形（格坐标）空间**（2026-08 斜周期"旋转矩阵"）。
+    // 对斜周期域（W.y/H.x 剪切）：grid = R^{-1}{世界}（R = 格基 [W H]），把平行四边形
+    // 地图"旋转"成矩形（格在下 [0,cols]x[0,rows]，形状被剪切但占据矩形域）。
+    // 供预览/渲染把斜周期地图显示为常规矩形；非斜周期 = 世界坐标（无剪切）。
+    int gridPolygon(int index, double* gx, double* gy, int maxVerts) const;
+
+    // 格中心在格坐标空间（= gridPolygon 的离散中心；非斜周期 = 世界坐标）。
+    void gridCenter(int index, double& gx, double& gy) const;
 
     // 第 k 条**邻接边**的端点（世界坐标；与 neighbor(idx,k) 同序——多边形顶点序 ≠ 邻接边序，
     // 边界描线/城市外廓必须以本方法取边，否则画错边）。返回 false = 非法（方/越界）。
@@ -98,27 +121,38 @@ struct TilingGeom {
     // 更新 (x,y)、remLength。RNG 0 次。
     int crossEdge(int index, double& x, double& y, double angle, double& remLength) const;
 
-    // ---- 锚格朝向修复（2026-08-16）：表驱动密铺的形状表按"参考基础格"朝向编写 ----
-    // 锚格为同边数但不同朝向的基础格时，形状偏移须旋转/镜像后才能 worldToCell 解析。
-    // 基础格 b 相对"同边数第一个基础格"的变换（旋转角 rad + 镜像标志；非表驱动恒恒等）。
-    bool baseCellTransform(int baseB, double& angleRad, bool& reflect) const;
-    // 形状的参考基础格：anchorBaseMask 非 0 → 取最低置位（形状按该朝向族编写，
-    // 如 Arch3464 L1/L2 仅限横平竖直正方形 b=2/8）；否则 → 该边数第一个基础格。
-    int shapeReferenceBase(int anchorN, std::uint32_t anchorBaseMask) const;
-    // 应用锚格朝向变换到形状偏移 (ox,oy)（运行时朝向、参考基础格 frame → 锚格 frame）。
-    // 返回 false = 无表/参数非法（偏移保持不变）。
-    bool applyAnchorOrientation(int index, int anchorN, std::uint32_t anchorBaseMask,
-                                double& ox, double& oy) const;
+    // ---- 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）----
+    // 按 格类型/朝向 分档渲染；方（单色）、六（单朝向）不分档：
+    //   arch：按正多边形种类（边数）升序分档 → 档数 = 唯一边数 k；每格档 = 其边数排序序。
+    //   laves：统计全部格的朝向（旋转+镜像），按角度排序；以朝向种类数 G 的最小质因子 p
+    //          为循环 → 档数 = p；每格档 = 朝向排序序 mod p。
+    //   三角（2026-08 用户定夺）：正/反两种朝向，同 laves 分档（朝向 2 → 最小质因子 2 循环
+    //          → 2 档），每格档 = 格下标奇偶（偶 = 正 = 0，奇 = 反 = 1）。
+    // 档数（0 = 不分档，方/六恒 0）。纯几何、RNG 0；供渲染层计算各档配色（factionTileColor t）。
+    int tilePaletteSize() const;
+    // 格 index 的档位（[0, tilePaletteSize()-1]；tilePaletteSize()<=1 → 0）。非表驱动恒 0。
+    int tileColorIndex(int index) const;
+
+    // ---- 城市形状锚格朝向（2026-08-26 方案A）：形状表已烘焙为世界帧，锚格朝向由数据
+    //（baseGroups/anchorBases）自然保证，运行时不需再旋转/镜像（applyAnchorOrientation 已移除）。
+    // 方/六/三与锚格朝向无关（恒等）。
 
 private:
     void ensureTable() const;
 };
 
-// 表驱动密铺（半正/Laves）的周期域列/行选择：
-// 用户宽先向上取整到 B 的倍数（且 ≤200 的 B 倍数），使 cols*rows*B = 用户长*有效宽
-// （总格数）精确成立；再使实际视觉宽高比 (worldWidth*cols)/(worldHeight*rows)
-// 尽量接近 用户长/有效宽。遍历 P=长*有效宽/B 的因子求最优 rows。
+// 表驱动密铺（半正/Laves）的周期域列/行选择（2026-08 依 .docs/临时文本.txt 两阶段算法）：
+// 硬约束：① a*b = B*cols*rows（守恒）② cols 为 s 倍数、rows 为 t 倍数（s*t=B 每块格数）
+//          ③ cols ∝ a、rows ∝ b（正比例 → 调长只改cols、调宽只改rows，完全单调方向一致）。
+// 优化：④ (cols*u)/(rows*v) ≈ a/b（u=wx/s、v=wy/t 每格世界比例，算法一离线求 p/q≈√(v/u)）。
+// 算法一（离线，硬编码）：每密铺求互质 p,q + 输入限制 Ra,Rb（见 Tiling.cpp 的 tableDomainParams）。
+// 算法二（在线）：a'=ceil(a/Ra)*Ra、b'=ceil(b/Rb)*Rb；c=p·a'/q、d=q·b'/p；cols=c/s、rows=d/t。
 // 对非表驱动类型按原语义返回。
 void chooseTableDomain(int tilingType, int userLength, int userWidth, int& cols, int& rows);
+
+// 表驱动密铺的"输入限制"：长须为 Ra 倍数、宽须为 Rb 倍数（算法一硬编码，见 Tiling.cpp）。
+// 菜单据此设置步进/夹取，使输入天然合规（长*宽=总格数精确，无需微调）。
+// 返回 false = 非表驱动 / 无限制参数（方/六/三 —— 调用方按原语义）。
+bool tableInputRestriction(int tilingType, int& ra, int& rb);
 
 }  // namespace lw

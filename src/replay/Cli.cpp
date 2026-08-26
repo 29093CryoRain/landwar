@@ -12,24 +12,22 @@ namespace lw {
 std::string cliUsage() {
     return "usage: landwar [--headless] [--replay [SEED]] [--seed N] [--ticks N] [--speed X]\n"
            "              [--config PATH] [--map PATH] [--save PATH] [--load PATH] [--summary]\n"
-           "              [--screenshot PATH] [--map-seed N] [--wrap] [--tiling T]\n"
-           "\n"
-           "  --headless      无头运行（不创建窗口）\n"
-           "  --replay [SEED] 回放：等价于 --headless --seed SEED 重跑（模拟完全确定）\n"
-           "  --seed N        随机种子（默认 42；主种子，驱动首都与后续）\n"
-           "  --map-seed N    地图种子（P6，默认 = 主种子；驱动随机图生成与山/城骰子）\n"
-           "  --ticks N       逻辑帧数（默认 20000）\n"
-           "  --speed X       倍速（无头忽略；窗口模式渲染节奏用）\n"
-           "  --config PATH   config.json 路径（默认 data/config.json）\n"
-           "  --map PATH      覆盖地图文件（默认取 config；--tiling 非方时自动生成 lwmap）\n"
-           "  --save PATH     运行结束写存档快照\n"
-           "  --load PATH     从存档继续（存档自带 config/map/rng，忽略 --seed/--config/--map）\n"
-           "  --summary       终局按势力打印 land/city/army/经济 与 state_hash\n"
-           "  --screenshot PATH  窗口模式：跑到 tick=--ticks 时截图保存到 PATH 并退出（QA 钩子）\n"
-           "  --no-menu          窗口模式：跳过菜单直接开始（P1）\n"
-           "  --wrap             地图边界贯通（环绕，P10）：兵碰边界传送对侧，速度方向不变\n"
-           "                      （headless 用；窗口模式在菜单「选择地图」勾选，存 options.json）\n"
-           "  --tiling T         密铺类型：square | hex | tri | arch_33336 | arch_33434 |\n"
+            "              [--screenshot PATH] [--map-seed N] [--tiling T]\n"
+            "\n"
+            "  --headless      无头运行（不创建窗口）\n"
+            "  --replay [SEED] 回放：等价于 --headless --seed SEED 重跑（模拟完全确定）\n"
+            "  --seed N        随机种子（默认 42；主种子，驱动首都与后续）\n"
+            "  --map-seed N    地图种子（P6，默认 = 主种子；驱动随机图生成与山/城骰子）\n"
+            "  --ticks N       逻辑帧数（默认 20000）\n"
+            "  --speed X       倍速（无头忽略；窗口模式渲染节奏用）\n"
+            "  --config PATH   config.json 路径（默认 data/config.json）\n"
+            "  --map PATH      覆盖地图文件（默认取 config；--tiling 非方时自动生成 lwmap）\n"
+            "  --save PATH     运行结束写存档快照\n"
+            "  --load PATH     从存档继续（存档自带 config/map/rng，忽略 --seed/--config/--map）\n"
+            "  --summary       终局按势力打印 land/city/army/经济 与 state_hash\n"
+            "  --screenshot PATH  窗口模式：跑到 tick=--ticks 时截图保存到 PATH 并退出（QA 钩子）\n"
+            "  --no-menu          窗口模式：跳过菜单直接开始（P1）\n"
+            "  --tiling T         密铺类型：square | hex | tri | arch_33336 | arch_33434 |\n"
            "                      arch_3464 | arch_3636 | arch_31212 | arch_4612 | arch_488 |\n"
            "                      laves_3636 | laves_31212 | laves_4612 | laves_488 |\n"
            "                      laves_33434 | laves_33336 | laves_3464（headless 用；\n"
@@ -119,10 +117,6 @@ CliOptions parseCli(int argc, char* argv[]) {
         } else if (a == "--no-menu") {
             // 窗口模式：跳过菜单直接开始（P1）。
             o.noMenu = true;
-        } else if (a == "--wrap") {
-            // P10：地图边界贯通（环绕）——headless 确定性测试用；不隐含无头（窗口走菜单）。
-            o.wrap = true;
-            o.wrapSet = true;
         } else if (a == "--tiling") {
             // P12：密铺类型（square/hex/tri）——headless 确定性测试用；窗口走菜单下拉。
             o.tiling = takeValue(i, a);

@@ -326,11 +326,31 @@
     "levelIncomeExponent": 1.0,
     "levelRankExponent": 0.5,
     "shapes": [
-      { "level": 1, "w": 1, "h": 1 },
-      { "level": 2, "w": 1, "h": 2 },
-      { "level": 4, "w": 2, "h": 2 },
-      { "level": 6, "w": 2, "h": 3 },
-      { "level": 9, "w": 3, "h": 3 }
+      {
+        "level": 1,
+        "w": 1,
+        "h": 1
+      },
+      {
+        "level": 2,
+        "w": 1,
+        "h": 2
+      },
+      {
+        "level": 4,
+        "w": 2,
+        "h": 2
+      },
+      {
+        "level": 6,
+        "w": 2,
+        "h": 3
+      },
+      {
+        "level": 9,
+        "w": 3,
+        "h": 3
+      }
     ]
   },
   "capital": {
@@ -342,7 +362,7 @@
     "maxArmyGuard": 50000
   },
   "render": {
-    "_comment": "双色势力渲染（⑫）：tile=地块格填色 主:副:白 加权平均（主副接近）；city.mix=城市图标填色 主:副:黑 加权平均（主显著高）。主色=factions[i].color、副色=factions[i].secondary。",
+    "_comment": "双色势力渲染（⑫）：tile=地块格填色 主:副:白 加权平均（主副接近）；city.mix=城市图标填色 主:副:黑 加权平均（主显著高）。主色=factions[i].color、副色=factions[i].secondary。variation（2026-08 双色密铺分档）=arch/laves 密铺按格类型/朝向分档时主/副权重摆动的半宽：档位 t 处权重 = (P-variation+2·variation·t, S+variation-2·variation·t, white)，t=0.5 为无渐变中点；档数 2/3 → 取两端/左中右。",
     "windowWidth": 2560,
     "windowHeight": 1600,
     "spriteSize": 32,
@@ -350,7 +370,8 @@
     "tile": {
       "primary": 0.5,
       "secondary": 0.3,
-      "white": 0.2
+      "white": 0.2,
+      "variation": 0.05
     },
     "city": {
       "_comment": "P13 城市渲染：lineMinCellPx=屏上格大小阈值（屏上格>此值→高缩放，画细线围基建地块区域）；lineThickness=细线宽；lineDarken=细线势力色加深系数（细线颜色=势力色×lineDarken）；iconDarken=等级塔图标颜色加深系数（图标色=势力色×iconDarken，2026-08-07 城市图标太亮→调暗）；iconScale[]=每级图标\"框填充比例\"（9 项，下标=等级-1，0~1；<1 → 图标略小于基建地块框；2026-08-07 反馈图标尺寸按框自适应：框=形状 w×h 个格子，保留源纵横比下能放进框的最大宽 fitW=min(w×cellPx, h×cellPx/源纵横比)，图标宽=round(fitW×iconScale[level-1])，图标高=round(宽×源高/源宽)，长/宽均不超出框×填充比例；图标中心=基建地块几何中心，2026-08-07 移除 offsetY 错开偏移）。2026-08-08：普通城市**随缩放继续缩小**（无下限，原 minIconSizePx 已移除）；正式首都/候补的保底最小宽由 render.capital.minIconSizePx 承担。城市不再画 data/city.png 基建格贴图，只画等级塔图标 + 高缩放细线。mix=双色城市图标填色 主:副:黑（⑫）。",
@@ -363,1806 +384,23 @@
         "secondary": 0.1,
         "black": 0.2
       },
-      "iconScale": [0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85],
-      "iconFitScale": {
-        "hex": {
-          "1": 0.7925999760627747,
-          "3": 0.6779000163078308,
-          "4": 1.2999000549316406,
-          "6": 2.0118000507354736,
-          "7": 2.1461000442504883,
-          "9": 2.3954999446868896
-        },
-        "tri": {
-          "1": 0.7465000152587891,
-          "2": 0.7829999923706055,
-          "4": 1.4061000347137451,
-          "6": 1.9392000436782837,
-          "8": 2.4860999584198
-        },
-        "arch_3464": {
-          "1": 0.752682089805603,
-          "2": 0.7833999991416931,
-          "8": 1.926200032234192,
-          "10": 2.9410998821258545
-        },
-        "arch_3636": {
-          "2": 0.767020583152771,
-          "3": 0.8312000036239624,
-          "4": 1.423699975013733,
-          "5": 1.5395281314849854,
-          "8": 2.436300039291382
-        },
-        "arch_31212": {
-          "3": 0.6912000179290771,
-          "4": 1.2728999853134155,
-          "6": 1.357800006866455,
-          "9": 1.8612096309661865,
-          "10": 2.3951001167297363
-        },
-        "arch_4612": {
-          "1": 0.7005000114440918,
-          "3": 0.7372999787330627,
-          "5": 1.8801000118255615,
-          "10": 2.8361001014709473
-        },
-        "arch_488": {
-          "2": 0.6266999840736389,
-          "3": 0.5806000232696533,
-          "4": 1.1523000001907349,
-          "7": 2.0034000873565674,
-          "8": 2.8606998920440674
-        },
-        "laves_3636": {
-          "1": 0.6819999814033508,
-          "3": 0.6636000275611877,
-          "5": 1.833299994468689,
-          "6": 1.749899983406067,
-          "10": 3.1735000610351562
-        },
-        "laves_31212": {
-          "2": 0.5806000232696533,
-          "3": 0.6359000205993652,
-          "6": 1.8867000341415405,
-          "10": 2.6940999031066895
-        },
-        "laves_4612": {
-          "2": 0.6772000193595886,
-          "4": 1.2350000143051147,
-          "6": 1.5703999996185303,
-          "10": 3.1691999435424805
-        },
-        "laves_488": {
-          "2": 0.6820999979972839,
-          "4": 1.4743589162826538,
-          "8": 2.5576000213623047
-        },
-        "laves_3464": {
-          "1": 0.7134000062942505,
-          "3": 0.7558000087738037,
-          "6": 1.819000005722046,
-          "9": 2.6837000846862793
-        }
-      },
-      "iconFitOffsetY": {
-        "hex": [
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.07370000332593918
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.09220000356435776
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.33180001378059387
-          },
-          {
-            "iconLevel": 7,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.11060000211000443
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.20280000567436218
-          }
-        ],
-        "tri": [
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.04610000178217888
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.11060000211000443
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.11060000211000443
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.11060000211000443
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.1289999932050705
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.1289999932050705
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.29499998688697815
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.29499998688697815
-          }
-        ],
-        "arch_3464": [
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.09220000356435776
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.09220000356435776
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.2303999960422516
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 6,
-            "value": 0.2303999960422516
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.1289999932050705
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 6,
-            "value": 0.1289999932050705
-          }
-        ],
-        "arch_3636": [
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.16590000689029694
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.16590000689029694
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.19349999725818634
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.19349999725818634
-          },
-          {
-            "iconLevel": 5,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 5,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.1843000054359436
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.09220000356435776
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.1843000054359436
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.09220000356435776
-          }
-        ],
-        "arch_31212": [
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.07370000332593918
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.07370000332593918
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.10140000283718109
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.10140000283718109
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.04610000178217888
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.04610000178217888
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.19349999725818634
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 3,
-            "value": -0.21199999749660492
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 1,
-            "anchorB": 0,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 1,
-            "anchorB": 3,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 1,
-            "anchorB": 4,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 1,
-            "anchorB": 5,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 1,
-            "value": -0.11060000211000443
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 2,
-            "value": -0.11060000211000443
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 1,
-            "value": 0.24879999458789825
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 2,
-            "value": 0.24879999458789825
-          }
-        ],
-        "arch_4612": [
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.06449999660253525
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.06449999660253525
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 7,
-            "value": 0.06449999660253525
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.06449999660253525
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 5,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.19349999725818634
-          },
-          {
-            "iconLevel": 5,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.19349999725818634
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.11060000211000443
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.11060000211000443
-          }
-        ],
-        "arch_488": [
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.09220000356435776
-          },
-          {
-            "iconLevel": 7,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.2581000030040741
-          }
-        ],
-        "laves_3636": [
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 5,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 5,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.20280000567436218
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.20280000567436218
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.20280000567436218
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.20280000567436218
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.20280000567436218
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.20280000567436218
-          }
-        ],
-        "laves_31212": [
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 0,
-            "value": -0.16590000689029694
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 1,
-            "value": -0.16590000689029694
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 2,
-            "value": -0.16590000689029694
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.22130000591278076
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.22130000591278076
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 5,
-            "value": -0.16590000689029694
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 6,
-            "value": -0.16590000689029694
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 7,
-            "value": 0.22130000591278076
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.22130000591278076
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.22130000591278076
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.22130000591278076
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 11,
-            "value": -0.16590000689029694
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 6,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 7,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 0,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 1,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 2,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 3,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 4,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 5,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 6,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 7,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 8,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 9,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 10,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 1,
-            "anchorB": 11,
-            "value": 0.17509999871253967
-          },
-          {
-            "iconLevel": 6,
-            "variant": 2,
-            "anchorB": 0,
-            "value": 0.32249999046325684
-          },
-          {
-            "iconLevel": 6,
-            "variant": 2,
-            "anchorB": 11,
-            "value": 0.32249999046325684
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 6,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 7,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.0
-          }
-        ],
-        "laves_4612": [
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.06449999660253525
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.06449999660253525
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.06449999660253525
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 14,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 20,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 21,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 4,
-            "variant": 1,
-            "anchorB": 0,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 4,
-            "variant": 1,
-            "anchorB": 11,
-            "value": 0.03680000081658363
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 6,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 7,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 12,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 13,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 14,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 15,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 16,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 17,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 18,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 19,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 20,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 21,
-            "value": 0.23960000276565552
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 22,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 23,
-            "value": 0.018400000408291817
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 6,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 7,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 12,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 13,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 14,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 15,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 16,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 17,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 18,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 19,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 20,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 21,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 22,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 0,
-            "anchorB": 23,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 0,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 1,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 2,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 3,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 4,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 5,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 6,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 7,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 8,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 9,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 10,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 11,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 12,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 13,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 14,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 15,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 16,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 17,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 18,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 19,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 20,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 21,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 22,
-            "value": 0.22120000422000885
-          },
-          {
-            "iconLevel": 10,
-            "variant": 1,
-            "anchorB": 23,
-            "value": 0.22120000422000885
-          }
-        ],
-        "laves_488": [
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.04610000178217888
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.04610000178217888
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.04610000178217888
-          },
-          {
-            "iconLevel": 2,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.04610000178217888
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 4,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.0
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.40560001134872437
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.40560001134872437
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.40560001134872437
-          },
-          {
-            "iconLevel": 8,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.40560001134872437
-          }
-        ],
-        "laves_3464": [
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.03689999878406525
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.02759999968111515
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.02759999968111515
-          },
-          {
-            "iconLevel": 1,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.03689999878406525
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.359499990940094
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.359499990940094
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.359499990940094
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 3,
-            "value": -0.156700000166893
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 4,
-            "value": -0.156700000166893
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 5,
-            "value": -0.156700000166893
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 6,
-            "value": -0.156700000166893
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 7,
-            "value": -0.156700000166893
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.359499990940094
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 9,
-            "value": -0.156700000166893
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.359499990940094
-          },
-          {
-            "iconLevel": 3,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.359499990940094
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 3,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 4,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 5,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 6,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 7,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 9,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 6,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.13819999992847443
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 0,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 1,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 2,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 3,
-            "value": -0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 4,
-            "value": -0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 5,
-            "value": -0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 6,
-            "value": -0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 7,
-            "value": -0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 8,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 9,
-            "value": -0.0
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 10,
-            "value": 0.05530000105500221
-          },
-          {
-            "iconLevel": 9,
-            "variant": 0,
-            "anchorB": 11,
-            "value": 0.05530000105500221
-          }
-        ]
-      }
+      "iconScale": [
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85
+      ]
     },
     "capital": {
       "_comment": "P15 首都渲染：minIconSizePx=低缩放正式首都/候补图标保底最小宽（不随缩放继续缩小；2026-08-08 用户定夺：缩到最小时首都渲染得更大，原 city.minIconSizePx=12 → 本值 20，待实验）；iconScale[9]=首都图标按等级缩放表（下标=等级-1，语义同 city.iconScale：按基建地块框自适应，1.0=填满框，待实验）；lineThickness=正式首都基建区细线宽（比普通城市粗）；designatedAlpha=候补指定新都虚化首都图标透明度（0-1）。放大/缩小行为复用普通城市（city.lineMinCellPx）。",
       "minIconSizePx": 30,
       "lineThickness": 2.5,
-      "designatedAlpha": 0.45,
-      "iconScale": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      "designatedAlpha": 0.45
     }
   },
   "player": {
@@ -2184,69 +422,538 @@
     "preferencePerLevel": 0.5,
     "playerCandidateCount": 3,
     "techs": [
-      { "id": "throttle_normal", "name": "节流·普通兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "normal", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "normal", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "normal", "magnitude": 0.75 }, { "type": "UnitCostMult", "param": "normal", "magnitude": 0.70 } ],
-        "preferenceUnits": ["normal"] },
-      { "id": "throttle_vanguard", "name": "节流·先锋兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "vanguard", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "vanguard", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "vanguard", "magnitude": 0.75 } ],
-        "preferenceUnits": ["vanguard"] },
-      { "id": "throttle_pioneer", "name": "节流·开拓兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "pioneer", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "pioneer", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "pioneer", "magnitude": 0.75 } ],
-        "preferenceUnits": ["pioneer"] },
-      { "id": "throttle_laser", "name": "节流·激光兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "laser", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "laser", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "laser", "magnitude": 0.75 } ],
-        "preferenceUnits": ["laser"] },
-      { "id": "throttle_bomb", "name": "节流·爆炸兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "bomb", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "bomb", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "bomb", "magnitude": 0.75 } ],
-        "preferenceUnits": ["bomb"] },
-      { "id": "throttle_mine", "name": "节流·地雷兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "mine", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "mine", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "mine", "magnitude": 0.75 } ],
-        "preferenceUnits": ["mine"] },
-      { "id": "throttle_pistol", "name": "节流·手枪兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "pistol", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "pistol", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "pistol", "magnitude": 0.75 } ],
-        "preferenceUnits": ["pistol"] },
-      { "id": "throttle_shotgun", "name": "节流·霰弹兵", "desc": "造价",
-        "levels": [ { "type": "UnitCostMult", "param": "shotgun", "magnitude": 0.90 }, { "type": "UnitCostMult", "param": "shotgun", "magnitude": 0.82 }, { "type": "UnitCostMult", "param": "shotgun", "magnitude": 0.75 } ],
-        "preferenceUnits": ["shotgun"] },
-      { "id": "march_normal", "name": "行军·普通兵", "desc": "速度",
-        "levels": [ { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.60 }, { "type": "UnitSpeedMult", "param": "normal", "magnitude": 1.80 } ],
-        "preferenceUnits": ["normal"] },
-      { "id": "march_vanguard", "name": "行军·先锋兵", "desc": "速度",
-        "levels": [ { "type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.60 } ],
-        "preferenceUnits": ["vanguard"] },
-      { "id": "march_pioneer", "name": "行军·开拓兵", "desc": "速度",
-        "levels": [ { "type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.60 } ],
-        "preferenceUnits": ["pioneer"] },
-      { "id": "march_laser", "name": "行军·激光兵", "desc": "速度",
-        "levels": [ { "type": "UnitSpeedMult", "param": "laser", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "laser", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "laser", "magnitude": 1.60 } ],
-        "preferenceUnits": ["laser"] },
-      { "id": "march_bomb", "name": "行军·爆炸兵", "desc": "速度",
-        "levels": [ { "type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.60 } ],
-        "preferenceUnits": ["bomb"] },
-      { "id": "march_mine", "name": "行军·地雷兵", "desc": "速度",
-        "levels": [ { "type": "UnitSpeedMult", "param": "mine", "magnitude": 1.20 }, { "type": "UnitSpeedMult", "param": "mine", "magnitude": 1.40 }, { "type": "UnitSpeedMult", "param": "mine", "magnitude": 1.60 } ],
-        "preferenceUnits": ["mine"] },
-      { "id": "big_bang", "name": "大爆炸", "desc": "爆炸半径",
-        "levels": [ { "type": "BombRadiusMult", "param": "all", "magnitude": 1.30 }, { "type": "BombRadiusMult", "param": "all", "magnitude": 1.60 }, { "type": "BombRadiusMult", "param": "all", "magnitude": 1.80 } ],
-        "preferenceUnits": ["bomb", "mine"] },
-      { "id": "stable_laser", "name": "稳定激光", "desc": "激光持续时间",
-        "levels": [ { "type": "LaserDurationMult", "param": "all", "magnitude": 1.50 }, { "type": "LaserDurationMult", "param": "all", "magnitude": 2.00 } ],
-        "preferenceUnits": ["laser"] },
-      { "id": "extend_laser", "name": "延长激光", "desc": "激光长度",
-        "levels": [ { "type": "LaserLengthMult", "param": "all", "magnitude": 1.50 }, { "type": "LaserLengthMult", "param": "all", "magnitude": 2.00 } ],
-        "preferenceUnits": ["laser"] },
-      { "id": "rapid_fire", "name": "高速射击", "desc": "手枪兵攻击速度",
-        "levels": [ { "type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.30 }, { "type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.60 }, { "type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.90 } ],
-        "preferenceUnits": ["pistol"] },
-      { "id": "barrage", "name": "弹幕", "desc": "霰弹兵每次子弹数",
-        "levels": [ { "type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 2.0 }, { "type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 3.0 }, { "type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 4.0 } ],
-        "preferenceUnits": ["shotgun"] },
-      { "id": "economy_boost", "name": "经济振兴", "desc": "经济获取",
-        "levels": [ { "type": "EconomyGainMult", "param": "all", "magnitude": 1.05 }, { "type": "EconomyGainMult", "param": "all", "magnitude": 1.10 }, { "type": "EconomyGainMult", "param": "all", "magnitude": 1.15 }, { "type": "EconomyGainMult", "param": "all", "magnitude": 1.20 } ],
-        "preferenceUnits": [] },
-      { "id": "observatory", "name": "观星台", "desc": "科技获取",
-        "levels": [ { "type": "TechGainMult", "param": "all", "magnitude": 1.10 }, { "type": "TechGainMult", "param": "all", "magnitude": 1.20 }, { "type": "TechGainMult", "param": "all", "magnitude": 1.30 }, { "type": "TechGainMult", "param": "all", "magnitude": 1.40 } ],
-        "preferenceUnits": [] }
+      {
+        "id": "throttle_normal",
+        "name": "节流·普通兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "normal",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "normal",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "normal",
+            "magnitude": 0.75
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "normal",
+            "magnitude": 0.7
+          }
+        ],
+        "preferenceUnits": [
+          "normal"
+        ]
+      },
+      {
+        "id": "throttle_vanguard",
+        "name": "节流·先锋兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "vanguard",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "vanguard",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "vanguard",
+            "magnitude": 0.75
+          }
+        ],
+        "preferenceUnits": [
+          "vanguard"
+        ]
+      },
+      {
+        "id": "throttle_pioneer",
+        "name": "节流·开拓兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "pioneer",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "pioneer",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "pioneer",
+            "magnitude": 0.75
+          }
+        ],
+        "preferenceUnits": [
+          "pioneer"
+        ]
+      },
+      {
+        "id": "throttle_laser",
+        "name": "节流·激光兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "laser",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "laser",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "laser",
+            "magnitude": 0.75
+          }
+        ],
+        "preferenceUnits": [
+          "laser"
+        ]
+      },
+      {
+        "id": "throttle_bomb",
+        "name": "节流·爆炸兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "bomb",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "bomb",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "bomb",
+            "magnitude": 0.75
+          }
+        ],
+        "preferenceUnits": [
+          "bomb"
+        ]
+      },
+      {
+        "id": "throttle_mine",
+        "name": "节流·地雷兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "mine",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "mine",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "mine",
+            "magnitude": 0.75
+          }
+        ],
+        "preferenceUnits": [
+          "mine"
+        ]
+      },
+      {
+        "id": "throttle_pistol",
+        "name": "节流·手枪兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "pistol",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "pistol",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "pistol",
+            "magnitude": 0.75
+          }
+        ],
+        "preferenceUnits": [
+          "pistol"
+        ]
+      },
+      {
+        "id": "throttle_shotgun",
+        "name": "节流·霰弹兵",
+        "desc": "造价",
+        "levels": [
+          {
+            "type": "UnitCostMult",
+            "param": "shotgun",
+            "magnitude": 0.9
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "shotgun",
+            "magnitude": 0.82
+          },
+          {
+            "type": "UnitCostMult",
+            "param": "shotgun",
+            "magnitude": 0.75
+          }
+        ],
+        "preferenceUnits": [
+          "shotgun"
+        ]
+      },
+      {
+        "id": "march_normal",
+        "name": "行军·普通兵",
+        "desc": "速度",
+        "levels": [
+          {
+            "type": "UnitSpeedMult",
+            "param": "normal",
+            "magnitude": 1.2
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "normal",
+            "magnitude": 1.4
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "normal",
+            "magnitude": 1.6
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "normal",
+            "magnitude": 1.8
+          }
+        ],
+        "preferenceUnits": [
+          "normal"
+        ]
+      },
+      {
+        "id": "march_vanguard",
+        "name": "行军·先锋兵",
+        "desc": "速度",
+        "levels": [
+          {
+            "type": "UnitSpeedMult",
+            "param": "vanguard",
+            "magnitude": 1.2
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "vanguard",
+            "magnitude": 1.4
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "vanguard",
+            "magnitude": 1.6
+          }
+        ],
+        "preferenceUnits": [
+          "vanguard"
+        ]
+      },
+      {
+        "id": "march_pioneer",
+        "name": "行军·开拓兵",
+        "desc": "速度",
+        "levels": [
+          {
+            "type": "UnitSpeedMult",
+            "param": "pioneer",
+            "magnitude": 1.2
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "pioneer",
+            "magnitude": 1.4
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "pioneer",
+            "magnitude": 1.6
+          }
+        ],
+        "preferenceUnits": [
+          "pioneer"
+        ]
+      },
+      {
+        "id": "march_laser",
+        "name": "行军·激光兵",
+        "desc": "速度",
+        "levels": [
+          {
+            "type": "UnitSpeedMult",
+            "param": "laser",
+            "magnitude": 1.2
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "laser",
+            "magnitude": 1.4
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "laser",
+            "magnitude": 1.6
+          }
+        ],
+        "preferenceUnits": [
+          "laser"
+        ]
+      },
+      {
+        "id": "march_bomb",
+        "name": "行军·爆炸兵",
+        "desc": "速度",
+        "levels": [
+          {
+            "type": "UnitSpeedMult",
+            "param": "bomb",
+            "magnitude": 1.2
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "bomb",
+            "magnitude": 1.4
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "bomb",
+            "magnitude": 1.6
+          }
+        ],
+        "preferenceUnits": [
+          "bomb"
+        ]
+      },
+      {
+        "id": "march_mine",
+        "name": "行军·地雷兵",
+        "desc": "速度",
+        "levels": [
+          {
+            "type": "UnitSpeedMult",
+            "param": "mine",
+            "magnitude": 1.2
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "mine",
+            "magnitude": 1.4
+          },
+          {
+            "type": "UnitSpeedMult",
+            "param": "mine",
+            "magnitude": 1.6
+          }
+        ],
+        "preferenceUnits": [
+          "mine"
+        ]
+      },
+      {
+        "id": "big_bang",
+        "name": "大爆炸",
+        "desc": "爆炸半径",
+        "levels": [
+          {
+            "type": "BombRadiusMult",
+            "param": "all",
+            "magnitude": 1.3
+          },
+          {
+            "type": "BombRadiusMult",
+            "param": "all",
+            "magnitude": 1.6
+          },
+          {
+            "type": "BombRadiusMult",
+            "param": "all",
+            "magnitude": 1.8
+          }
+        ],
+        "preferenceUnits": [
+          "bomb",
+          "mine"
+        ]
+      },
+      {
+        "id": "stable_laser",
+        "name": "稳定激光",
+        "desc": "激光持续时间",
+        "levels": [
+          {
+            "type": "LaserDurationMult",
+            "param": "all",
+            "magnitude": 1.5
+          },
+          {
+            "type": "LaserDurationMult",
+            "param": "all",
+            "magnitude": 2.0
+          }
+        ],
+        "preferenceUnits": [
+          "laser"
+        ]
+      },
+      {
+        "id": "extend_laser",
+        "name": "延长激光",
+        "desc": "激光长度",
+        "levels": [
+          {
+            "type": "LaserLengthMult",
+            "param": "all",
+            "magnitude": 1.5
+          },
+          {
+            "type": "LaserLengthMult",
+            "param": "all",
+            "magnitude": 2.0
+          }
+        ],
+        "preferenceUnits": [
+          "laser"
+        ]
+      },
+      {
+        "id": "rapid_fire",
+        "name": "高速射击",
+        "desc": "手枪兵攻击速度",
+        "levels": [
+          {
+            "type": "UnitActionRateMult",
+            "param": "pistol",
+            "magnitude": 1.3
+          },
+          {
+            "type": "UnitActionRateMult",
+            "param": "pistol",
+            "magnitude": 1.6
+          },
+          {
+            "type": "UnitActionRateMult",
+            "param": "pistol",
+            "magnitude": 1.9
+          }
+        ],
+        "preferenceUnits": [
+          "pistol"
+        ]
+      },
+      {
+        "id": "barrage",
+        "name": "弹幕",
+        "desc": "霰弹兵每次子弹数",
+        "levels": [
+          {
+            "type": "ProjectileCountExtra",
+            "param": "shotgun",
+            "magnitude": 2.0
+          },
+          {
+            "type": "ProjectileCountExtra",
+            "param": "shotgun",
+            "magnitude": 3.0
+          },
+          {
+            "type": "ProjectileCountExtra",
+            "param": "shotgun",
+            "magnitude": 4.0
+          }
+        ],
+        "preferenceUnits": [
+          "shotgun"
+        ]
+      },
+      {
+        "id": "economy_boost",
+        "name": "经济振兴",
+        "desc": "经济获取",
+        "levels": [
+          {
+            "type": "EconomyGainMult",
+            "param": "all",
+            "magnitude": 1.05
+          },
+          {
+            "type": "EconomyGainMult",
+            "param": "all",
+            "magnitude": 1.1
+          },
+          {
+            "type": "EconomyGainMult",
+            "param": "all",
+            "magnitude": 1.15
+          },
+          {
+            "type": "EconomyGainMult",
+            "param": "all",
+            "magnitude": 1.2
+          }
+        ],
+        "preferenceUnits": []
+      },
+      {
+        "id": "observatory",
+        "name": "观星台",
+        "desc": "科技获取",
+        "levels": [
+          {
+            "type": "TechGainMult",
+            "param": "all",
+            "magnitude": 1.1
+          },
+          {
+            "type": "TechGainMult",
+            "param": "all",
+            "magnitude": 1.2
+          },
+          {
+            "type": "TechGainMult",
+            "param": "all",
+            "magnitude": 1.3
+          },
+          {
+            "type": "TechGainMult",
+            "param": "all",
+            "magnitude": 1.4
+          }
+        ],
+        "preferenceUnits": []
+      }
     ]
   }
 }

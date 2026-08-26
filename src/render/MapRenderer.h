@@ -30,14 +30,19 @@ public:
     void reloadColors(const std::vector<std::array<int, 3>>& colors) { bake(colors); }
 
     // 逐格绘制整张地图（经 Camera 缩放/平移，含视野剔除）。tileColors 下标即势力 id
-    // （含中立 0 共 9 项）= 双色调色板地块填色（主:副:白 加权）。
-    void draw(const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
+    // （含中立 0 共 9 项）= 双色调色板地块填色（主:副:白 加权，= 渐变中点 t=0.5）。
+    // gradeColors（2026-08 双色密铺分档；arch/laves 叠加分档着色）：下标 = 档位 j，
+    // 每项下标即势力 id = 该档配色（t = j/(paletteSize-1)）。仅 arch/laves 非空
+    // （paletteSize>=2）；方/六/三与单色情形传空 → 用 tileColors 中点色。
+    void draw(const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
+              const std::vector<std::array<std::array<int, 3>, kFactionTotal>>& gradeColors = {});
 
 private:
     void drawSquare(const Map& map,
                     const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
     void drawTiled(const Map& map,
-                   const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
+                   const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
+                   const std::vector<std::array<std::array<int, 3>, kFactionTotal>>& gradeColors);
     // P12 决策 3：一圈灰线描出地图边界（任意密铺；实心粗线段）。
     void drawBoundaryOutline(const Map& map);
     SDL_Renderer* ren_;

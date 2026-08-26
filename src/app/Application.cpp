@@ -15,7 +15,6 @@
 #include "core/GameDefs.h"
 #include "core/FixedTimestep.h"
 #include "core/Paths.h"
-#include "render/WrapDraw.h"
 #include "sim/Buff.h"  // buffValueText（科研弹窗数值文案）
 #include "sim/components.h"
 #include "ui/ImGuiSetup.h"
@@ -238,7 +237,7 @@ void Application::renderFrame() {
     SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);  // 背景黑（海 = 背景黑，见 §2.9）
     SDL_RenderClear(ren_);
     computeCounts();
-    mapRenderer_->draw(sim_.map(), tileColors_);
+    mapRenderer_->draw(sim_.map(), tileColors_, tileGradeColors_);
     // P13：城市渲染（基建格贴图 + 等级塔图标 + 高缩放细线围区）。画在陆军/子弹/特效之下，
     // 兵/子弹/特效压在城市上；渲染常数走 uiConfig_（视图层配置，F5 重载同步）。
     // P15：capitalStatus[c.id]（0 普通 / 1 正式首都 / 2 候补指定新都）→ 首都图标/更粗细线/虚化。
@@ -255,7 +254,7 @@ void Application::renderFrame() {
         }
         cityRenderer_->draw(sim_.map(), uiConfig_.render, capitalStatus);
     }
-    armyRenderer_->draw(sim_, sim_.options().map.wrap);  // P10：边界贯通（环绕）双渲染
+    armyRenderer_->draw(sim_);  // （2026-08 废除环绕：仅主位置单绘制）
     projectileRenderer_->draw(sim_);  // P9：子弹（兵上、特效下）
     effectRenderer_->draw(sim_);
     // 玩家产兵城/悬停指示圈（P2；画在特效之上、UI 之下）。
@@ -357,21 +356,15 @@ void Application::pickSelection() {
     //    - 半径 = 该兵种 visualRadius * zoom（config.units 表，由 army.png 子图量得；
     //      不同兵种视觉大小不同，统一半格阈值会点到邻近普通兵的空白区）。
     //    - 判定取 ratio = 距离/半径 最小者（相对其视觉最居中），且 < 1 才算命中。
-    // P10：环绕双渲染点选——wrap 开启时对贴界副本取最小距离（与渲染双绘制一致，所见即所选）。
+    //（2026-08 废除环绕：仅主位置点选，不再对贴界副本取最小距离。）
     const double z = camera_.zoom();
     const auto& ucfg = sim_.config().units;
     entt::entity best = entt::null;
     double bestRatio = 1.0;  // ratio<1 才命中
     const auto& reg = sim_.registry();
-    const bool wrapSel = sim_.options().map.wrap;
-    int spanX = 0, spanY = 0;
-    if (wrapSel) {
-        spanX = camera_.toScreenXi(sim_.map().worldWidth()) - camera_.toScreenXi(0.0);
-        spanY = camera_.toScreenYi(0.0) - camera_.toScreenYi(sim_.map().worldHeight());
-    }
     for (auto e : reg.view<comp::Position, comp::FactionId, comp::UnitType>()) {
         if (reg.all_of<comp::Dead>(e)) continue;
-        // P10：子弹（comp::Projectile）不参与兵点选（与渲染排除/计数一致；近战不打子弹）。
+        // 子弹（comp::Projectile）不参与兵点选（与渲染排除/计数一致；近战不打子弹）。
         if (reg.all_of<comp::Projectile>(e)) continue;
         const auto& p = reg.get<comp::Position>(e);
         const int t = static_cast<int>(reg.get<comp::UnitType>(e).type);
@@ -379,21 +372,7 @@ void Application::pickSelection() {
         if (r <= 0.0) continue;
         const int sx = camera_.toScreenXi(p.x);
         const int sy = camera_.toScreenYi(p.y);
-        double d = std::hypot(clickX - sx, clickY - sy);
-        if (wrapSel) {
-            // 贴界阈值 = 视觉半径折格（与渲染的"绘制尺寸折格"同构）。
-            const double edgeDist = r / camera_.cellPx();
-            int poss[9][2];
-            const int n = render::collectWrapDraws(p.x, p.y, edgeDist,
-                                                   static_cast<double>(sim_.map().width()),
-                                                   static_cast<double>(sim_.map().height()),
-                                                   sx, sy, spanX, spanY, poss);
-            for (int i = 0; i < n; ++i) {
-                const double d2 = std::hypot(clickX - poss[i][0], clickY - poss[i][1]);
-                if (d2 < d) d = d2;
-            }
-        }
-        const double ratio = d / r;
+        const double ratio = std::hypot(clickX - sx, clickY - sy) / r;
         if (ratio < bestRatio) {
             bestRatio = ratio;
             best = e;
@@ -572,9 +551,29 @@ bool Application::applyPaletteColors() {
     if (cityMarker_) cityMarker_->reloadColors(primaries8);
     if (effectRenderer_) effectRenderer_->reloadColors(primaries8);
     // 地块填色缓存（MapRenderer::draw 用；主:副:白 加权平均）。
+    rebuildTilePalette();
+    return true;
+}
+
+void Application::rebuildTilePalette() {
+    // 地块填色：tileColors_ = 渐变中点（t=0.5；方/六/三与单色用地）；
+    // tileGradeColors_ = 双色密铺分档配色（arch/laves：下标=档位，按当前密铺的分档数取
+    // 不同 t：t = 档位/(档数-1)）。档数与地图无关（只由密铺类型决定）→ 用 1×1 几何推算；
+    // 未就绪时用 uiConfig_ 密铺（frame 阶段的 sim 已构建 → simReady_ 优先）。
+    const TilingType tt = simReady_ ? sim_.map().tiling() : uiConfig_.map.tilingType();
     for (int id = 0; id < kFactionTotal; ++id)
         tileColors_[static_cast<size_t>(id)] = uiConfig_.factionTileColor(id);
-    return true;
+    const TilingGeom tg{tt, 1, 1};
+    const int paletteSize = std::max(0, tg.tilePaletteSize());
+    tileGradeColors_.clear();
+    tileGradeColors_.reserve(static_cast<size_t>(paletteSize));
+    for (int j = 0; j < paletteSize; ++j) {
+        const double t = static_cast<double>(j) / static_cast<double>(paletteSize - 1);
+        std::array<std::array<int, 3>, kFactionTotal> row;
+        for (int id = 0; id < kFactionTotal; ++id)
+            row[static_cast<size_t>(id)] = uiConfig_.factionTileColor(id, t);
+        tileGradeColors_.push_back(row);
+    }
 }
 
 void Application::reloadPalette() {
@@ -882,6 +881,7 @@ bool Application::buildSimulation() {
     sim_ = std::move(fresh);
     simReady_ = true;
     uiConfig_ = sim_.config();
+    rebuildTilePalette();  // 双色密铺分档：按当前地图密铺重算地块配色（tileColorIndex 用）
     syncCameraToMap();  // 随机图尺寸可能 ≠ 默认 → 重配屏幕变换与相机（大图平移够到边缘）
     spdlog::info("simulation ready (seed={}, mapSeed={}, map='{}', tick=0)", seed_,
                  sim_.mapSeed(), cfg.map.file);

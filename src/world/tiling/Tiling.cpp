@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <fstream>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -40,8 +42,13 @@ double raySegHit(double px, double py, double dx, double dy, double ax, double a
 // 邻接在首次加载时按"某基础格的边经 ±dr,±dc 平移后与另一基础格的边反向重合"求得。
 // ---------------------------------------------------------------------------
 struct TilingTable {
-    double wx = 0.0, hx = 0.0, hy = 0.0;  // W=(wx,0)、H=(hx,hy)
+    double wx = 0.0, wy = 0.0, hx = 0.0, hy = 0.0;  // W=(wx,wy)、H=(hx,hy)（一般平行四边形周期域）
     double rx = 0.0, ry = 0.0;            // 基础格多边形相对中心的 AABB 半径（保守）
+    // 周期域真实世界范围：域内全部格顶点在轴对齐周期 [0,W)×[0,H) 上的最小/最大坐标。
+    // 表驱动基元域的格可能**越出**周期盒（overhang，如 arch4.8.8 的斜方形+四角八边形），
+    // 使 wx*cols / hy*rows 低估实际地图范围 → 边界穿越落出范围 → worldToCell=-1 → 卡死。
+    // xmin/xmax/ymin/ymax 度量该 overhang，worldWidth/Height 据此返回真实范围。
+    double xmin = 0.0, xmax = 0.0, ymin = 0.0, ymax = 0.0;
     struct Edge {
         int nb = -1;   // 邻格基础格下标
         int dr = 0;    // 邻格所在行偏移
@@ -52,19 +59,20 @@ struct TilingTable {
         double cx = 0.0, cy = 0.0;
         std::vector<std::array<double, 2>> v;  // 逆时针顶点（与边序一致）
         std::vector<Edge> edges;               // 与 v[i]→v[i+1] 同序
-        // 锚格朝向修复（2026-08-16）：本基础格相对"同边数第一个基础格"的朝向变换。
-        // 形状表按参考基础格（第一个基础格）朝向编写偏移；锚格为其他基础格时，偏移须
-        // 先按参考变换求逆、再按锚格变换应用（见 TilingGeom::applyAnchorOrientation）。
-        double rotAngle = 0.0;   // 旋转角（rad；相对参考基础格）
-        bool reflect = false;    // 是否镜像（先绕 x 轴翻转再旋转）
     };
     std::vector<Cell> cells;
+    // 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）：loadTable 尾部派生。
+    // paletteSize = 档数（0 = 不分档；方/六/三不计于此）；basePalette[b] = 每基础格档位。
+    int paletteSize = 0;
+    std::vector<int> basePalette;
 };
 
 namespace {
 
 constexpr double kTableTol = 1e-6;
-constexpr int kMaxPolygonVerts = 16;  // 最大多边形顶点数（十二边形 12 + 余量）
+
+// 地块双色分档（定义见下；loadTable 尾部调用）。
+void fillTilePalette(TilingTable& tab, TilingType t);
 
 bool isTableType(TilingType t) {
     return static_cast<int>(t) > static_cast<int>(TilingType::Tri);
@@ -131,6 +139,7 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
     const auto& j = root[name];
     auto tab = std::make_shared<TilingTable>();
     tab->wx = j["W"][0].get<double>();
+    tab->wy = (j["W"].size() > 1) ? j["W"][1].get<double>() : 0.0;  // 一般平行四边形周期 W.y（2026-08 斜周期）
     tab->hx = j["H"][0].get<double>();
     tab->hy = j["H"][1].get<double>();
     for (const auto& jc : j["cells"]) {
@@ -143,31 +152,18 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
         c.edges.resize(static_cast<size_t>(c.n));
         tab->cells.push_back(std::move(c));
     }
-    // 2026-08-16：生成器产出的 JSON 是未按方向规范旋转的中间朝向；运行时统一旋转 90°
-    //（x' = hy - y, y' = x）并交换周期 W/H，使密铺方向符合 .docs/开发思路.txt 的方向规范。
-    {
-        const double oldWx = tab->wx;
-        const double oldHy = tab->hy;
-        for (auto& c : tab->cells) {
-            const double nc = oldHy - c.cy;
-            const double ny = c.cx;
-            c.cx = nc;
-            c.cy = ny;
-            for (auto& p : c.v) {
-                const double ox = p[0];
-                const double oy = p[1];
-                p[0] = oldHy - oy;
-                p[1] = ox;
-            }
-        }
-        tab->wx = oldHy;
-        tab->hy = oldWx;
-    }
-    // 保守 AABB 半径（相对格中心）。
+    // 2026-08-23：方向规范已直接烘入数据（tools/gen_tiling_specs_v2.py 的 rot90：视角自旧
+    // 中间朝向纠正 90°，W/H 互换）。产出的 axis-aligned 几何与旧运行时旋转后的产物逐点一致
+    //（gen 脚本已交叉验证），故此处不再做运行时旋转。spec 现为轴对齐矩形周期域 W=(wx,0)、H=(0,hy)。
+    // 保守 AABB 半径（相对格中心）+ 域真实范围（含 overhang）。
     for (const auto& c : tab->cells) {
         for (const auto& p : c.v) {
             tab->rx = std::max(tab->rx, std::fabs(p[0] - c.cx));
             tab->ry = std::max(tab->ry, std::fabs(p[1] - c.cy));
+            tab->xmin = std::min(tab->xmin, p[0]);
+            tab->xmax = std::max(tab->xmax, p[0]);
+            tab->ymin = std::min(tab->ymin, p[1]);
+            tab->ymax = std::max(tab->ymax, p[1]);
         }
     }
     // 建立邻接：每个基础格的每条边，找 ±dr,±dc 平移后与另一基础格反向重合的边。
@@ -181,7 +177,7 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
             for (int dr = -2; dr <= 2 && !found; ++dr) {
                 for (int dc = -2; dc <= 2 && !found; ++dc) {
                     const double ox = static_cast<double>(dc) * tab->wx + static_cast<double>(dr) * tab->hx;
-                    const double oy = static_cast<double>(dr) * tab->hy;
+                    const double oy = static_cast<double>(dc) * tab->wy + static_cast<double>(dr) * tab->hy;
                     for (int nb = 0; nb < B && !found; ++nb) {
                         const auto& ocell = tab->cells[static_cast<size_t>(nb)];
                         for (int kk = 0; kk < ocell.n; ++kk) {
@@ -202,91 +198,100 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
                 spdlog::warn("TilingTable: no neighbor for {} base {} edge {}", name, b, k);
         }
     }
-    // 锚格朝向修复（2026-08-16）：为每个基础格求相对"同边数第一个基础格"的朝向变换
-    //（旋转角 + 是否镜像）。方法：用邻格中心偏移集匹配——同边数格在周期域内互为旋转/
-    // 镜像副本，邻格偏移集合（方向+长度）在变换下保持不变。镜像检测对 Laves 筝形/三角
-    // 等手性面必要（分析见 tools/analyze_anchor_transforms2.py，0 NO MATCH）。
-    {
-        // 每个 n 的第一个基础格
-        std::vector<int> firstOfN(static_cast<size_t>(kMaxPolygonVerts + 1), -1);
-        for (int b = 0; b < B; ++b) {
-            const int n = tab->cells[static_cast<size_t>(b)].n;
-            if (n >= 0 && n <= kMaxPolygonVerts && firstOfN[static_cast<size_t>(n)] < 0)
-                firstOfN[static_cast<size_t>(n)] = b;
-        }
-        // 邻格中心偏移（相对本格中心）
-        auto offsetsOf = [&](int b, std::vector<std::array<double, 2>>& out) {
-            out.clear();
-            const auto& cell = tab->cells[static_cast<size_t>(b)];
-            for (const auto& e : cell.edges) {
-                if (e.nb < 0) continue;
-                const auto& o = tab->cells[static_cast<size_t>(e.nb)];
-                out.push_back({o.cx + static_cast<double>(e.dc) * tab->wx
-                                   + static_cast<double>(e.dr) * tab->hx - cell.cx,
-                               o.cy + static_cast<double>(e.dr) * tab->hy - cell.cy});
-            }
-        };
-        // 按角度排序（参考 Python 分析：sorted((atan2, hyp))）
-        auto angleOf = [](const std::array<double, 2>& p) { return std::atan2(p[1], p[0]); };
-        auto rotPt = [](const std::array<double, 2>& p, double a) {
-            const double c = std::cos(a), s = std::sin(a);
-            return std::array<double, 2>{p[0] * c - p[1] * s, p[0] * s + p[1] * c};
-        };
-        std::vector<std::array<double, 2>> refOff, bOff, work;
-        for (int b = 0; b < B; ++b) {
-            const int n = tab->cells[static_cast<size_t>(b)].n;
-            const int ref = (n >= 0 && n <= kMaxPolygonVerts) ? firstOfN[static_cast<size_t>(n)] : -1;
-            if (ref < 0 || ref == b) continue;
-            offsetsOf(ref, refOff);
-            offsetsOf(b, bOff);
-            if (refOff.size() != bOff.size() || refOff.empty()) {
-                spdlog::warn("TilingTable: anchor transform for {} base {} skipped (offset count mismatch)",
-                             name, b);
-                continue;
-            }
-            // 先按角度排序（参考=refOff、目标=bOff）
-            std::sort(refOff.begin(), refOff.end(), [&](const auto& p, const auto& q) {
-                return angleOf(p) < angleOf(q);
-            });
-            std::sort(bOff.begin(), bOff.end(), [&](const auto& p, const auto& q) {
-                return angleOf(p) < angleOf(q);
-            });
-            bool found = false;
-            // 尝试 镜像与否 × 候选旋转角（用 ref 的每个偏移角与 b 的每个偏移角之差）
-            for (int reflect = 0; reflect <= 1 && !found; ++reflect) {
-                work.clear();
-                for (const auto& p : refOff)
-                    work.push_back(reflect ? std::array<double, 2>{p[0], -p[1]} : p);
-                std::vector<std::array<double, 2>> rotWork(work.size());
-                for (const auto& rp : work) {
-                    for (const auto& bp : bOff) {
-                        const double ang = angleOf(bp) - angleOf(rp);
-                        for (size_t i = 0; i < work.size(); ++i)
-                            rotWork[i] = rotPt(work[i], ang);
-                        std::vector<std::array<double, 2>> rotSorted = rotWork;
-                        std::sort(rotSorted.begin(), rotSorted.end(), [&](const auto& p, const auto& q) {
-                            return angleOf(p) < angleOf(q);
-                        });
-                        bool ok = true;
-                        for (size_t i = 0; i < bOff.size() && ok; ++i) {
-                            if (dist2(rotSorted[i], bOff[i]) > 1e-8) ok = false;
-                        }
-                        if (ok) {
-                            auto& cell = tab->cells[static_cast<size_t>(b)];
-                            cell.rotAngle = ang;
-                            cell.reflect = (reflect != 0);
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (found) break;
-                }
-            }
-            if (!found)
-                spdlog::warn("TilingTable: no anchor transform for {} base {}", name, b);
-        }
-    }
+    fillTilePalette(*tab, t);
     return tab;
+}
+
+// ---- 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）----
+// 对表驱动密铺按 格类型/朝向 分档（方/六/三单色不分档，在此不处理）：
+//   arch：按正多边形种类（边数）升序分档 → 档数 = 唯一边数 k；每格档 = 其边数排序序。
+//   laves：统计全部格的朝向（旋转+镜像），按角度排序；以朝向种类数 G 的最小质因子 p 为
+//          循环 → 档数 = p；每格档 = 朝向排序序 mod p。
+// 纯几何、RNG 0；结果存 TilingTable（paletteSize/basePalette，非表驱动恒空）。
+void fillTilePalette(TilingTable& tab, TilingType t) {
+    const int B = static_cast<int>(tab.cells.size());
+    if (B <= 0) {
+        tab.paletteSize = 0;
+        tab.basePalette.clear();
+        return;
+    }
+    auto smallestPrimeFactor = [](int n) {
+        if (n < 2) return 0;
+        for (int p = 2; p * p <= n; ++p)
+            if (n % p == 0) return p;
+        return n;  // n 为素数
+    };
+    if (static_cast<int>(t) < static_cast<int>(TilingType::Laves3636)) {
+        // arch：按正多边形种类（边数）升序分档。
+        std::vector<int> sides;
+        for (int b = 0; b < B; ++b) {
+            const int n = tab.cells[static_cast<size_t>(b)].n;
+            if (std::find(sides.begin(), sides.end(), n) == sides.end()) sides.push_back(n);
+        }
+        std::sort(sides.begin(), sides.end());
+        tab.paletteSize = static_cast<int>(sides.size());
+        tab.basePalette.resize(static_cast<size_t>(B));
+        for (int b = 0; b < B; ++b) {
+            const int n = tab.cells[static_cast<size_t>(b)].n;
+            tab.basePalette[static_cast<size_t>(b)] =
+                static_cast<int>(std::lower_bound(sides.begin(), sides.end(), n) - sides.begin());
+        }
+        return;
+    }
+    // laves：全部格朝向（旋转+镜像）分档。
+    // 朝向签名 = (量化旋转角 θ, 手性 h)：θ = 相对格中心半径最大（并列取角度较大）顶点的
+    // 极角；h = 该顶点与下一顶点的有向叉积符号（区分镜像——laves 单面正/反两种）。
+    // 几何性质：同朝向格（仅平移）得同一签名；旋转 θ 随格转动；镜像仅翻转 h。经典互证。
+    auto orientKey = [&](int b) -> std::pair<long, int> {
+        const auto& c = tab.cells[static_cast<size_t>(b)];
+        double bestR = -1.0, bestA = -1.0;
+        int bestI = 0;
+        for (int i = 0; i < c.n; ++i) {
+            const double dx = c.v[static_cast<size_t>(i)][0] - c.cx;
+            const double dy = c.v[static_cast<size_t>(i)][1] - c.cy;
+            const double r = dx * dx + dy * dy;
+            double a = std::atan2(dy, dx);
+            if (a < 0.0) a += 2.0 * kPi;
+            if (r > bestR + kTableTol || (std::fabs(r - bestR) <= kTableTol && a > bestA)) {
+                bestR = r;
+                bestA = a;
+                bestI = i;
+            }
+        }
+        const int ni = (bestI + 1) % c.n;
+        const double dx0 = c.v[static_cast<size_t>(bestI)][0] - c.cx;
+        const double dy0 = c.v[static_cast<size_t>(bestI)][1] - c.cy;
+        const double dxn = c.v[static_cast<size_t>(ni)][0] - c.cx;
+        const double dyn = c.v[static_cast<size_t>(ni)][1] - c.cy;
+        const double cross = dx0 * dyn - dy0 * dxn;
+        // 量化到 ~1e-3 rad（≈0.057°）：远大于浮点平移噪声（~1e-8）、远小于朝向角差
+        //（laves 朝向角为格子常量，相差数十度）→ 同朝向聚并、异朝向不混。手性 h 区分镜像。
+        const long q = std::lround(bestA * 1e3);
+        const int h = cross >= 0.0 ? 1 : -1;
+        return {q, h};
+    };
+    std::vector<std::pair<long, int>> keys(static_cast<size_t>(B));
+    std::vector<std::pair<long, int>> distinct;
+    for (int b = 0; b < B; ++b) {
+        keys[static_cast<size_t>(b)] = orientKey(b);
+        if (std::find(distinct.begin(), distinct.end(), keys[static_cast<size_t>(b)]) ==
+            distinct.end())
+            distinct.push_back(keys[static_cast<size_t>(b)]);
+    }
+    const int G = static_cast<int>(distinct.size());
+    const int p = smallestPrimeFactor(G);  // 朝向种类数最小质因子（循环）
+    tab.paletteSize = p;
+    tab.basePalette.resize(static_cast<size_t>(B));
+    if (p <= 1) {
+        std::fill(tab.basePalette.begin(), tab.basePalette.end(), 0);  // 单色
+        return;
+    }
+    std::sort(distinct.begin(), distinct.end());
+    for (int b = 0; b < B; ++b) {
+        auto it = std::lower_bound(distinct.begin(), distinct.end(), keys[static_cast<size_t>(b)]);
+        const int rank = static_cast<int>(it - distinct.begin());
+        tab.basePalette[static_cast<size_t>(b)] = rank % p;
+    }
 }
 
 }  // namespace
@@ -294,6 +299,28 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
 void TilingGeom::ensureTable() const {
     if (!isTableType(type) || table_) return;
     table_ = loadTable(type);
+}
+
+int TilingGeom::tilePaletteSize() const {
+    // 方/六/三：方、六 单色不分档；**三**有正/反两种朝向（同 laves 分档：朝向 2 种 → 最小
+    // 质因子 2 循环 → 2 档），故单独返回 2（2026-08 用户定夺：三角正/反分别处理）。
+    // 表驱动（arch/laves）：档数存表（arch = 唯一边数，laves = 朝向种类数最小质因子）。
+    if (type == TilingType::Tri) return 2;
+    if (!isTableType(type)) return 0;
+    ensureTable();
+    return table_ ? table_->paletteSize : 0;
+}
+
+int TilingGeom::tileColorIndex(int index) const {
+    // 三角：朝向由格下标奇偶决定（偶 = 正/顶点朝上 = 0，奇 = 反/顶点朝下 = 1），与
+    // cellCenter/cellPolygon 的 `(index & 1) == 0` 一致；档位 = 朝向排序序 mod 2 = index & 1。
+    if (type == TilingType::Tri) return index & 1;
+    if (!isTableType(type)) return 0;
+    ensureTable();
+    if (!table_ || table_->paletteSize <= 0) return 0;  // 不分档（单色）
+    const int B = static_cast<int>(table_->cells.size());
+    if (B <= 0 || index < 0 || index >= cellCount()) return 0;
+    return table_->basePalette[static_cast<size_t>(index % B)];
 }
 
 int TilingGeom::cellCount() const {
@@ -316,7 +343,16 @@ double TilingGeom::worldWidth() const {
         case TilingType::Tri: return kTriSide * static_cast<double>(cols);
         default: {
             ensureTable();
-            return table_ ? table_->wx * static_cast<double>(cols) : 0.0;
+            // 真实世界轴对齐范围（含 overhang）：域在 (cols,rows) 展开后，格顶点
+            // x = base.v.x + c*wx + r*hx，y = base.v.y + c*wy + r*hy。取四角 (c,r) ∈{0,cols-1}x{0,rows-1}
+            // 的中心偏移极值 + 基础格 AABB 跨幅 = 真实 AABB。W.y/H.x 可为非零（平行四边形周期域）。
+            if (!table_) return 0.0;
+            const double cmax = static_cast<double>(cols - 1), rmax = static_cast<double>(rows - 1);
+            const double xsh[4] = {0.0, cmax * table_->wx, rmax * table_->hx,
+                                   cmax * table_->wx + rmax * table_->hx};
+            const double xlo = *std::min_element(xsh, xsh + 4);
+            const double xhi = *std::max_element(xsh, xsh + 4);
+            return table_->xmax - table_->xmin + (xhi - xlo);
         }
     }
 }
@@ -328,9 +364,46 @@ double TilingGeom::worldHeight() const {
         case TilingType::Tri: return kTriAlt * static_cast<double>(rows);
         default: {
             ensureTable();
-            return table_ ? table_->hy * static_cast<double>(rows) : 0.0;
+            if (!table_) return 0.0;
+            const double cmax = static_cast<double>(cols - 1), rmax = static_cast<double>(rows - 1);
+            const double ysh[4] = {0.0, cmax * table_->wy, rmax * table_->hy,
+                                   cmax * table_->wy + rmax * table_->hy};
+            const double ylo = *std::min_element(ysh, ysh + 4);
+            const double yhi = *std::max_element(ysh, ysh + 4);
+            return table_->ymax - table_->ymin + (yhi - ylo);
         }
     }
+}
+
+// 世界坐标域原点（AABB 下界）：格顶点 x = base.v.x + c*wx + r*hx。对表驱动密铺（含 overhang
+// 与 W.y/H.x 剪切），四角 (c,r) ∈{0,cols-1}x{0,rows-1} 的偏移极值 + 基础格 AABB 下界 = 域左下角。
+// cellCenter/cellPolygon 统一做 -worldMin 平移，把世界坐标归到 [0,worldWidth]x[0,worldHeight]。
+// 这保证相机/兵特效/空间哈希的 [0,·] 夹取成立（2026-08：含 arch_33434 块整体左移后的负中心格）。
+// 非表驱动（方/六/三）恒 0。
+double TilingGeom::worldMinX() const {
+    if (!isTableType(type)) return 0.0;
+    ensureTable();
+    if (!table_) return 0.0;
+    const double cmax = static_cast<double>(cols - 1), rmax = static_cast<double>(rows - 1);
+    const double xsh[4] = {0.0, cmax * table_->wx, rmax * table_->hx,
+                           cmax * table_->wx + rmax * table_->hx};
+    return table_->xmin + *std::min_element(xsh, xsh + 4);
+}
+
+double TilingGeom::worldMinY() const {
+    if (!isTableType(type)) return 0.0;
+    ensureTable();
+    if (!table_) return 0.0;
+    const double cmax = static_cast<double>(cols - 1), rmax = static_cast<double>(rows - 1);
+    const double ysh[4] = {0.0, cmax * table_->wy, rmax * table_->hy,
+                           cmax * table_->wy + rmax * table_->hy};
+    return table_->ymin + *std::min_element(ysh, ysh + 4);
+}
+
+bool TilingGeom::hasSkewedPeriod() const {
+    if (!isTableType(type)) return false;
+    ensureTable();
+    return table_ && (std::fabs(table_->wy) > kEps || std::fabs(table_->hx) > kEps);
 }
 
 int TilingGeom::neighborCount() const {
@@ -452,8 +525,10 @@ void TilingGeom::cellCenter(int index, double& wx, double& wy) const {
             const int r = rc / cols;
             const int c = rc % cols;
             const auto& cell = table_->cells[static_cast<size_t>(b)];
-            wx = cell.cx + static_cast<double>(c) * table_->wx + static_cast<double>(r) * table_->hx;
-            wy = cell.cy + static_cast<double>(r) * table_->hy;
+            wx = cell.cx + static_cast<double>(c) * table_->wx + static_cast<double>(r) * table_->hx
+                 - worldMinX();
+            wy = cell.cy + static_cast<double>(c) * table_->wy + static_cast<double>(r) * table_->hy
+                 - worldMinY();
             return;
         }
     }
@@ -499,14 +574,69 @@ int TilingGeom::cellPolygon(int index, double* wx, double* wy, int maxVerts) con
             const int c = rc % cols;
             const auto& cell = table_->cells[static_cast<size_t>(b)];
             if (cell.n > maxVerts) return 0;
+            const double ox = worldMinX(), oy = worldMinY();
             for (int i = 0; i < cell.n; ++i) {
                 wx[i] = cell.v[static_cast<size_t>(i)][0] + static_cast<double>(c) * table_->wx
-                        + static_cast<double>(r) * table_->hx;
-                wy[i] = cell.v[static_cast<size_t>(i)][1] + static_cast<double>(r) * table_->hy;
+                        + static_cast<double>(r) * table_->hx - ox;
+                wy[i] = cell.v[static_cast<size_t>(i)][1] + static_cast<double>(c) * table_->wy
+                        + static_cast<double>(r) * table_->hy - oy;
             }
             return cell.n;
         }
     }
+}
+
+int TilingGeom::gridPolygon(int index, double* gx, double* gy, int maxVerts) const {
+    // 非斜周期：格坐标 = 世界坐标（无剪切），直接走 cellPolygon。
+    if (!hasSkewedPeriod()) return cellPolygon(index, gx, gy, maxVerts);
+    // 斜周期：grid = R^{-1}(世界)（R = 格基 [W H]）。grid 下落点在 [0,cols]x[0,rows]、
+    // 形状被剪切但仍填满矩形域 → "旋转到常规矩形"。R^{-1} = 1/det [[hy,-hx],[-wy,wx]]。
+    ensureTable();
+    if (!table_) return 0;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int r = rc / cols;
+    const int c = rc % cols;
+    const auto& cell = table_->cells[static_cast<size_t>(b)];
+    if (cell.n > maxVerts) return 0;
+    const double det = table_->wx * table_->hy - table_->wy * table_->hx;
+    const double wx = table_->wx, wy = table_->wy, hx = table_->hx, hy = table_->hy;
+    const double ox = worldMinX(), oy = worldMinY();
+    for (int i = 0; i < cell.n; ++i) {
+        // 未平移世界顶点 = cell.v + c*W + r*H（-worldMin 已由 cellPolygon 抵消，这里用未平移帧）。
+        const double ux = cell.v[static_cast<size_t>(i)][0] + static_cast<double>(c) * wx
+                          + static_cast<double>(r) * hx;
+        const double uy = cell.v[static_cast<size_t>(i)][1] + static_cast<double>(c) * wy
+                          + static_cast<double>(r) * hy;
+        gx[i] = (hy * ux - hx * uy) / det;
+        gy[i] = (-wy * ux + wx * uy) / det;
+    }
+    return cell.n;
+}
+
+void TilingGeom::gridCenter(int index, double& gx, double& gy) const {
+    if (!hasSkewedPeriod()) {
+        cellCenter(index, gx, gy);
+        return;
+    }
+    ensureTable();
+    if (!table_) {
+        gx = gy = 0.0;
+        return;
+    }
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int r = rc / cols;
+    const int c = rc % cols;
+    const auto& cell = table_->cells[static_cast<size_t>(b)];
+    const double det = table_->wx * table_->hy - table_->wy * table_->hx;
+    const double wx = table_->wx, wy = table_->wy, hx = table_->hx, hy = table_->hy;
+    const double ux = cell.cx + static_cast<double>(c) * wx + static_cast<double>(r) * hx;
+    const double uy = cell.cy + static_cast<double>(c) * wy + static_cast<double>(r) * hy;
+    gx = (hy * ux - hx * uy) / det;
+    gy = (-wy * ux + wx * uy) / det;
 }
 
 // 第 k 条邻接边的端点（与 neighbor/crossEdge 同序）：
@@ -624,18 +754,39 @@ int TilingGeom::worldToCell(double wx, double wy) const {
         default: {
             ensureTable();
             if (!table_) return -1;
-            if (wx < -table_->rx || wx > worldWidth() + table_->rx || wy < -table_->ry
-                || wy > worldHeight() + table_->ry)
-                return -1;
+            // 世界坐标已由 cellCenter/cellPolygon 统一减世界原点（worldMin）→ 输入点在
+            // [0,worldWidth]x[0,worldHeight] 域内。几何本身仍定义在"未平移"基元域帧，
+            // 故先加回 worldMin 得未平移点 (ux,uy)，再按原求解。平行四边形周期域 W.y/H.x
+            // 剪切下，格中心可越出 [0,·)（未平移帧），预检须用真实范围。
+            const double ux = wx + worldMinX(), uy = wy + worldMinY();
+            const double cmax = static_cast<double>(cols - 1), rmax = static_cast<double>(rows - 1);
+            const double xsh[4] = {0.0, cmax * table_->wx, rmax * table_->hx,
+                                   cmax * table_->wx + rmax * table_->hx};
+            const double ysh[4] = {0.0, cmax * table_->wy, rmax * table_->hy,
+                                   cmax * table_->wy + rmax * table_->hy};
+            const double wxlo = table_->xmin + *std::min_element(xsh, xsh + 4) - table_->rx;
+            const double wxhi = table_->xmax + *std::max_element(xsh, xsh + 4) + table_->rx;
+            const double wylo = table_->ymin + *std::min_element(ysh, ysh + 4) - table_->ry;
+            const double wyhi = table_->ymax + *std::max_element(ysh, ysh + 4) + table_->ry;
+            if (ux < wxlo || ux > wxhi || uy < wylo || uy > wyhi) return -1;
             const int B = static_cast<int>(table_->cells.size());
             // 对每个基础格 b 解 p - center_b = c*W + r*H，取最近整数行列，再 ±1 邻域
             // 验证点是否落在平移后的基础多边形内。扫描序固定：b 升序，r 邻域 -1..1，
             // c 邻域 -1..1（含候选 c0,c0±1）。
+            // 兜底：军队/子弹位置常恰好落在**顶点/缝**（worldToCell 是"严格内部"判定，
+            // 顶点不属于任何格内部）→ 返回 -1 → 移动端误判为边界 → 顶点穿越卡死。
+            // 顶点是相邻格共点，返回任一共点格均合法；故记录最近的候选格，若严格判定
+            // 全失败且点在**真实世界范围内**则返回它。越出真实范围 = 真越界 → -1
+            //（交给移动端反弹）。
+            int bestIdx = -1;
+            double bestD2 = 1e18;
             for (int b = 0; b < B; ++b) {
                 const auto& cell = table_->cells[static_cast<size_t>(b)];
-                const double px = wx - cell.cx, py = wy - cell.cy;
-                const double c0f = px / table_->wx - (table_->hx / table_->wx) * (py / table_->hy);
-                const double r0f = py / table_->hy;
+                const double px = ux - cell.cx, py = uy - cell.cy;
+                // 一般平行四边形周期域 W=(wx,wy)、H=(hx,hy)：解[c r]矩 = [px py]。
+                const double det = table_->wx * table_->hy - table_->wy * table_->hx;
+                const double c0f = (px * table_->hy - table_->hx * py) / det;
+                const double r0f = (table_->wx * py - table_->wy * px) / det;
                 const int c0 = static_cast<int>(std::lround(c0f));
                 const int r0 = static_cast<int>(std::lround(r0f));
                 for (int dr = -1; dr <= 1; ++dr) {
@@ -645,16 +796,29 @@ int TilingGeom::worldToCell(double wx, double wy) const {
                         const int c = c0 + dc;
                         if (c < 0 || c >= cols) continue;
                         const double ox = static_cast<double>(c) * table_->wx + static_cast<double>(r) * table_->hx;
-                        const double oy = static_cast<double>(r) * table_->hy;
+                        const double oy = static_cast<double>(c) * table_->wy + static_cast<double>(r) * table_->hy;
                         std::vector<std::array<double, 2>> poly;
                         poly.reserve(cell.v.size());
                         for (const auto& p : cell.v)
                             poly.push_back({p[0] + ox, p[1] + oy});
-                        if (pointInConvex(poly, wx, wy))
+                        if (pointInConvex(poly, ux, uy))
                             return (r * cols + c) * B + b;
+                        // 到候选格中心的距离（最近兜底用）。
+                        const double ccx = cell.cx + ox, ccy = cell.cy + oy;
+                        const double d2 = (ux - ccx) * (ux - ccx) + (uy - ccy) * (uy - ccy);
+                        if (d2 < bestD2) {
+                            bestD2 = d2;
+                            bestIdx = (r * cols + c) * B + b;
+                        }
                     }
                 }
             }
+            // 贴顶点/缝：返回最近的候选格（仅当点在真实世界范围内——out-of-extent 是
+            // 真越界，须留给移动端反弹，不能被兜底救回）。
+            if (bestIdx >= 0 && bestD2 <= 4.0 * table_->rx * table_->rx && wx >= -kTableTol
+                && wx <= worldWidth() + kTableTol && wy >= -kTableTol
+                && wy <= worldHeight() + kTableTol)
+                return bestIdx;
             return -1;
         }
     }
@@ -678,8 +842,15 @@ void TilingGeom::rowRange(double y0, double y1, int& r0, int& r1) const {
         default:
             ensureTable();
             if (table_) {
-                r0 = static_cast<int>(std::floor((y0 - table_->ry) / table_->hy)) - 1;
-                r1 = static_cast<int>(std::ceil((y1 + table_->ry) / table_->hy)) + 1;
+                // 2026-08 斜周期：W.y≠0 时各列中心 y 随 c 平移（剪切），行不再与 y 一一对应——
+                // 保守返回全行区间（正确但可能松散）；H.x 剪切由每行 colRange 的 baseX=r*hx 处理。
+                if (std::fabs(table_->wy) > kEps || std::fabs(table_->hy) < kEps) {
+                    r0 = 0;
+                    r1 = rows - 1;
+                } else {
+                    r0 = static_cast<int>(std::floor((y0 - table_->ry) / table_->hy)) - 1;
+                    r1 = static_cast<int>(std::ceil((y1 + table_->ry) / table_->hy)) + 1;
+                }
             } else {
                 r0 = 0;
                 r1 = rows - 1;
@@ -711,9 +882,11 @@ void TilingGeom::colRange(double x0, double x1, int r, int& c0, int& c1) const {
         default:
             ensureTable();
             if (table_) {
+                // 世界 x 已整体平移（-worldMinX）→ 加回后用未平移帧求解列区间。
+                const double ox = worldMinX();
                 const double baseX = static_cast<double>(r) * table_->hx;
-                c0 = static_cast<int>(std::floor((x0 - baseX - table_->rx) / table_->wx)) - 1;
-                c1 = static_cast<int>(std::ceil((x1 - baseX + table_->rx) / table_->wx)) + 1;
+                c0 = static_cast<int>(std::floor((x0 + ox - baseX - table_->rx) / table_->wx)) - 1;
+                c1 = static_cast<int>(std::ceil((x1 + ox - baseX + table_->rx) / table_->wx)) + 1;
             } else {
                 c0 = 0;
                 c1 = cols - 1;
@@ -918,63 +1091,48 @@ int TilingGeom::crossEdge(int index, double& x, double& y, double angle, double&
     return bestK;
 }
 
-bool TilingGeom::baseCellTransform(int baseB, double& angleRad, bool& reflect) const {
-    angleRad = 0.0;
-    reflect = false;
-    if (!isTableType(type)) return true;  // 方/六/三无变换（恒等）
-    ensureTable();
-    if (!table_ || baseB < 0 || baseB >= static_cast<int>(table_->cells.size())) return false;
-    const auto& c = table_->cells[static_cast<size_t>(baseB)];
-    angleRad = c.rotAngle;
-    reflect = c.reflect;
-    return true;
+// 表驱动密铺的"比例保持映射"参数（2026-08 依 .docs/地图尺寸比例映射.md 算法一离线求得，
+// 由 tools/gen_table_domain_params.py 生成；改 tiling_specs_*.json 后须重跑该工具）。
+// 每种密铺：s,t = 一块（周期域）的格行列数（s*t=B），u=wx/s、v=hy/t 为每格世界宽/高比例；
+// p,q = 互质比例因子（p/q ≈ √(v/u)，使 (c*u)/(d*v) ≈ a/b）；Ra,Rb = 输入 a,b 须为的倍数
+//（保证 c 为 s 倍数、d 为 t 倍数且 c,d 为整数；限制倍数尽量小，≤16 保证菜单步进可用）。
+// 算法二（在线映射）：a'=ceil(a/Ra)*Ra、b'=ceil(b/Rb)*Rb；c=p·a'/q、d=q·b'/p；cols=c/s、rows=d/t。
+// 关键：c ∝ a、d ∝ b（正比例）⇒ 调"长"只改 cols、调"宽"只改 rows（完全单调、方向一致）。
+struct TableDomainParams {
+    int s, t, p, q, Ra, Rb;
+};
+const TableDomainParams* tableDomainParams(TilingType t) {
+    static const TableDomainParams kTable[static_cast<int>(kTilingTypeCount)] = {
+        /* Square */ {}, {},
+        /* Tri */ {},
+        /* Arch33336 */ {6, 3, 2, 1, 3, 6},
+        /* Arch33434 */ {2, 6, 5, 8, 16, 15},
+        /* Arch3464 */ {3, 4, 9, 8, 8, 9},
+        /* Arch3636 */ {3, 2, 8, 5, 15, 16},
+        /* Arch31212 */ {3, 2, 8, 5, 15, 16},
+        /* Arch4612 */ {3, 4, 2, 3, 9, 8},
+        /* Arch488 */ {1, 2, 5, 7, 7, 10},
+        /* Laves3636 */ {3, 2, 8, 5, 15, 16},
+        /* Laves31212 */ {3, 4, 9, 8, 8, 9},
+        /* Laves4612 */ {2, 12, 1, 2, 4, 6},
+        /* Laves488 */ {2, 2, 1, 1, 2, 2},
+        /* Laves33434 */ {2, 4, 3, 4, 8, 3},
+        /* Laves33336 */ {3, 4, 9, 8, 8, 9},
+        /* Laves3464 */ {3, 4, 9, 8, 8, 9},
+    };
+    const int i = static_cast<int>(t);
+    return (i > static_cast<int>(TilingType::Tri) && i < static_cast<int>(kTilingTypeCount))
+               ? &kTable[i]
+               : nullptr;
 }
 
-int TilingGeom::shapeReferenceBase(int anchorN, std::uint32_t anchorBaseMask) const {
-    if (anchorBaseMask != 0) {
-        // 锚点基础格限制位掩码：取最低置位（形状按该朝向族编写，如 Arch3464 L1/L2 b=2/8）。
-        for (int b = 0; b < 31; ++b)
-            if (anchorBaseMask & (1u << static_cast<unsigned>(b))) return b;
-    }
-    if (!isTableType(type)) return -1;
-    ensureTable();
-    if (!table_) return -1;
-    const int B = static_cast<int>(table_->cells.size());
-    for (int b = 0; b < B; ++b)
-        if (table_->cells[static_cast<size_t>(b)].n == anchorN) return b;  // 同边数第一个基础格
-    return -1;
-}
-
-bool TilingGeom::applyAnchorOrientation(int index, int anchorN, std::uint32_t anchorBaseMask,
-                                        double& ox, double& oy) const {
-    if (!isTableType(type)) return true;  // 方/六/三无变换
-    ensureTable();
-    if (!table_ || index < 0 || index >= cellCount()) return false;
-    const int B = static_cast<int>(table_->cells.size());
-    const int anchorB = index % B;
-    const int refB = shapeReferenceBase(anchorN, anchorBaseMask);
-    if (refB < 0 || refB >= B) return false;
-    double aAng, rAng;
-    bool aRefl, rRefl;
-    if (!baseCellTransform(anchorB, aAng, aRefl)) return false;
-    if (!baseCellTransform(refB, rAng, rRefl)) return false;
-    // 变换合成：offset_in_anchor = T_anchor ∘ T_ref⁻¹ (offset_in_ref)。
-    // T = R(θ) ∘ F（F = 镜像）；T⁻¹ = F ∘ R(-θ)（先撤销旋转、再撤销镜像）。
-    // 因此整体应用序：R(-rAng) → F(rRefl) → F(aRefl) → R(aAng)。
-    if (rAng != 0.0) {
-        const double c = std::cos(-rAng), s = std::sin(-rAng);
-        const double nx = ox * c - oy * s, ny = ox * s + oy * c;
-        ox = nx;
-        oy = ny;
-    }
-    if (rRefl) oy = -oy;
-    if (aRefl) oy = -oy;
-    if (aAng != 0.0) {
-        const double c = std::cos(aAng), s = std::sin(aAng);
-        const double nx = ox * c - oy * s, ny = ox * s + oy * c;
-        ox = nx;
-        oy = ny;
-    }
+bool tableInputRestriction(int tilingType, int& ra, int& rb) {
+    const TilingType t = static_cast<TilingType>(tilingType);
+    if (static_cast<int>(t) <= static_cast<int>(TilingType::Tri)) return false;
+    const TableDomainParams* prm = tableDomainParams(t);
+    if (prm == nullptr) return false;
+    ra = prm->Ra;
+    rb = prm->Rb;
     return true;
 }
 
@@ -983,46 +1141,24 @@ void chooseTableDomain(int tilingType, int userLength, int userWidth, int& cols,
     rows = std::max(1, userWidth);
     const TilingType t = static_cast<TilingType>(tilingType);
     if (static_cast<int>(t) <= static_cast<int>(TilingType::Tri)) return;  // 方/六/三原语义
-    const TilingGeom probe{t, 1, 1};
-    const int B = std::max(1, probe.baseCount());
-    // 用户宽向上取整到 B 的倍数（保证长*宽=总格数精确成立），并按生成器上限 200
-    // 向下取整到 ≤200 的 B 倍数（与 MapGenerator::generate 的 clamp 语义一致）。
-    int W = std::max(1, userWidth);
-    int snappedW = ((W + B - 1) / B) * B;
-    if (snappedW > 200) snappedW = (200 / B) * B;
-    W = std::max(B, snappedW);
-    const int total = std::max(1, userLength) * W;
-    const int P = total / B;  // 周期域对数
-    if (P <= 0) {
-        cols = 1;
-        rows = 1;
-        return;
-    }
-    const double wx = probe.worldWidth();
-    const double hy = probe.worldHeight();
-    if (wx <= 0.0 || hy <= 0.0) {
-        cols = P;
-        rows = 1;
-        return;
-    }
-    // 目标视觉宽高比 = 用户长/宽（宽用取整后的有效值）；域宽高比 = wx/hy。
-    const double targetAspect = static_cast<double>(userLength) / static_cast<double>(W);
-    double bestScore = std::numeric_limits<double>::max();
-    int bestC = 1, bestR = 1;
-    for (int r = 1; r <= P; ++r) {
-        if (P % r != 0) continue;
-        const int c = P / r;
-        const double aspect = (wx * c) / (hy * r);
-        const double score = std::fabs(std::log(std::max(aspect, 1e-12))
-                                       - std::log(std::max(targetAspect, 1e-12)));
-        if (score < bestScore) {
-            bestScore = score;
-            bestC = c;
-            bestR = r;
-        }
-    }
-    cols = bestC;
-    rows = bestR;
+    const TableDomainParams* prm = tableDomainParams(t);
+    if (prm == nullptr) return;
+    // 算法二：输入合规化（向上取整到 Ra/Rb 倍数；若菜单已限制则原样）。
+    const int Ra = prm->Ra, Rb = prm->Rb, p = prm->p, q = prm->q, s = prm->s, tt = prm->t;
+    auto snap = [](int v, int m, int cap) {
+        const int base = std::max(1, m);
+        int r = ((v + base - 1) / base) * base;
+        if (r > cap) r = (cap / base) * base;
+        return std::max(base, r);
+    };
+    const int a = snap(std::max(1, userLength), Ra, 200);
+    const int b = snap(std::max(1, userWidth), Rb, 200);
+    // c = p·a'/q（a' 为 Ra= q·s/gcd(s,p) 倍数 ⇒ q | a' ⇒ 整数）；d = q·b'/p（p | b' ⇒ 整数）。
+    // cols = c/s、rows = d/t。守恒：B·cols·rows = s·t·(p·a'/q)/s·(q·b'/p)/t = a'·b'。
+    const int c = p * a / q;
+    const int d = q * b / p;
+    cols = std::max(1, c / s);
+    rows = std::max(1, d / tt);
 }
 
 }  // namespace lw

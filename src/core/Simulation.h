@@ -4,6 +4,7 @@
 //          tick() 已接入军队阶段（移动+战斗+死亡）。
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -53,6 +54,51 @@ struct PlayerIntent {
 };
 
 class Snapshot;  // replay/Snapshot.h：存档/读档需替换全部内部状态（Phase 6）
+
+// 性能剖析（tick 各阶段墙钟时间累计，纳秒）。纯计时，不消耗 RNG/改状态。
+// 阶段名与顺序对应 tick() 内的调用顺序（见 Simulation.cpp tick）。
+enum class SimStage : int {
+    Movement = 0,   // MovementSystem::update
+    PendingSpawn,   // processPendingSpawns
+    UnitAction,     // UnitActionSystem::update
+    Projectile,     // ProjectileSystem::update
+    Economy,        // EconomySystem::update
+    Production,     // ProductionSystem::update
+    Effect,         // EffectSystem::update
+    Death,          // DeathSystem::flush
+    Capital,        // CapitalSystem::update
+    Tech,           // TechSystem::update
+    MiscTick,       // ++tickCount_ 等 bookkeeping（不含 detect）
+    Detect,         // detectAnnihilationAndUnification
+    Count,
+};
+
+struct SimStageProfile {
+    std::uint64_t ns = 0;   // 累计纳秒
+    std::uint64_t calls = 0;  // 调用次数（= tick 数，除了 detect 为每 tick 一次）
+};
+
+// 移动内部细分计时（2026-08 性能分析）：逐兵 moveArmy 内的各子阶段。
+// moveLoop 是整个单兵移动调用；combat/enter/conquer/geom 为其中各自累加（粗粒度近似，
+// 存在少量调用方边界计时"系统外开销"（如 Rng 调用、position 读取）归入 residual）。
+// 仅剖析时（moveProfile!=nullptr）计时；关闭时零开销。
+struct MoveProfile {
+    std::uint64_t loopNs = 0;      // moveArmy 单兵移动墙体时间（总）
+    std::uint64_t combatNs = 0;    // CombatSystem::checkAt（战斗查询）
+    std::uint64_t enterNs = 0;     // processEnteredCell（进入格处理：海陆/山地/征服）
+    std::uint64_t conquerNs = 0;   // conquerAtIndex（含城市形状逐格征服）
+    std::uint64_t geomNs = 0;      // 几何：findNextXY（方）/ crossEdge+worldToCell（密铺）
+};
+
+struct SimProfile {
+    bool enabled = false;
+    std::array<SimStageProfile, static_cast<int>(SimStage::Count)> phases;
+    // Movement 内部细分（2026-08 分析用）：spatialHash.build / 排序 / 逐兵 move loop。
+    std::uint64_t moveHashNs = 0;
+    std::uint64_t moveSortNs = 0;
+    std::uint64_t moveLoopNs = 0;
+    MoveProfile move;  // 逐兵子阶段（仅 MovementSystem 走 makeContext 时启用）
+};
 
 class Simulation {
     friend class Snapshot;
@@ -118,6 +164,13 @@ public:
     // P11 统计（纯计数；系统经 sim.stats() 记录击杀/占领/产兵）。
     Statistics& stats() { return stats_; }
     const Statistics& stats() const { return stats_; }
+    // 性能剖析（可选，默认关闭）：按 tick 各阶段累计墙钟纳秒，供无头性能分析定位热点。
+    // 纯计时、不消耗 RNG、不改任何状态 → 不影响确定性/基线 hash。开启后 tick() 内每阶段
+    // 计时；关闭时仅一次 bool 判断（零度量开销）。
+    void enableProfiling() { profiler_.enabled = true; }
+    SimProfile& profile() { return profiler_; }
+    const SimProfile& profile() const { return profiler_; }
+    void resetProfile() { profiler_ = SimProfile{}; }
     // 取出并清空死亡事件（DeathSystem 使用）。
     std::vector<DeathEvent> takeDeaths();
 
@@ -170,6 +223,7 @@ private:
     bool unificationEmitted_ = false;
     // P11：统计（击杀/占领/产兵，截止到统一）。序列化入快照。
     Statistics stats_;
+    SimProfile profiler_;  // 性能剖析（可选，默认关闭；见 enableProfiling）
 };
 
 }  // namespace lw

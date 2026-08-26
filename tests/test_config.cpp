@@ -123,6 +123,27 @@ TEST(Config, TwoToneDerivedColors) {
     EXPECT_EQ(cfg.factionTileColor(99), (std::array<int, 3>{177, 177, 177}));
 }
 
+TEST(Config, TileVariationGradient) {
+    // 双色密铺分档（2026-08）：factionTileColor(id, t) 沿 variation 在副色侧/主色侧渐变。
+    // 默认 TileMix = {0.35, 0.35, 0.30}, variation = 0.1 → t=0 权重 (0.25,0.45,0.30)、
+    // t=0.5 (0.35,0.35,0.30)、t=1 (0.45,0.25,0.30)。红势力（主 255,0,0 / 副 191）。
+    const lw::Config cfg = lw::Config::loadFromJson("{}");
+    // t=0.5 = 中点 = factionTileColor(id)。
+    EXPECT_EQ(cfg.factionTileColor(1, 0.5), cfg.factionTileColor(1));
+    // t=0（副色侧）：r = 0.25·255+0.45·191+0.30·255 = 226.2→226；g/b = 0.45·191+0.30·255 = 162.45→162。
+    EXPECT_EQ(cfg.factionTileColor(1, 0.0), (std::array<int, 3>{226, 162, 162}));
+    // t=1（主色侧）：r = 0.45·255+0.25·191+0.30·255 = 239.0→239；g/b = 0.25·191+0.30·255 = 124.25→124。
+    EXPECT_EQ(cfg.factionTileColor(1, 1.0), (std::array<int, 3>{239, 124, 124}));
+    // 单调：t 越大主权重越大 → r 应随 t 递增（通道：红通道主色分量高）。
+    EXPECT_LT(cfg.factionTileColor(1, 0.0)[0], cfg.factionTileColor(1, 0.5)[0]);
+    EXPECT_LT(cfg.factionTileColor(1, 0.5)[0], cfg.factionTileColor(1, 1.0)[0]);
+    // 中立（96 主 / 191 副，id0）：t=0 → (186,186,186)；t=1 → (167,167,167)（对角单调递减）。
+    EXPECT_EQ(cfg.factionTileColor(0, 0.0), (std::array<int, 3>{186, 186, 186}));
+    EXPECT_EQ(cfg.factionTileColor(0, 1.0), (std::array<int, 3>{167, 167, 167}));
+    // 越界用中性灰占位，不崩。
+    EXPECT_EQ(cfg.factionTileColor(99, 0.0), (std::array<int, 3>{186, 186, 186}));
+}
+
 TEST(Config, LoadsDataFile) {
     // 从项目根运行（ctest 的 WORKING_DIRECTORY 已设为源码根）。
     const lw::Config cfg = lw::Config::loadFromFile("data/config.json");
@@ -149,16 +170,19 @@ TEST(Config, MissingFileFallsBackToDefaults) {
 
 TEST(Config, NewTilingCitySetsRoundTrip) {
     // 2026-08-16：city.tilings.<tilingName> 段（半正/Laves 形状表）JSON 往返无损。
+    // 2026-08-26：ShapeCell 去 orient（运行时从不读取）；掩码序列化改 anchorBases 数组。
     lw::Config cfg = lw::Config::loadFromJson("{}");
     auto& set = cfg.city.sets[static_cast<size_t>(static_cast<int>(lw::TilingType::Arch3636))];
     set.levels = {2.25, 5.25, 8.25};
     set.shapes.resize(3);
-    set.shapes[0].cells = {{0.0, 0.0, 0}};
-    set.shapes[1].cells = {{0.0, 0.0, 0}, {1.5, 0.0, 0}};
-    set.shapes[2].cells = {{0.0, 0.0, 0}, {1.5, 0.0, 0}, {0.0, 1.5, 1}};
+    set.shapes[0].cells = {{0.0, 0.0}};
+    set.shapes[1].cells = {{0.0, 0.0}, {1.5, 0.0}};
+    set.shapes[2].cells = {{0.0, 0.0}, {1.5, 0.0}, {0.0, 1.5}};
+    set.shapes[2].anchorBaseMask = (1u << 3) | (1u << 7);  // → anchorBases [3,7]
 
     const std::string json = cfg.toJson();
     ASSERT_NE(json.find("arch_3636"), std::string::npos);  // 新段已写入
+    ASSERT_NE(json.find("anchorBases"), std::string::npos);  // 掩码以 anchorBases 数组序列化
     const lw::Config back = lw::Config::loadFromJson(json);
     const auto& backSet =
         back.city.sets[static_cast<size_t>(static_cast<int>(lw::TilingType::Arch3636))];
@@ -168,7 +192,8 @@ TEST(Config, NewTilingCitySetsRoundTrip) {
     ASSERT_EQ(backSet.shapes.size(), 3u);
     ASSERT_EQ(backSet.shapes[2].cells.size(), 3u);
     EXPECT_NEAR(backSet.shapes[2].cells[1].dx, 1.5, 1e-12);
-    EXPECT_EQ(backSet.shapes[2].cells[2].orient, 1);
+    EXPECT_NEAR(backSet.shapes[2].cells[2].dy, 1.5, 1e-12);
+    EXPECT_EQ(backSet.shapes[2].anchorBaseMask, (1u << 3) | (1u << 7));
 }
 
 }  // namespace

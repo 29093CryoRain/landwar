@@ -7,42 +7,32 @@
 #include "core/GameDefs.h"
 #include "core/Simulation.h"
 #include "render/RendererUtil.h"
-#include "render/WrapDraw.h"
 #include "sim/components.h"
 
 namespace lw::render {
 
-void ArmyRenderer::draw(const Simulation& sim, bool wrap) {
+void ArmyRenderer::draw(const Simulation& sim) {
     const auto& reg = sim.registry();
     Renderer r(ren_);
     // 兵 sprite 尺寸随缩放等比（世界等比渲染）；保留最小 2px 防退化。
     const int size = render::spriteSize(drawSize_, cam_.zoom());
     // 无 y 偏移：曾加 spriteSize/2（16px）下移以修正视觉，后取消（不加偏移视觉正常）。
     // 点选交互锚点与渲染一致（同样不加偏移），见 Application::pickSelection。
-    // P10：环绕双渲染的屏幕跨度（图宽/高像素）与贴界阈值（绘制尺寸折格）。wrap 关闭 → 不画副本。
-    int spanX = 0, spanY = 0;
-    double edgeDist = 0.0;
-    if (wrap) {
-        spanX = cam_.toScreenXi(static_cast<double>(cam_.mapWidth())) - cam_.toScreenXi(0.0);
-        spanY = cam_.toScreenYi(0.0) - cam_.toScreenYi(static_cast<double>(cam_.mapHeight()));
-        edgeDist = size / cam_.cellPx();
-    }
+    // （2026-08 废除环绕：不再双渲染副本，仅主位置单绘制。）
     for (auto e : reg.view<comp::Position, comp::Collider, comp::FactionId, comp::UnitType,
                            comp::Velocity>()) {
         if (reg.all_of<comp::Dead>(e)) continue;
         // P9.3（2026-08-07）：子弹实体也带全兵组件（Position/Velocity/Collider/FactionId/UnitType），
         // 恰好满足本视图 → 会被当兵画出手枪/霰弹贴图，与 ProjectileRenderer 的子弹贴图重叠。
         // 显式排除 comp::Projectile：子弹只由 ProjectileRenderer 渲染（行 8 子弹贴图，不画兵贴图）。
-        // P10：子弹不环绕（规格 P12 扩展点），此处排除后天然不画副本。
         if (reg.all_of<comp::Projectile>(e)) continue;
         const int fid = reg.get<comp::FactionId>(e).value;
         if (fid < 1 || fid > kPlayerFactionCount) continue;  // 防御：中立/非法 id 不上场
         const int type = static_cast<int>(reg.get<comp::UnitType>(e).type);
         const auto& p = reg.get<comp::Position>(e);
-        // 视野剔除（2026-08 工程改进）：实体离屏且（wrap 下）不在贴界带 → 跳过绘制。
+        // 视野剔除（2026-08 工程改进）：实体离屏 → 跳过绘制。
         // 半径取整颗 sprite 折算格数（保守，多画无害）。
-        if (!render::isVisibleOnScreen(cam_, p.x, p.y, size / cam_.cellPx(), wrap, edgeDist))
-            continue;
+        if (!render::isVisibleOnScreen(cam_, p.x, p.y, size / cam_.cellPx())) continue;
         const int sx = cam_.toScreenXi(p.x);
         const int sy = cam_.toScreenYi(p.y);
         // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png（army_special.png 停用，
@@ -56,23 +46,11 @@ void ArmyRenderer::draw(const Simulation& sim, bool wrap) {
         const double angleDeg = rotated
                                     ? (-reg.get<comp::Velocity>(e).angle + kPi / 2.0) * 180.0 / kPi
                                     : 0.0;
-        // P10：收集绘制位置（主 + 贴界副本，含角上对角）；wrap 关闭时仅主位置。
-        int poss[9][2];
-        poss[0][0] = sx;
-        poss[0][1] = sy;
-        int n = 1;
-        if (wrap) {
-            n = collectWrapDraws(p.x, p.y, edgeDist, static_cast<double>(cam_.mapWidth()),
-                                 static_cast<double>(cam_.mapHeight()), sx, sy, spanX, spanY, poss);
-        }
-        for (int i = 0; i < n; ++i) {
-            const int px = poss[i][0], py = poss[i][1];
-            if (rotated) {
-                r.drawSpriteRotated(tex, sheet_.unitRect(type), px - size / 2, py - size / 2,
-                                    size, size, angleDeg, size / 2, size / 2);
-            } else {
-                r.drawSpriteCentered(tex, sheet_.unitRect(type), px, py, size);
-            }
+        if (rotated) {
+            r.drawSpriteRotated(tex, sheet_.unitRect(type), sx - size / 2, sy - size / 2,
+                                size, size, angleDeg, size / 2, size / 2);
+        } else {
+            r.drawSpriteCentered(tex, sheet_.unitRect(type), sx, sy, size);
         }
     }
 }

@@ -430,9 +430,18 @@ bool Map::placeCapitals(Rng& rng) {
         const double minLevel = citySet.levels.empty() ? 1.0 : citySet.levels.front();
         std::vector<int> candAnchors;
         candAnchors.reserve(cities_.size());
-        for (const auto& c : cities_)
-            if (c.baseIndex >= 0 && c.baseIndex < cellCount() && atIndex(c.baseIndex).land)
-                candAnchors.push_back(c.baseIndex);
+        for (const auto& c : cities_) {
+            if (c.baseIndex < 0 || c.baseIndex >= cellCount()) continue;
+            if (!atIndex(c.baseIndex).land) continue;
+            // 首都锚点必须是该城**实际占格**：Laves4612 等形状的锚点格 baseIndex 可能
+            // 不属于形状格（L2/L4 变体不含 (0,0) 锚）→ atIndex(baseIndex).cityId == -1，
+            // 首都落在该格会被判作"非城市格"（用户反馈的放置 bug）。改用该城任一带 cityId
+            // 的占格；形状无标记格时退回锚点格。
+            int hit = -1;
+            for (int cell : cityCells(c))
+                if (cell >= 0 && atIndex(cell).cityId == c.id) { hit = cell; break; }
+            candAnchors.push_back(hit >= 0 ? hit : c.baseIndex);
+        }
         std::vector<bool> used(candAnchors.size(), false);
         const int nCityCand = static_cast<int>(candAnchors.size());
 
@@ -490,9 +499,14 @@ bool Map::placeCapitals(Rng& rng) {
                 // 回退阶段：已有城市不足 8 个 → 允许在任意陆地放最小等级城（形状/无重叠仍校验）。
                 if (!canPlaceCityImpl(minLevel, idx, /*requireAllowed=*/false)) continue;
                 if (distFromPlaced(idx) < minDist) continue;
-                addCity(minLevel, idx, &rng);
+                const int newId = addCity(minLevel, idx, &rng);
+                if (newId < 0) continue;  // 放置失败（防御）：继续找下一锚点
+                // 同上：首都锚点取新城的实际占格，避免锚点格不在形状内 → cityId==-1。
+                int capCell = idx;
+                for (int cell : cityCells(cities_[static_cast<size_t>(newId)]))
+                    if (cell >= 0 && atIndex(cell).cityId == newId) { capCell = cell; break; }
                 int rr = 0, cc = 0, bb = 0;
-                geom_.indexToRowCol(idx, rr, cc, bb);
+                geom_.indexToRowCol(capCell, rr, cc, bb);
                 capitalX_[static_cast<size_t>(i)] = cc;
                 capitalY_[static_cast<size_t>(i)] = rr;
                 capitalB_[static_cast<size_t>(i)] = bb;
@@ -652,9 +666,8 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex, int variant) con
         // 三角：锚朝向决定形状变体（用户 2026-08 定稿：L1/L4 有正/反两种模式，其余同形）。
         // 形状表按"正锚模式"定义；锚为反三角（奇下标）时对 dy 垂直镜像（orient 随之翻转），
         // 偏移点即目标格中心 → worldToCell 稳定解析。六边形（轴向偏移）与锚朝向无关。
-        // 半正/Laves：形状表按"目标格中心 − 锚格中心"的世界偏移存储（平移不变）；形状表
-        // 按"同边数第一个基础格"朝向编写，锚为其他朝向基础格时须按锚格变换旋转/镜像
-        //（锚格朝向修复 2026-08-16，见 TilingGeom::applyAnchorOrientation）。
+        // 半正/Laves：形状表按"目标格中心 − 锚格中心"的世界偏移存储（平移不变，方案A 已烘焙
+        // 世界帧）；锚格朝向已由数据（baseGroups/anchorBases）保证，运行时不需再旋转/镜像。
         const bool anchorUp = (geom_.type == TilingType::Tri) ? ((anchorIndex & 1) == 0) : true;
         for (const auto& sc : sh->cells) {
             double wx, wy;
@@ -664,12 +677,10 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex, int variant) con
             } else if (geom_.type == TilingType::Tri) {
                 wx = ax + sc.dx * TilingGeom::kTriSide;
                 wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
-            } else {  // 半正/Laves：形状表按旧中间朝向存储，运行时几何已旋转 90°，
-                       // 偏移量同步旋转 (dx,dy)->(-dy,dx)，再按锚格朝向变换。
-                double ox = -sc.dy, oy = sc.dx;
-                geom_.applyAnchorOrientation(anchorIndex, sh->anchorN, sh->anchorBaseMask, ox, oy);
-                wx = ax + ox;
-                wy = ay + oy;
+            } else {  // 半正/Laves：cells 已是世界坐标（2026-08-26 方案A 烘入，数据已覆盖
+                       // 锚格朝向；不再 applyAnchorOrientation）。
+                wx = ax + sc.dx;
+                wy = ay + sc.dy;
             }
             out.push_back(geom_.worldToCell(wx, wy));
         }
@@ -834,9 +845,7 @@ std::vector<int> Map::placeableVariants(double level, int index, bool requireAll
     for (int v = 0; v < vc; ++v) {
         const Config::City::Shape* sh = set.shapeFor(level, v);
         if (!sh || sh->cells.empty()) continue;
-        // 半正/Laves 混合面：形状可限定锚点格类型（按边数 = 多边形顶点数）。
-        if (sh->anchorN != 0 && geom_.neighborCount(index) != sh->anchorN) continue;
-        // 锚点基础格限制（如 Arch3464 L1/L2 仅限横平竖直正方形）。
+        // 锚点基础格限制（如 Arch3464 L1/L2 仅限横平竖直正方形；由 baseGroups/anchorBases 定义）。
         if (sh->anchorBaseMask != 0) {
             const int b = index % std::max(1, geom_.baseCount());
             if (b < 0 || b >= 31 || (sh->anchorBaseMask & (1u << b)) == 0) continue;
@@ -868,11 +877,10 @@ std::vector<int> Map::placeableVariants(double level, int index, bool requireAll
                     wx = ax + sc.dx * TilingGeom::kTriSide;
                     wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
                 } else {
-                    // 半正/Laves：运行时几何已旋转 90°，偏移量同步旋转，再按锚格朝向变换。
-                    double ox = -sc.dy, oy = sc.dx;
-                    geom_.applyAnchorOrientation(index, sh->anchorN, sh->anchorBaseMask, ox, oy);
-                    wx = ax + ox;
-                    wy = ay + oy;
+                    // 半正/Laves：cells 已是世界坐标（2026-08-26 方案A 烘入，数据已覆盖
+                    // 锚格朝向；不再 applyAnchorOrientation）。
+                    wx = ax + sc.dx;
+                    wy = ay + sc.dy;
                 }
                 cells.push_back(geom_.worldToCell(wx, wy));
             }

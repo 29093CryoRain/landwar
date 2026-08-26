@@ -362,14 +362,35 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     const int cellCount = g.cellCount();
     Rng rng(seed);
     ValueNoise2D noise(rng);
-    const double baseCell = std::max(g.worldWidth(), g.worldHeight()) / 6.0;
+    // 2026-08 斜周期（33336 系）：世界为平行四边形（W.y/H.x 剪切），若按世界坐标采样，
+    // 噪声场被剪切 → 地形呈斜纹/陆地占比失真。改为按**格坐标**（c,r 常规矩形）采样——
+    // 即"旋转到常规矩形后再采样"，地形在各向同性矩形域上生成，格后再映射回斜周期。
+    const bool skew = g.hasSkewedPeriod();
+    const double baseCell = skew
+                                ? static_cast<double>(std::max(g.cols, g.rows)) / 6.0
+                                : std::max(g.worldWidth(), g.worldHeight()) / 6.0;
+    // 采样坐标（格坐标 [c,r] 或世界坐标 [wx,wy]）。
+    std::vector<int> sampC(static_cast<size_t>(cellCount)), sampR(static_cast<size_t>(cellCount));
+    if (skew) {
+        for (int idx = 0; idx < cellCount; ++idx) {
+            int r, c, b;
+            g.indexToRowCol(idx, r, c, b);
+            sampC[static_cast<size_t>(idx)] = c;
+            sampR[static_cast<size_t>(idx)] = r;
+        }
+    }
 
-    // ① 海拔场（最朴素：每格中心独立采样同一张连续 fbm 噪声场，格间无任何耦合/后处理）。
+    // ① 海拔场（skew：按格坐标在各向同性矩形域采样；否则按格中心世界坐标采样）。
     std::vector<double> height(static_cast<size_t>(cellCount), 0.0);
     for (int idx = 0; idx < cellCount; ++idx) {
-        double wx, wy;
-        g.cellCenter(idx, wx, wy);
-        height[static_cast<size_t>(idx)] = noise.fbm(wx / baseCell, wy / baseCell);
+        double gx, gy;
+        if (skew) {
+            gx = static_cast<double>(sampC[static_cast<size_t>(idx)]);
+            gy = static_cast<double>(sampR[static_cast<size_t>(idx)]);
+        } else {
+            g.cellCenter(idx, gx, gy);
+        }
+        height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
     }
     // ①a 坡度场（山脉分量）：边邻海拔差最大。
     std::vector<double> grad(static_cast<size_t>(cellCount), 0.0);
@@ -390,13 +411,25 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     //   且削减带沿整行/整列垂直延伸，经阈值量化后横贯整行成直线海陆边（"横纹"）。
     //   改用 cellCenter 世界坐标 → d = min(wx, worldW-wx, wy, worldH-wy)，贴合直边布局；
     //   edgeBand 由"格数"改以 baseCell（世界尺度）为单位。
-    const double ebandW = std::max(4.0, std::min(g.worldWidth(), g.worldHeight()) / 12.0);
+    //   2026-08 斜周期：worldWidth/Height 为平行四边形 AABB（被剪切撑大），世界坐标距边
+    //   的欧氏距离不再贴合"视觉矩形边缘"——改用格坐标（c,r 到 [0,cols]x[0,rows] 边缘距离）
+    //   在**常规矩形域**内计算衰减，与采样一致。
+    const double ebandW = skew
+                              ? std::max(4.0, static_cast<double>(std::min(g.cols, g.rows)) / 6.0)
+                              : std::max(4.0, std::min(g.worldWidth(), g.worldHeight()) / 12.0);
     constexpr double kEdgeStrength = 0.5;
     if (p.forceCoast) {
         for (int idx = 0; idx < cellCount; ++idx) {
-            double wx, wy;
-            g.cellCenter(idx, wx, wy);
-            const double d = std::min({wx, g.worldWidth() - wx, wy, g.worldHeight() - wy});
+            double d;
+            if (skew) {
+                const double c0 = sampC[static_cast<size_t>(idx)], r0 = sampR[static_cast<size_t>(idx)];
+                d = std::min({c0, static_cast<double>(g.cols - 1) - c0, r0,
+                              static_cast<double>(g.rows - 1) - r0});
+            } else {
+                double wx, wy;
+                g.cellCenter(idx, wx, wy);
+                d = std::min({wx, g.worldWidth() - wx, wy, g.worldHeight() - wy});
+            }
             if (d < ebandW) {
                 const double atten = kEdgeStrength * (1.0 - d / ebandW);
                 height[static_cast<size_t>(idx)] =

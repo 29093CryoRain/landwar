@@ -69,8 +69,6 @@ void commitDrafts(MenuState& st, Options& options) {
         options.map.kind = MapSelection::Kind::File;
         if (!st.draftFile.empty()) options.map.file = st.draftFile;
     }
-    // P10：边界贯通开关对预装/随机图通用（放 common 段）。
-    options.map.wrap = st.wrap;
     // P12：密铺（随机图生成用；预装 BMP 恒方形）。
     options.map.tiling = tilingName(st.tiling);
 }
@@ -89,7 +87,6 @@ void initDrafts(MenuState& st, const Options& options) {
     st.mtnT = squareDensityToT(st.mtnDensity, kMtnLo, kMtnHi);   // 密度 → 滑条位置（平方域）
     st.cityT = squareDensityToT(st.cityDensity, kCityLo, kCityHi);
     st.forceCoast = options.map.forceCoast;
-    st.wrap = options.map.wrap;
     st.tiling = tilingFromName(options.map.tiling);  // P12：密铺（默认 square）
     st.seededOnce = true;
     st.previews.clear();
@@ -263,13 +260,6 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
     ImGui::RadioButton("随机地图##t", &mode, 1);
     st.randomMode = (mode == 1);
 
-    // P10：地图边界贯通（环绕）——兵碰边界传送到对侧，速度方向不变（关闭=反弹）。预装/随机图通用。
-    ImGui::Checkbox("地图边界贯通（环绕）", &st.wrap);
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("开启后兵碰地图边界传送到对侧，速度大小方向不变（关闭则反弹）");
-
     if (!st.randomMode) {
         // ---- 预装地图列表：缩略图 + 可点选文件名（预览 = 当前种子掷出山/城后的地形图）----
         ImGui::TextUnformatted("预装地图（预览为当前种子掷出山/城后的地形图）");
@@ -298,20 +288,22 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         ImGui::TextUnformatted("随机地图参数");
         // P12：密铺模式下拉（六/三角随机图；预装 BMP 恒为方形）。
         // 2026-08-16：加入全部 7 种阿基米德密铺与 7 种 Laves 密铺。
+        // 2026-08-23 用户修订：半正密铺前加 "Arch" 字样；半正密铺与对应 Laves 密铺
+        //（对偶）按同一顶点构型顺序排列（33336、33434、3464、3636、31212、4612、488）。
         static const char* kTilingItems[17] = {
             "正方形", "六边形", "三角形",
-            "3.3.3.3.6", "3.3.4.3.4", "3.4.6.4", "3.6.3.6", "3.12.12", "4.6.12",
-            "4.8.8",
-            "Laves 3.6.3.6", "Laves 3.12.12", "Laves 4.6.12", "Laves 4.8.8",
-            "Laves 3.3.4.3.4", "Laves 3.3.3.3.6", "Laves 3.4.6.4"};
+            "Arch 3.3.3.3.6", "Arch 3.3.4.3.4", "Arch 3.4.6.4", "Arch 3.6.3.6",
+            "Arch 3.12.12", "Arch 4.6.12", "Arch 4.8.8",
+            "Laves 3.3.3.3.6", "Laves 3.3.4.3.4", "Laves 3.4.6.4", "Laves 3.6.3.6",
+            "Laves 3.12.12", "Laves 4.6.12", "Laves 4.8.8"};
         static const TilingType kTilingValues[17] = {
             TilingType::Square,      TilingType::Hex,        TilingType::Tri,
             TilingType::Arch33336,   TilingType::Arch33434,  TilingType::Arch3464,
             TilingType::Arch3636,    TilingType::Arch31212,  TilingType::Arch4612,
             TilingType::Arch488,
+            TilingType::Laves33336,  TilingType::Laves33434, TilingType::Laves3464,
             TilingType::Laves3636,   TilingType::Laves31212, TilingType::Laves4612,
-            TilingType::Laves488,    TilingType::Laves33434, TilingType::Laves33336,
-            TilingType::Laves3464};
+            TilingType::Laves488};
         int tilingIdx = 0;
         for (int i = 0; i < 17; ++i)
             if (st.tiling == kTilingValues[i]) tilingIdx = i;
@@ -326,18 +318,21 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         if (st.tiling == TilingType::Tri) {
             wStep = 2;
         }
+        // 表驱动密铺：输入限制（算法一硬编码）——长须为 Ra 倍数、宽须为 Rb 倍数，使
+        // 长*宽 = 总格数 精确守恒且映射单调（cols∝长、rows∝宽）。菜单按 Ra/Rb 设"-/+"步进。
+        int Ra = 1, Rb = 1;
+        const bool hasLimit = tableInputRestriction(static_cast<int>(st.tiling), Ra, Rb);
+        if (hasLimit && wStep == 1) wStep = Ra;  // 长步进 = Ra（跳到下一个 Ra 倍数）
         ImGui::InputInt("长", &st.randW, wStep, 8);
         // P12 六/三角：行数强制偶数 → "宽"的 "-"/"+" 步进 2（避免点一次不变/偶奇来回跳）。
-        // 半正/Laves：为保证"长*宽=总格数"，宽必须为 B 的倍数（B=每周期域基础格数），
-        // 且实际周期域行数 = 宽/B，所以宽至少为一个 B；下方向上取整到 B 的倍数。
+        // 表驱动：宽步进 = Rb（跳到下一个 Rb 倍数）。
         const bool needEvenRows = (st.tiling == TilingType::Hex || st.tiling == TilingType::Tri);
         const bool isTableTiling = static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri);
         int hStep = 1;
         if (needEvenRows) {
             hStep = 2;
         } else if (isTableTiling) {
-            const TilingGeom probe{st.tiling, 1, 1};
-            hStep = std::max(1, probe.baseCount());
+            hStep = Rb;
         }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         ImGui::InputInt("宽", &st.randH, hStep, 8);
@@ -345,7 +340,13 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         st.randH = std::clamp(st.randH, 32, 200);
         if (needEvenRows && (st.randH & 1)) --st.randH;  // P12：偶数行
         if (st.tiling == TilingType::Tri && (st.randW & 1)) --st.randW;     // 三角：列对数整数
-        if (isTableTiling) {
+        if (hasLimit) {
+            // 长/宽夹到最近的下一个 Ra/Rb 倍数（保底 ≥ Ra/Rb；≥32 且 ≤200）。
+            st.randW = std::max(Ra, ((st.randW + Ra - 1) / Ra) * Ra);
+            st.randH = std::max(Rb, ((st.randH + Rb - 1) / Rb) * Rb);
+            if (st.randW > 200) st.randW = (200 / Ra) * Ra;
+            if (st.randH > 200) st.randH = (200 / Rb) * Rb;
+        } else if (isTableTiling) {
             st.randH = ((st.randH + hStep - 1) / hStep) * hStep;  // 向上取整到 B 的倍数
             if (st.randH > 200) st.randH = (200 / hStep) * hStep;
         }
@@ -375,6 +376,9 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
             // 预览随 UI 缩放（2026-08 修：此前恒按纹理原生尺寸显示）。
             ImGui::Image(reinterpret_cast<ImTextureID>(t),
                          ImVec2(static_cast<float>(tw) * uiScale, static_cast<float>(th) * uiScale));
+            // 2026-08 斜周期（33336 系）：预览为"旋转到常规矩形"后的地图（非平行四边形原位）。
+            if (TilingGeom{st.tiling, st.randW, st.randH}.hasSkewedPeriod())
+                ImGui::TextDisabled("预览的是旋转后的地图");
         }
         if (!st.genError.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
@@ -420,18 +424,15 @@ SDL_Texture* PreviewCache::get(SDL_Renderer* ren, const std::string& key, const 
     e.key = key;
     e.tex = render::renderMapPreview(ren, map, previewW);
     if (!e.tex) return nullptr;
-    // P12：六/三角按世界范围（非列/行数）推导预览纵横比。
-    if (map.tiling() == TilingType::Square) {
-        e.w = std::max(1, static_cast<int>(std::lround(static_cast<double>(previewW) / map.width()))) *
-              map.width();
-        e.h = e.w * map.height() / map.width();  // 与 renderMapPreview 同 cell 逻辑
-    } else {
-        const TilingGeom& tg = map.geom();
-        const double cell = std::max(1.0, static_cast<double>(previewW) / tg.worldWidth());
-        e.w = std::max(1, static_cast<int>(std::lround(tg.worldWidth() * cell)));
-        e.h = std::max(1, static_cast<int>(std::lround(tg.worldHeight() * cell)));
+    // 预览显示尺寸 = 实际纹理尺寸（2026-08：斜周期 33336 系预览为"旋转到常规矩形"，
+    // 其纹理不是按 worldWidth/Height AABB 生成的，故不再估算纵横比，直接查纹理实际像素）。
+    {
+        Uint32 fmt = 0;
+        int acc = 0;
+        SDL_QueryTexture(e.tex, &fmt, &acc, &e.w, &e.h);
+        e.w = std::max(1, e.w);
+        e.h = std::max(1, e.h);
     }
-    // 注：cell 由 previewW 定，w/cell = width、h/cell = height；按 cell 补齐，避免整除偏差。
     items.push_back(e);
     if (outW) *outW = e.w;
     if (outH) *outH = e.h;

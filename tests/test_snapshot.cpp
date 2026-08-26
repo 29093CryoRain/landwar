@@ -361,43 +361,6 @@ TEST(Headless, SummaryDeterministic) {
     EXPECT_NE(s1, s3);  // 不同种子 → 摘要不同（state_hash 捕获状态差异）
 }
 
-// P10：wrap 开同种子确定性 + 与关态不同。wrap 消耗 0 RNG（反弹 bounceJitter 消耗 1）→
-// wrap 开产生新的确定性轨迹（state_hash 与关态不同）；同种子两次逐字节一致。
-// P13：地图/轨迹更新后 300 tick 内可能无兵到界（wrap 未触发 → 开关态相同），改动态扫描：
-// 两 sim 并排推进，用 simFingerprint（廉价：rng 状态哈希 + 计数）找首个分歧 tick，证明 wrap
-// 确实生效；分歧 tick 随地图变化而移动，不硬编码。分歧点两侧 state_hash 必不同。
-TEST(Headless, WrapDeterministicAndDiffersFromOff) {
-    auto run = [](bool wrap, std::uint32_t seed, int ticks) {
-        Options o;
-        o.map.wrap = wrap;
-        Simulation sim(lwtest::loadCfg(), seed);
-        EXPECT_TRUE(sim.init(o));
-        for (int i = 0; i < ticks; ++i) sim.tick();
-        return formatSummary(sim, seed);
-    };
-    // 同种子 → wrap 开摘要逐字节一致。
-    EXPECT_EQ(run(true, 42, 300), run(true, 42, 300));
-    // 动态找首个分歧 tick（wrap 开不消耗反弹 RNG → 首次到界即与关态分叉）。
-    constexpr int kMaxScan = 8000;
-    int divergeTick = -1;
-    {
-        Options oOn, oOff;
-        oOn.map.wrap = true;
-        oOff.map.wrap = false;
-        Simulation on(lwtest::loadCfg(), 42), off(lwtest::loadCfg(), 42);
-        ASSERT_TRUE(on.init(oOn));
-        ASSERT_TRUE(off.init(oOff));
-        for (int t = 1; t <= kMaxScan; ++t) {
-            on.tick();
-            off.tick();
-            if (simFingerprint(on) != simFingerprint(off)) { divergeTick = t; break; }
-        }
-    }
-    ASSERT_GT(divergeTick, 0) << kMaxScan << " tick 内 wrap 开关态未分歧（wrap 未生效？）";
-    // 分歧点处两侧 state_hash 不同（wrap 开 ≠ 关；同种子各自确定）。
-    EXPECT_NE(run(true, 42, divergeTick), run(false, 42, divergeTick));
-}
-
 // 回归（Phase 8 发现）：特效活跃时存档不再崩溃。Snapshot::serialize 曾用 Position 存储
 // 遍历兵，但特效也用 Position → 一旦有活跃特效（20000 tick 确定性出现），
 // get<Velocity> 触发 entt "Set does not contain entity" 断言。改为按兵专用存储 UnitType。

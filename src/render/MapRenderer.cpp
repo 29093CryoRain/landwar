@@ -32,12 +32,14 @@ void MapRenderer::bake(const std::vector<std::array<int, 3>>& factionColors) {
 }
 
 void MapRenderer::draw(const Map& map,
-                       const std::array<std::array<int, 3>, kFactionTotal>& tileColors) {
+                       const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
+                       const std::vector<std::array<std::array<int, 3>, kFactionTotal>>&
+                           gradeColors) {
     if (map.tiling() == TilingType::Square) {
         drawSquare(map, tileColors);
         return;
     }
-    drawTiled(map, tileColors);
+    drawTiled(map, tileColors, gradeColors);
 }
 
 // 正方形（现状路径，零改动）：矩形批次 + 山贴图。
@@ -91,13 +93,18 @@ void MapRenderer::drawSquare(const Map& map,
 }
 
 // P12 六/三角：逐格多边形填充（扇形三角化，SDL_RenderGeometry）+ 边界灰线 + 山贴图。
-void MapRenderer::drawTiled(const Map& map,
-                            const std::array<std::array<int, 3>, kFactionTotal>& tileColors) {
+void MapRenderer::drawTiled(
+    const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
+    const std::vector<std::array<std::array<int, 3>, kFactionTotal>>& gradeColors) {
     const TilingGeom& g = map.geom();
     Renderer r(ren_);
     SDL_Color groupColorArr[kColorGroups];
     for (int f = 0; f < kColorGroups; ++f)
         groupColorArr[f] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
+    // 2026-08 双色密铺分档：arch/laves 按格类型/朝向分档；gradeColors 非空（paletteSize>=2）
+    // 时逐格取档位色，否则回退到单色中点（方/六/三 / 单色情形）。档位色预取到 SDL_Color。
+    const bool graded = !gradeColors.empty();
+    const int paletteSize = graded ? static_cast<int>(gradeColors.size()) : 0;
     const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
     const double vy0 = cam_.viewWorldY0(), vy1 = cam_.viewWorldY1();
     int r0, r1, c0, c1;
@@ -123,8 +130,13 @@ void MapRenderer::drawTiled(const Map& map,
                 const MapCell& cell = map.atIndex(idx);
                 if (!cell.land) continue;
                 const int n = g.cellPolygon(idx, wx, wy, 12);
-                const SDL_Color col = groupColorArr[std::clamp(static_cast<int>(cell.belongi), 0,
-                                                               kColorGroups - 1)];
+                const int fid = std::clamp(static_cast<int>(cell.belongi), 0, kColorGroups - 1);
+                const SDL_Color col = [&]() -> SDL_Color {
+                    if (!graded) return groupColorArr[static_cast<size_t>(fid)];
+                    const int slot = std::clamp(g.tileColorIndex(idx), 0, paletteSize - 1);
+                    return Renderer::toColor(
+                        gradeColors[static_cast<size_t>(slot)][static_cast<size_t>(fid)]);
+                }();
                 // 扇形三角化：0-1-2, 0-2-3, ...（凸多边形有效）。
                 for (int k = 1; k + 1 < n; ++k) {
                     const int tri[3] = {0, k, k + 1};

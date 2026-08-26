@@ -79,6 +79,7 @@ private:
     void reloadConfig();      // F5/面板按钮：读盘重建模拟（同种子重启，调试）
     void reloadPalette();     // F7：按当前 uiConfig_ 重烘焙全部势力色（不重建模拟，⑫）
     bool applyPaletteColors();  // 按 uiConfig_ 重烘焙 兵表/山/城/标记/特效 颜色（init/F5/F7 共用）
+    void rebuildTilePalette();  // 仅重算 tileColors_/tileGradeColors_（双色密铺分档；buildSimulation 后当前地图就绪时用）
     void endgameSummary();    // 输出终局摘要到日志（headless --summary 同款）
     void takeScreenshot();    // F12：自动命名 userdata/screenshots/screenshot_N.png
     void saveScreenshot(const std::string& path);  // RenderReadPixels + IMG_SavePNG
@@ -136,7 +137,8 @@ private:
     std::string optionsPath_ = kDefaultOptionsPath;  // 菜单选项路径（开始游戏时保存；userdata/）
     std::string mapOverride_;          // CLI --map 覆盖
     Options options_;                  // 菜单选项（启动时从 optionsPath_ 读取）
-    std::array<std::array<int, 3>, kFactionTotal> tileColors_{};  // 地块填色（config.factionTileColor 缓存）
+    std::array<std::array<int, 3>, kFactionTotal> tileColors_{};  // 地块填色（config.factionTileColor 缓存，渐变中点）
+    std::vector<std::array<std::array<int, 3>, kFactionTotal>> tileGradeColors_{};  // 双色密铺分档配色（下标=档位）
     Config uiConfig_;                  // init() 的窗口/相机尺寸来源（菜单阶段 sim 未构建）。
                                        // 声明在 configPath_/optionsPath_/options_ 之后 →
                                        // 初始化顺序保证 ctor 中读取它们时已就绪。

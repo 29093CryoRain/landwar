@@ -38,8 +38,10 @@ void drawIcons(const std::vector<CityRenderer::Icon>& icons,
                const std::array<TintCache, 9>& towers, const TintCache& tower10,
                const TintCache& capital, bool useCapitalTex, Renderer& r, int alpha) {
     for (const auto& ic : icons) {
+        // 10 级及以上统一 tower10 贴图：等级塔数组 towers_ 只装 1..9（下标 = level-1），
+        // arch_33434 的 iconLevels 含 12 → texLevel=12 直接 towers_[11] 会越界 → 闪退（修 2026-08）。
         const TintCache& cache = useCapitalTex ? capital
-                                  : (ic.level == 10) ? tower10
+                                  : (ic.level >= 10) ? tower10
                                                      : towers[static_cast<size_t>(ic.level - 1)];
         if (cache.count() == 0) continue;
         const int ci = std::clamp(ic.colorIndex, 0, cache.count() - 1);
@@ -157,9 +159,12 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
 
         const bool tiled = map.tiling() != TilingType::Square;
         SDL_Rect block{0, 0, 0, 0};
+        // 形状占格（P12 六/三/半正/Laves）：本城形状格集合。整城只解析一次（存本城市）。
+        // 供视野剔除 AABB、高缩放外廓细线、图标拟合兜底三方共用（旧代码每处重复 cityCells）。
+        std::vector<int> cells;
         if (tiled) {
             // P12 六/三角：视野剔除用形状世界 AABB（屏幕）。
-            const std::vector<int> cells = map.cityCells(c);
+            cells = map.cityCells(c);
             double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
             double wx[12], wy[12];
             for (int ci : cells) {
@@ -197,7 +202,6 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
                 // P12：外廓 = 形状边界线段（邻格不在形状内的边段；cellEdge 与邻接同序）。
                 Hull h;
                 h.colorIndex = std::clamp(c.ownerId, 0, nColor - 1);
-                const std::vector<int> cells = map.cityCells(c);
                 for (int ci : cells) {
                     if (ci < 0) continue;
                     for (int k = 0; k < map.geom().neighborCount(); ++k) {
@@ -236,7 +240,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         const double cellPx = cam_.cellPx();
 
         // 先按普通城市贴图计算尺寸（首都图标面积与该普通贴图面积一致）。
-        double normalA = (texLevel == 10 ? tower10Aspect_ : srcAspect_[lvi]);
+        double normalA = (texLevel >= 10 ? tower10Aspect_ : srcAspect_[lvi]);
         if (normalA <= 0.0) normalA = 1.0;
         double normalFitW = 0.0;
         double normalIconCx = c.centerX(), normalIconCy = c.centerY();
@@ -254,15 +258,19 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
                     normalDirectFit = true;  // 配置值即最终 fitW
                 }
             }
-            // 竖直平移（世界单位）：每个形状变体/锚朝向独立记录。
+            // 竖直平移（世界单位）：每形状变体 × 每锚基础格类一条（2026-08-26 去重：bases = 该类的
+            // 全部基础格，命中 = iconLevel+variant 匹配 且 城市实际 anchorB ∈ bases）。
             const auto oIt = rc.city.iconFitOffsetY.find(tilingName(map.tiling()));
             if (oIt != rc.city.iconFitOffsetY.end()) {
                 const int anchorB = (map.geom().baseCount() > 0)
                                         ? (c.baseIndex % map.geom().baseCount())
                                         : 0;
                 for (const auto& rec : oIt->second) {
-                    if (rec.iconLevel == texLevel && rec.variant == c.shapeVariant
-                        && rec.anchorB == anchorB) {
+                    if (rec.iconLevel != texLevel || rec.variant != c.shapeVariant) continue;
+                    bool inClass = false;
+                    for (int b : rec.bases)
+                        if (b == anchorB) { inClass = true; break; }
+                    if (inClass) {
                         normalIconCy = c.centerY() + rec.value;
                         break;
                     }
@@ -270,7 +278,6 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
             }
             if (!haveFit) {
                 // 用真实形状多边形（世界坐标）拟合，而不是 AABB。
-                const std::vector<int> cells = map.cityCells(c);
                 std::vector<FitPoly> polys;
                 polys.reserve(cells.size());
                 double wx[12], wy[12];

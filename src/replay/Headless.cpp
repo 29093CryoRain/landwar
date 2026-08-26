@@ -95,15 +95,7 @@ int runHeadless(const CliOptions& opts) {
         if (!opts.mapPath.empty()) cfg.map.file = opts.mapPath;
         // P6 RNG 分离：主种子 seed；地图种子默认 = 主种子，可用 --map-seed 覆盖。
         sim = Simulation(cfg, seed, opts.mapSeedSet ? opts.mapSeed : seed);
-        // P10：--wrap → 带选项 init（Options 默认全启用 aiId=0 → 与 init() 同 RNG，仅 wrap 不同）。
-        if (opts.wrapSet) {
-            Options o;
-            o.map.wrap = opts.wrap;
-            if (!sim.init(o)) {
-                spdlog::error("simulation init failed (map missing?)");
-                return 1;
-            }
-        } else if (!sim.init()) {
+        if (!sim.init()) {
             spdlog::error("simulation init failed (map missing?)");
             return 1;
         }

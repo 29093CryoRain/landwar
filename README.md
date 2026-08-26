@@ -4,10 +4,11 @@
 （陆地/海洋/城市）上互相征战：产兵、移动、征服、战斗、激光/爆炸/地雷特效。逻辑与渲染完全
 解耦，60Hz 固定步长、确定性可复现。
 > 游戏概述见 `.docs/游戏概述.txt`。
-> 翻新(已实现)见`.docs/翻新计划.md`
-> 行为规范以 `.docs/开发计划.md` 。为准
+> 行为规格见 `.docs/翻新计划.md`；各阶段开发/完成记录见 `.docs/开发计划.md`。
 > 设计思路见 `.docs/开发思路.txt`。
 > **工程规范（编码约定）见 `.docs/工程规范.md`**——新代码先读它（路径/CMake/确定性/
+> 文档规范: 不要更改.txt后缀的文本.
+> 临时的脚本放到tools/目录下.
 > config 键/渲染器/UI 约定都在那里收敛）。
 本 README 只讲怎么构建/运行/用。
 
@@ -131,7 +132,7 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 |---|---|
 | `--headless` | 无头运行（不创建窗口） |
 | `--replay [SEED]` | 回放：等价 `--headless --seed SEED` 重跑（模拟完全确定） |
-| `--seed N` | 主随机种子（默认 42；驱动首都与后续一切） |
+| `--seed N` | 主随机种子（默认随机；显式指定后全程确定性。驱动首都与后续一切） |
 | `--map-seed N` | 地图随机种子（P6；默认=主种子；驱动随机图生成与山/城骰子，独立于主种子） |
 | `--ticks N` | 逻辑帧数（默认 20000） |
 | `--speed X` | 倍速（无头忽略；窗口模式渲染节奏） |
@@ -197,8 +198,7 @@ new_project_landwar/
     replay/            Cli、Headless、Snapshot（存档/回放）
     main.cpp           入口（无头 CLI 或窗口模式）
   tests/               单元测试（gtest，含黄金数据、确定性回归、性能验证）
-  tools/               measure_visual_radius（视觉半径量法）、gen_golden_map.
-  py（黄金数据）
+  tools/               measure_visual_radius（视觉半径量法）、gen_golden_map.py（黄金数据）
 ```
 
 ## 架构概览
@@ -214,7 +214,7 @@ new_project_landwar/
   HueRotate）+ `army_special.png`（签名兵种特殊版原样彩色，`kSpecialUnitFaction` 决定谁用）。
   纯渲染层，不影响模拟确定性。
 - **存档/回放**：`Snapshot` 全量序列化（实体 id 保持）→ `--save/--load/--replay`。
-- 历史设计/验收记录见 `.docs/翻新计划.md`（各 Phase 拆解、§2 行为规格、风险清单）。
+- 行为规格见 `.docs/翻新计划.md`；工程约定见 `.docs/工程规范.md`。
 
 ## 配置手册
 
@@ -226,6 +226,10 @@ new_project_landwar/
 `factions[i].secondary`=副色（旧势力默认浅灰 191；中立 id0 = 深灰 96 + 浅灰）、
 `render.tile`=地块格 主:副:白、`render.city.mix`=城市图标 主:副:黑 混合比例；
 改值后按 **F7** 重烘焙肉眼评美（不重建模拟）；键说明见 `.docs/配置说明.md`。
+**双色密铺分档（2026-08）**：arch/laves 密铺下地块格按 格类型（arch：边数升序）/朝向
+（laves：朝向角排序、以朝向种类数最小质因子循环）分档，各档用 `render.tile.variation`
+（半宽，默认 0.1）在 `[(P-x,S+x,W) → (P+x,S-x,W)]` 区间取不同填色（档数 2 → 两端、3 → 左中右；
+**三角**正/反两朝向同 laves 分两档；**方/六**与单色情形不分档）。
 
 ## 测试
 

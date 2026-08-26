@@ -13,6 +13,22 @@
 // 异常，用户指示先确认密铺系统正常、日后再恢复）→ 城市等级分布改变 → 方/六/三基线 hash
 // 全部漂移。**两个 Determinism 测试暂时禁用（DISABLED_ 前缀）**：等用户下令恢复幂律并
 // 确认密铺系统后，重跑 CLI 取新 hash 更新本文件与 .docs/开发计划.md §0。
+// 2026-08-24：Config 新增 render.tile.variation（双色密铺分档，纯渲染）→ config 序列化
+// 改变 → 方/六/三基线 hash 全部漂移（sim 行为不变：square land 1758/hex 2291/tri 3131）。
+// 2026-08-24：Laves4612 新增 L6 矩形城市变体（同级多种形状）→ config 序列化改变 + 若地图出现
+// 6 级城则其变体选择消耗 RNG → 方/六/三基线 hash 再漂移（square land 仍 1758，sim 同旧分布）。
+// 2026-08-24：Laves4612 城市形状表按新几何重写（上一版偏移对不上新 spec，城市乱套；本版
+// 按文档 2/4/4/6/6/12/12 重构并逐 base 验证解析唯一）→ config 序列化改变 → 基线 hash 再漂移
+//（sim 行为不变：square land 1758/hex 2291/tri 3131）。
+// 2026-08-25：补齐 arch/laves 3.3.3.3.6、3.3.4.3.4 城市形状表 + laves_4612 重写（锚格入形状、
+// 方向锚定）→ config 序列化改变 → 基线 hash 再漂移（sim 行为不变：square land 1758/hex 2291/tri 3131）。
+// 已重跑 CLI 更新（square 0x63ae8874dea10409、hex 0x3dfaffd9260c5441、tri 0x3d29e92db2e569ac）。
+// 2026-08-26：城市形状表外置 data/city_shapes.json；锚限制重构——ShapeCell 去 orient、
+// anchorN 删除（与掩码功能重叠，改由 baseGroups/anchorBases 组名列表承担）、掩码序列化
+// 改 anchorBases 数组 → config 序列化改变 → 基线 hash 再漂移（sim 行为不变：landCount
+// 断言同旧值）。重跑更新：
+// 2026-08-26 方案A：city_shapes.json 烘入世界坐标（删运行时 (dx,dy)→(-dy,dx)）→ 序列化再变，
+// sim 行为不变（landCount 同旧值）。square 0xdc3706c74b5cd67d、hex 0x284b259903d14665、tri 0x2138e03533eb2c08。
 #include <gtest/gtest.h>
 
 #include "core/Simulation.h"
@@ -23,14 +39,18 @@
 
 namespace {
 
-// 六/三角：生成随机 lwmap（seed=42，与 CLI --tiling 路径一致）→ init → 20k tick → hash。
-std::uint64_t runTiledBaseline(lw::TilingType t, int ticks = 1000) {
+// 随机地图确定性基线（2026-08-26 用户定夺）：不用预装 BMP，改按固定随机地图种子 42 生成
+// 一张 120×120 随机图（长=宽=120；对六/三角取各自 <=120 的合规最大值，此处 120 已偶），
+// 陆地占比 0.5、强制边缘为海、山密度 0.1、城密度 0.015，主种子 42（全默认 AI），跑 2500 tick
+// → state_hash。任何模拟行为变化（RNG 序列/移动/战斗/经济/科技/城市形状/几何…）都会改变哈希。
+// 更新流程（行为有意变更时）：改下方 hash 期望值，并在 .docs/开发计划.md §0 基线记录同步注明原因。
+std::uint64_t runRandomBaseline(lw::TilingType t, int ticks = 2500) {
     lw::Config cfg = lwtest::loadCfg();
     cfg.map.tiling = lw::tilingName(t);
-    lw::MapGenParams gp{105, 95, 0.40, 0.08, 0.02, 0.3, false, t};
+    lw::MapGenParams gp{120, 120, 0.5, 0.1, 0.015, 0.3, /*forceCoast=*/true, t};
     const std::string path = lw::MapGenerator::defaultPath(42, gp);
     EXPECT_TRUE(lw::MapGenerator::generate(path, 42, gp));
-    if (gp.height & 1) --gp.height;  // 偶数行（与生成器/Map::configure 一致）
+    if (gp.height & 1) --gp.height;  // 六/三角行数强制偶（与生成器/Map::configure 一致）
     cfg.map.width = gp.width;
     cfg.map.height = gp.height;
     cfg.map.file = path;
@@ -40,44 +60,17 @@ std::uint64_t runTiledBaseline(lw::TilingType t, int ticks = 1000) {
     return lw::fnv1a64(lw::Snapshot::serialize(sim));
 }
 
-TEST(Determinism, BaselineSeed42_1000Ticks_StateHash) {
-    lw::Simulation sim(lwtest::loadCfg(), 42);
-    ASSERT_TRUE(sim.init());
-    for (int i = 0; i < 1000; ++i) sim.tick();
-    const std::uint64_t h = lw::fnv1a64(lw::Snapshot::serialize(sim));
-    // 2026-08-17 城市生成重构（随机顺序 + 修正幂律 + 大城优先 + 生产力归一化）后
-    // 以 1000 tick 作为快速基线（20000 tick 过慢，用户指示缩小）。
-    EXPECT_EQ(h, 0xac7ce195c4fb467bull)
-        << "方形基线漂移！对应 CLI: landwar --headless --seed 42 --ticks 1000 --summary";
-    EXPECT_EQ(sim.faction(1).landCount + sim.faction(2).landCount + sim.faction(3).landCount +
-                  sim.faction(4).landCount + sim.faction(5).landCount + sim.faction(6).landCount +
-                  sim.faction(7).landCount + sim.faction(8).landCount,
-              1758);
+TEST(Determinism, BaselineSeed42_2500Ticks_RandomMap_StateHash) {
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0xb3d13d5ebdd1b1cdull)
+        << "square 随机图基线漂移";
 }
 
-// P12：六/三角各自基线（密铺几何 + 移动/特效路径独立于方形）。
-// 2026-08-15 更新：① 三角改常规直边布局（行内无 b/2 平移，邻接同列上下）；
-// ② 海拔场生成回退**最朴素版**（每格中心直接采样 fbm，零后处理；先后试过
-// "平滑+对平均"与"抗锯齿重采样"，用户实测均未彻底解决横纹/单朝向 → 回退作纯净基线，
-// 随后定位根因在 forceCoast 边缘判定——见下）；
-// ③ forceCoast 外圈判定改为"格多边形顶点贴边"（用户规范：100% 陆地时只有最外一圈海；
-//    此路径 CLI 默认 forceCoast=false 不触发，但城市形状表变更影响所有密铺）；
-// ④ 三角城市形状按用户定稿语义重做（正锚模式 + 反锚镜像：L1 正/反、L2 水平公共边、
-//    L4 大三角正/反、L6 六边形、L8 = L6+顶正+底反）→ 城市分布/经济轨迹变。
-// ⑤ 2026-08 三角**列数减半**（width 语义 = 视觉列数，列对数 = width/2 → 格数与方形
-//    一致；强制列数偶）→ 三角地图/格数减半 → tri hash 再更新（land 5866）；hex 不受
-//    影响（0x525b2d8fd4be80ab 未变）。
-// → hex/tri hash 更新（hex land=5922、tri land=5866）。
-// 2026-08-16 深夜-白天：Snapshot 新增 capitalsB 键（半正/Laves 首都基础格序号，全密铺
-// 序列化）→ hex/tri hash 再更新（sim 行为不变：hex land=5922 army=110、tri land=5866
-// army=494 与上基线相同）。
-// 2026-08-17 Laves 形状表重写 + Laves4612 spec 朝向修正 → 仅 config 序列化变化
-// （sim 行为不变）→ hash 更新。
-TEST(Determinism, BaselineHexTri_1000Ticks_StateHash) {
-    EXPECT_EQ(runTiledBaseline(lw::TilingType::Hex, 1000), 0x8a5f8c8f158a990a)
-        << "hex 基线漂移！对应 CLI: landwar --headless --tiling hex --seed 42 --ticks 1000 --summary";
-    EXPECT_EQ(runTiledBaseline(lw::TilingType::Tri, 1000), 0x8edf919cf21655f)
-        << "tri 基线漂移！对应 CLI: landwar --headless --tiling tri --seed 42 --ticks 1000 --summary";
+// P12：六/三角各自基线（密铺几何 + 移动/特效路径独立于方形）。同随机图参数（种子 42）。
+TEST(Determinism, BaselineHexTri_2500Ticks_RandomMap_StateHash) {
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0x8caa8fb275764ac8ull)
+        << "hex 随机图基线漂移";
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0xecf9ba0b68d5ad39ull)
+        << "tri 随机图基线漂移";
 }
 
 // 全密铺确定性小参数快测：地图小、城密度低、tick 少。只为锁“同 seed 必同 hash”。

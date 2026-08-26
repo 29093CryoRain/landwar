@@ -155,8 +155,8 @@ TEST(MountainEnc, SeaWhenAnyChannelBelow32) {
 
 TEST(MountainEnc, MountainProbabilityFromRChannel) {
     TinyMap t(1, 1);
-    t.rng.results = {false, true};  // 城=false，山=true
-    t.write({std::array<int, 3>{255, 32, 32}});  // r=255 → p_mtn=1；g=32 → p_city=0
+    t.rng.results = {true};  // 山骰=true（当前每陆格仅一骰：山；城许可为确定性 ramp(G)>0）
+    t.write({std::array<int, 3>{255, 32, 32}});  // r=255 → p_mtn=1；g=32 → 城许可 false
     t.load();
     EXPECT_TRUE(t.map.at(0, 0).land);
     EXPECT_TRUE(t.map.at(0, 0).mountain);
@@ -165,8 +165,8 @@ TEST(MountainEnc, MountainProbabilityFromRChannel) {
 
 TEST(MountainEnc, CityProbabilityFromGChannel) {
     TinyMap t(1, 1);
-    t.rng.results = {true, false};  // 城=true，山=false
-    t.write({std::array<int, 3>{32, 255, 32}});  // g=255 → p_city=1；r=32 → p_mtn=0
+    t.rng.results = {false};  // 山骰=false；城许可由 ramp(G) 决定（确定性，非骰）
+    t.write({std::array<int, 3>{32, 255, 32}});  // g=255 → 城许可 true；r=32 → p_mtn=0
     t.load();
     EXPECT_TRUE(t.map.at(0, 0).land);
     EXPECT_TRUE(t.map.at(0, 0).cityId >= 0);
@@ -195,9 +195,9 @@ TEST(MountainEnc, BChannelIdleButPartOfSeaRule) {
 }
 
 TEST(MountainEnc, FractionalRampConsumesRng) {
-    // r=200 → p_mtn=(200-128)/127≈0.567：验证 RNG 被咨询（结果决定山与否）。
+    // r=200 → p_mtn=(200-128)/127≈0.567：验证山骰从预设结果取（前一个为城市骰的旧写法已废）。
     TinyMap t(1, 1);
-    t.rng.results = {false, true};   // 城=false、山=true → 中等概率抽中
+    t.rng.results = {true};   // 山骰=true → 中等概率抽中
     t.write({std::array<int, 3>{200, 32, 32}});
     t.load();
     EXPECT_TRUE(t.map.at(0, 0).mountain);
@@ -212,12 +212,9 @@ TEST(MountainEnc, CoastCorrectionAppliedDuringLoad) {
     // 3×3：山标记 (0,0) 邻海(1,0) → 邻海修正清掉；山标记 (2,2) 全邻陆 → 保留。
     const std::array<int, 3> P{32, 32, 32}, M{255, 32, 32}, S{0, 0, 0};
     TinyMap t(3, 3);
-    // 行 j=0..2（j=0 = 图像底行），每行从左到右 3 格。
-    // 陆格按行优先顺序消耗两骰：[城, 山]。
-    // 8 个陆格：(0,0)M (2,0)P (0,1)P (1,1)P (2,1)P (0,2)P (1,2)P (2,2)M
-    // 想让两处 M 格山=true、其余全 false。
-    t.rng.results = {false, true,  false, false, false, false, false, false,
-                     false, false, false, false, false, false, false, true};
+    // 8 个陆格各消耗一骰（山；城为确定性许可）。全部置 山=true，使两处 M 格都成山，
+    // 再经邻海修正选择性清除——与洗牌顺序无关，稳健。
+    t.rng.results = {true, true, true, true, true, true, true, true};
     t.write({M, S, P, P, P, P, P, P, M});
     t.load();
     EXPECT_FALSE(t.map.at(0, 0).mountain);  // 邻海 → 清

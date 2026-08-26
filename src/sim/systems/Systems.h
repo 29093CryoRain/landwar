@@ -17,6 +17,8 @@
 
 namespace lw {
 
+struct MoveProfile;  // 定义见 core/Simulation.h（MovementSystem 内部细分计时；nullptr = 关闭）
+
 struct MoveContext {
     Map& map;
     std::vector<Faction>& factions;
@@ -28,11 +30,10 @@ struct MoveContext {
     double goSeaProbability = 1.0;
     int ttime = 0;
     const Config& config;
-    // P10 边界贯通开关：wrap 开启时撞地图边界→传送对侧（速度/方向不变，0 RNG）；关闭→反弹。
-    // 由 makeContext 从 sim.options().map.wrap 填充；单测自建 MoveContext 可显式设。
-    bool wrap = false;
     // P11：统计通道（nullptr = 不记录；单测自建 MoveContext 不设 → 纯移动测试零影响）。
     Statistics* stats = nullptr;
+    // 移动内部细分计时（2026-08 性能分析；nullptr = 关闭。单测自建不设 → 无开销）。
+    MoveProfile* moveProfile = nullptr;
 };
 
 // 征服 (x,y) 归势力 factionId（经 MoveContext 转 ConquerContext）。

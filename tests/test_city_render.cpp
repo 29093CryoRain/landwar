@@ -200,15 +200,22 @@ TEST(CityRender, CapitalIconScalesByLevelAndSourceAspect) {
     const double cellPx = f.cam.cellPx();
     const double boxW = static_cast<double>(f.map.city(cid).w) * cellPx;
     const double boxH = static_cast<double>(f.map.city(cid).h) * cellPx;
-    const double A = 150.0 / 100.0;
-    const double fitW = std::min(boxW, boxH / A);
-    const int expectedW = std::max(f.rc.capital.minIconSizePx, static_cast<int>(
-        std::lround(fitW * f.rc.capital.iconScale[3])));
-    const int expectedH = std::max(1, static_cast<int>(std::lround(expectedW * A)));
+    const double capA = 150.0 / 100.0;
+    // 复刻 CityRenderer::compute 的首都面积反推（P15）：普通城图标面积 S → 按首都纵横比 capA
+    // 反推宽高，保底 minIconSizePx。普通城 normalA = 塔源纵横比（本夹具未 setTowerSourceSize →
+    // srcAspect=0 → 按 1.0）。
+    const double normalA = 1.0;
+    const double normalFitW = std::min(boxW, boxH / normalA);
+    const int normalDstW = std::max(1, static_cast<int>(std::lround(normalFitW * f.rc.city.iconScale[3])));
+    const int normalDstH = std::max(1, static_cast<int>(std::lround(normalDstW * normalA)));
+    const double S = static_cast<double>(normalDstW) * static_cast<double>(normalDstH);
+    const int expectedW =
+        std::max(f.rc.capital.minIconSizePx, static_cast<int>(std::lround(std::sqrt(S / capA))));
+    const int expectedH = std::max(1, static_cast<int>(std::lround(expectedW * capA)));
     EXPECT_EQ(ic.dstW, expectedW);
     EXPECT_EQ(ic.dstH, expectedH);
+    EXPECT_GE(ic.dstW, f.rc.capital.minIconSizePx);
     EXPECT_LE(ic.dstW, boxW);
-    EXPECT_LE(ic.dstH, boxH);
 }
 
 // 空 capitalStatus（向后兼容）→ 全部按普通城市处理（无首都/候补分流）。

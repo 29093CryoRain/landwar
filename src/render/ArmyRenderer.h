@@ -21,8 +21,8 @@ public:
         : ren_(ren), sheet_(sheet), cam_(cam), drawSize_(drawSize) {}
 
     // 绘制全部非 Dead 活兵。跳过 Dead（tick 末才销毁，渲染时可能仍在 registry）。
-    // wrap=true（P10 边界贯通）：距图边 < 绘制尺寸的兵在对侧画副本（含角上对角）；关闭时不画。
-    void draw(const Simulation& sim, bool wrap);
+    // （2026-08 废除环绕：仅主位置单绘制，不再画对侧副本。）
+    void draw(const Simulation& sim);
 
     int drawSize() const { return drawSize_; }
 

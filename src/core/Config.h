@@ -148,6 +148,9 @@ struct Config {
     // 地块格填色 = 主:副:白 加权平均（render.tileMix）；城市图标填色 = 主:副:黑 加权（render.city.mix）。
     // id 越界 → 中性灰。实现见 Config.cpp（含单测）。
     std::array<int, 3> factionTileColor(int id) const;
+    // 地块格填色（±variation 渐变，2026-08 双色密铺分档）：t∈[0,1] 渐变位置（0=副色侧、
+    // 1=主色侧、0.5=中点 = factionTileColor(id)）。arch/laves 密铺按格类型/朝向分档取不同 t。
+    std::array<int, 3> factionTileColor(int id, double t) const;
     std::array<int, 3> factionCityColor(int id) const;
 
     struct Effect {
@@ -194,19 +197,20 @@ struct Config {
     // P12 改版：等级形状表**按密铺**（正方形沿用 w×h 语义；六边形轴向偏移；
     // 三角形世界偏移 + 朝向）。等级集按密铺（方 {1,2,4,6,9}、六 {1,3,4,6,7,9}、
     // 三 {1,2,4,6,8}）；**性质：各形状格数恰 = 等级数**（单测锁定）。
-    // 形状格 = 相对锚格中心的**世界单位偏移**（ShapeCell{dx,dy,orient}，
-    // orient：0=正/up、1=反/down；方/六恒 0）——parity-free，放置时经 worldToCell 解析。
+    // 形状格 = 相对锚格中心的**世界单位偏移**（ShapeCell{dx,dy}）——parity-free，
+    // 放置时经 worldToCell 解析。三角正/反朝向由锚格奇偶在运行时镜像 dy 处理
+    //（Map::shapeCells）；半正/Laves 已烘焙世界帧、锚格朝向由数据保证，运行时不旋转。
     struct City {
-        // 形状格（世界单位相对锚格中心的偏移 + 朝向）。
+        // 形状格（世界单位相对锚格中心的偏移）。
         struct ShapeCell {
             double dx = 0.0;
             double dy = 0.0;
-            int orient = 0;  // 0 = 正三角（六边形/正方形恒 0）；1 = 反三角
         };
         struct Shape {
-            int anchorN = 0;              // 锚点格边数（0=任意；半正/Laves 混合面时限定锚点格类型）
             // 锚点基础格限制位掩码（半正/Laves 表驱动；bit b = 允许 b 号基础格作锚）。
             // 0 = 不限制（方/六/三与未限制的形状）。用于"仅限朝向横平竖直的正方形"等规则。
+            // JSON 中存为 "anchorBases": [组名或基础格编号的数组]；组名在 baseGroups 中定义
+            //（几何完全一致的基础格归为一组）。运行时统一展开为本位掩码。
             std::uint32_t anchorBaseMask = 0;
             std::vector<ShapeCell> cells;  // cells[0] = 锚格（(0,0)）
         };
@@ -267,7 +271,8 @@ struct Config {
         //   P(x) ∝ n_x * (x + beta)^{-s}
         // beta 按当前密铺最小等级动态取 (1 - minLevel)/2。
         double levelRankExponent = 0.5;
-        // 各密铺等级/形状表（默认值内置，JSON 覆盖；square 段兼容旧 {level,w,h} 格式）。
+        // 各密铺等级/形状表（square/hex/tri 内置；半正/Laves 默认从 data/city_shapes.json
+        // 加载，缺失时单格兜底；config.json 的 city 段仍可覆盖。square 段兼容旧 {level,w,h}）。
         // square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]。
         TilingSet square;  // 默认 1/2/4/6/9：1×1 / 1×2 / 2×2 / 2×3 / 3×3
         TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，轴向偏移在 Config.cpp 转世界偏移）
@@ -300,7 +305,7 @@ struct Config {
 
     struct Sim {
         double tickRate = 60.0;
-        int maxArmyGuard = 50000;  // 防跑飞保险，非实际瓶颈
+        int maxArmyGuard = 50000;  // 防跑飞保险，非实际瓶颈 //实际上现在远小于该数值时, 就卡得不能玩了.
     } sim;
 
     struct Render {
@@ -310,10 +315,17 @@ struct Config {
         int armyDrawSize = 48;
         // 双色势力渲染混合比例（视觉工程改进 ⑫；JSON: render.tile）：
         // 地块格填色 = 主色:副色:白 加权平均（主副比例接近，默认 0.35:0.35:0.30）。
+        // variation（2026-08 双色密铺分档）：arch/laves 密铺按格类型/朝向分档时，
+        // 主/副权重围绕 (primary, secondary) 对称摆动的半宽——档位 t∈[0,1] 处权重 =
+        //   primary - variation + 2·variation·t （主权重）、
+        //   secondary + variation - 2·variation·t （副权重）、白权重恒 white。
+        // 即颜色随档位在 [(P-variation, S+variation, W) → (P+variation, S-variation, W)]
+        // 闭区间内渐变（t=0 副色侧 / t=0.5 中点 / t=1 主色侧）；t=0.5 时权重恰为无渐变值。
         struct TileMix {
             double primary = 0.35;
             double secondary = 0.35;
             double white = 0.30;
+            double variation = 0.1;
         } tileMix;
         // P13 城市渲染常数（render/CityRenderer）：细线围区阈值 / 图标最小尺寸 / 等级图标缩放表 /
         // 细线势力色加深系数。全部外置，mock 相机/缩放可测。
@@ -341,12 +353,14 @@ struct Config {
             // 渲染时 fitW = iconFitScale[tiling][texLevel] × cellPx，再 × iconScale[texLevel-1]。
             std::unordered_map<std::string, std::unordered_map<int, double>> iconFitScale;
             // 贴图竖直平移（世界单位，正=向上；由交互工具逐条目人工调定）。
-            // 每个城市形状变体/锚朝向独立享有，不做同级合并。
+            // 每项 = 某贴图等级 + 某同级形状变体 + 某**锚基础格类**（baseGroups 一个数组）的偏移，
+            // 同类内取均值（2026-08-26 去重：不再按单个 anchorB 展开）。渲染时 iconCy = centerY + value，
+            // 命中条件 = iconLevel + variant 匹配 且 城市实际 anchorB ∈ bases。
             struct IconFitOffsetY {
-                int iconLevel = 1;    // 贴图等级（1..10）
-                int variant = 0;      // 同级形状变体下标（City::shapeVariant）
-                int anchorB = 0;      // 锚基础格/朝向（hex=0；tri=0正/1倒；表驱动=baseB）
-                double value = 0.0;   // 世界单位偏移，渲染时 iconCy = centerY + value
+                int iconLevel = 1;        // 贴图等级（1..10）
+                int variant = 0;          // 同级形状变体下标（City::shapeVariant）
+                std::vector<int> bases;   // 该锚基础格类的全部基础格（baseGroups 一个数组的值）
+                double value = 0.0;       // 世界单位偏移（同类均值）
             };
             std::unordered_map<std::string, std::vector<IconFitOffsetY>> iconFitOffsetY;
             // 等级塔图标颜色加深系数（0-1）：图标色 = 势力色 × iconDarken（与玩家指示"城市显示
@@ -370,9 +384,6 @@ struct Config {
             //（普通城市无此下限、随缩放继续缩小）。2026-08-08 用户定夺：使缩到最小时首都渲染得
             // 比之前更大（原 city.minIconSizePx=12 → 本值 20，数值待实验）。
             int minIconSizePx = 20;
-            // 首都图标按等级缩放表（9 项，下标 = 等级-1）。语义同 city.iconScale：
-            // 图标尺寸按基建地块框自适应（fitW × iconScale），占位 1.0 = 填满框，待实验。
-            std::array<double, 9> iconScale = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
             // 正式首都基建区细线宽（比普通城市粗；高缩放才画）。
             double lineThickness = 2.5;
             // 候补指定新都虚化首都图标透明度（0-1）。
@@ -435,6 +446,9 @@ struct Config {
     static Config loadFromJson(const std::string& jsonText);
     // 从文件解析；文件缺失/解析失败时回退默认并记警告。
     static Config loadFromFile(const std::string& path);
+    // 从外置 data/city_icon_fits.json 加载 render.city.iconFitScale/iconFitOffsetY（2026-08-26）。
+    // 该两块不再读 config.json；缺省空（方/六/三用 iconScale；表驱动无 fit 则回退 CityIconFitter）。
+    static void loadCityIconFits(Config& c);
 
     // 序列化完整配置为 JSON（存档/回放用，Phase 6）。
     // 与 loadFromJson 键一一对称，保证 loadFromJson(toJson(cfg)) == cfg（往返无损）。

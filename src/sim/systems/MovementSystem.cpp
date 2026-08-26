@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <vector>
 
@@ -13,6 +14,29 @@
 namespace lw {
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+// 把一段时间累加到 Movement 内部细分计数器（剖析用；setMoveProfile 语义清晰）。
+void setMoveProfile(Simulation& sim, std::uint64_t& slot, Clock::duration d) {
+    slot += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(d).count());
+}
+
+// 逐兵子阶段计时（MoveProfile 非空才计；默认/单测 moveProfile=nullptr → 零开销）。
+struct MoveTimer {
+    std::uint64_t* slot = nullptr;
+    Clock::time_point t0;
+    MoveTimer(MoveProfile* p, std::uint64_t* s) : slot(p ? s : nullptr) {
+        if (slot) t0 = Clock::now();
+    }
+    ~MoveTimer() {
+        if (slot) {
+            *slot += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count());
+        }
+    }
+};
 
 // Phase 9：反弹角偏置。每 tick 抖动已取消，改为反弹（地图墙/下海失败/征服反弹）时
 // 添加一个随机小偏置（±~0.0034 rad），避免规则反射的对称性。
@@ -168,19 +192,7 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, Bounce&& doBounce, comp::
     return false;
 }
 
-// 位置夹到世界范围内（密铺用；含贴界内缩，保证 worldToCell 可解析）。
-void clampWorld(comp::Position& pos, double ww, double wh) {
-    pos.x = std::clamp(pos.x, 0.0, ww);
-    pos.y = std::clamp(pos.y, 0.0, wh);
-}
-
-// 位置按世界周期环绕（[0, period)）。
-void wrapPos(comp::Position& pos, bool offX, bool offY, double ww, double wh, int nc, int nr) {
-    if (offX) pos.x += (nc < 0 ? ww : -ww);
-    if (offY) pos.y += (nr < 0 ? wh : -wh);
-}
-
-// 方形路径：原版 moveArmy 主体（findNextXY 轴对齐格线穿越 + 边界 bounce/wrap）。
+// 方形路径：原版 moveArmy 主体（findNextXY 轴对齐格线穿越 + 边界 bounce）。
 static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos,
                            comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
                            comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
@@ -191,9 +203,16 @@ static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos
 
     double remLength = speed.value;
     while (remLength > 0) {
+        const auto t_geom = ctx.moveProfile ? Clock::now() : Clock::time_point{};
         const int boundaryCode = math::findNextXY(pos.x, pos.y, vel.angle, remLength, ctx.rng);
+        if (ctx.moveProfile)
+            ctx.moveProfile->geomNs += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_geom).count());
         // 战斗检查：每跨一格一次（§2.4）。命中则双方标死，本兵本 tick 移动中止。
-        if (CombatSystem::checkAt(ctx, e, pos, col, fid)) return;
+        {
+            MoveTimer ct(ctx.moveProfile, &ctx.moveProfile->combatNs);
+            if (CombatSystem::checkAt(ctx, e, pos, col, fid)) return;
+        }
 
         if (boundaryCode == -3) continue;  // 撞角：findNextXY 内已反向（+π+微偏置），继续本 tick 移动
         if (boundaryCode < 0 || boundaryCode > 3) {
@@ -203,47 +222,29 @@ static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos
             if (pos.y < 0) pos.y = kEps;
             if (pos.y > map.height()) pos.y = map.height() - kEps;
             if (map.at(static_cast<int>(pos.x), static_cast<int>(pos.y)).belongi != fid.value) {
-                conquerAt(ctx, static_cast<int>(pos.x), static_cast<int>(pos.y), fid.value,
-                          static_cast<int>(unit.type));  // P11：占领 credit = 该兵
+                {
+                    MoveTimer ct(ctx.moveProfile, &ctx.moveProfile->conquerNs);
+                    conquerAt(ctx, static_cast<int>(pos.x), static_cast<int>(pos.y), fid.value,
+                              static_cast<int>(unit.type));
+                }
             }
             return;
         }
-        // 地图边界（P10 环绕）：wrap 开启 → 传送对侧（速度/方向不变，0 RNG）；关闭 → 反弹（翻角 + 随机小偏置）。
-        // 传送目标取对侧"刚进界"位置（kEps 偏移，避开 findNextXY 的格线 eps 语义），并保留本 tick 剩余
-        // 移动量继续走（与原反弹路径同构：continue）。跨过边界后下一格的山/海陆转换在下次格线跨越时正常
-        // 评估（边界瞬态格不单独处理，属 P10 已知轻微不完善，见开发计划 P10 记录）。撞角(-3) 保持原处理
-        // ——反向 +π+4eps 后继续，若随后撞界自然被本块 wrap 处理（坐标归一）。
-        const bool wrapMode = ctx.wrap;
+        // 地图边界（废除环绕后统一反弹：翻角 + 随机小偏置，保留本 tick 剩余移动量继续走）。
         if (boundaryCode == 0 && pos.x <= 0) {
-            if (wrapMode) {
-                pos.x = map.width() - kEps;
-            } else {
-                bounce(ctx, vel, boundaryCode);
-            }
+            bounce(ctx, vel, boundaryCode);
             continue;
         }
         if (boundaryCode == 1 && pos.y <= 0) {
-            if (wrapMode) {
-                pos.y = map.height() - kEps;
-            } else {
-                bounce(ctx, vel, boundaryCode);
-            }
+            bounce(ctx, vel, boundaryCode);
             continue;
         }
         if (boundaryCode == 2 && pos.x >= map.width()) {
-            if (wrapMode) {
-                pos.x = kEps;
-            } else {
-                bounce(ctx, vel, boundaryCode);
-            }
+            bounce(ctx, vel, boundaryCode);
             continue;
         }
         if (boundaryCode == 3 && pos.y >= map.height()) {
-            if (wrapMode) {
-                pos.y = kEps;
-            } else {
-                bounce(ctx, vel, boundaryCode);
-            }
+            bounce(ctx, vel, boundaryCode);
             continue;
         }
 
@@ -266,15 +267,22 @@ static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos
             gy = static_cast<int>(pos.y + kEps);
         }
         const auto doBounce = [&] { bounce(ctx, vel, boundaryCode); };
-        processEnteredCell(ctx, gy * w + gx, doBounce, vel, speed, remLength, onLand, mtn, fid,
-                           unit, hist);
+        {
+            MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
+            processEnteredCell(ctx, gy * w + gx, doBounce, vel, speed, remLength, onLand, mtn, fid,
+                               unit, hist);
+        }
     }
     // 夹取到 [0, Map_x]×[0, Map_y]（每 tick 抖动已取消，Phase 9）。
     pos.x = std::clamp(pos.x, 0.0, static_cast<double>(map.width()));
     pos.y = std::clamp(pos.y, 0.0, static_cast<double>(map.height()));
 }
 
-// P12 密铺路径：crossEdge 边穿越 + 顶点 nudge + 世界周期环绕 / 边线反射反弹 + 边邻征服。
+// P12 密铺路径：crossEdge 边穿越 + 顶点穿越 + 边线反射反弹 + 边邻征服。
+// 边界语义：废除环绕后统一为**反弹**（沿所撞边的直线角反射 + 随机小偏置，与方形一致）。
+// 简洁原则：不做位置 clamp 兜底（clamp 会掩盖"军队真到边界"的信号，把贴界顶点误判为
+// 仍在格内 → 无限循环卡死）。军队只通过 crossEdge/顶点穿越推进；一旦 worldToCell 无法
+// 解析当前位置（贴界顶点/越界），即按反弹处理。
 static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
                           comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
                           comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
@@ -282,75 +290,68 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
     const auto& cfg = ctx.config;
     const auto& map = ctx.map;
     const TilingGeom& g = map.geom();
-    const double ww = map.worldWidth(), wh = map.worldHeight();
     double remLength = speed.value;
     int cellIdx = g.worldToCell(pos.x, pos.y);
-    // 界外兜底（起始位置贴界/角点）：内缩再取；仍失败 → 反弹。
+    // 起始位置若恰落顶点/越界（贴界 spawn）：向内微调一步再取（仅起始兜底，非循环）。
     if (cellIdx < 0) {
-        clampWorld(pos, ww, wh);
+        const double ox = pos.x, oy = pos.y;
+        pos.x = std::clamp(ox, kEps, map.worldWidth() - kEps);
+        pos.y = std::clamp(oy, kEps, map.worldHeight() - kEps);
         cellIdx = g.worldToCell(pos.x, pos.y);
     }
     int guard = 0;  // 防死循环（异常路径；正常远用不到）
-    const auto relocate = [&]() {
-        cellIdx = g.worldToCell(pos.x, pos.y);
-        if (cellIdx < 0) {  // 贴界/角点防御：内缩后重取
-            pos.x = std::clamp(pos.x, kEps, ww - kEps);
-            pos.y = std::clamp(pos.y, kEps, wh - kEps);
-            cellIdx = g.worldToCell(pos.x, pos.y);
-        }
-    };
     while (remLength > 0) {
-        if (++guard > 10000) {  // 防御：异常路径强制退出（正常穿越每格 ≤ 数次迭代）
+        if (++guard > 1000) {
             spdlog::warn("moveArmyTiled: stuck guard (pos {:.3f},{:.3f} cell {} rem {:.4f})", pos.x,
                          pos.y, cellIdx, remLength);
             break;
         }
         // 战斗检查：每跨一格一次（§2.4）。
-        if (CombatSystem::checkAt(ctx, e, pos, col, fid)) return;
+        {
+            MoveTimer ct(ctx.moveProfile, &ctx.moveProfile->combatNs);
+            if (CombatSystem::checkAt(ctx, e, pos, col, fid)) return;
+        }
 
+        const auto t_geom = ctx.moveProfile ? Clock::now() : Clock::time_point{};
         const int crossed =
             (cellIdx >= 0) ? g.crossEdge(cellIdx, pos.x, pos.y, vel.angle, remLength) : -1;
+        if (ctx.moveProfile)
+            ctx.moveProfile->geomNs += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_geom).count());
         if (crossed == -2) {
-            // 走完本段：夹取 + 终点格补一次征服，返回。
-            clampWorld(pos, ww, wh);
-            relocate();
-            if (cellIdx >= 0 && map.atIndex(cellIdx).belongi != fid.value)
+            // 走完本段：终点格补一次征服，返回。
+            if (cellIdx >= 0 && map.atIndex(cellIdx).belongi != fid.value) {
+                MoveTimer conq(ctx.moveProfile, &ctx.moveProfile->conquerNs);
                 conquerAtIndex(ctx, cellIdx, fid.value, static_cast<int>(unit.type));
+            }
+            pos.x = std::clamp(pos.x, 0.0, map.worldWidth());
+            pos.y = std::clamp(pos.y, 0.0, map.worldHeight());
             return;
         }
         if (crossed == -1) {
-            // 顶点命中/贴边：nudge ε 穿越顶点后重定位；界外 → 环绕或反弹（角点退化，
-            // 反向 + jitter，与方形 -3 撞角语义对应）。
-            pos.x += kEps * std::cos(vel.angle);
-            pos.y += kEps * std::sin(vel.angle);
-            relocate();
-            if (cellIdx >= 0) continue;
-            if (ctx.wrap) {
-                pos.x = std::fmod(pos.x, ww);
-                if (pos.x < 0) pos.x += ww;
-                pos.y = std::fmod(pos.y, wh);
-                if (pos.y < 0) pos.y += wh;
-                relocate();
-            } else {
-                vel.angle += kPi + 4.0 * kEps;
-                vel.angle += bounceJitter(ctx);
-                relocate();
-            }
+            // 顶点命中/贴边：沿方向 nudge 穿越顶点，重新解析。crossEdge 已把位置推进到顶点
+            //（贴顶点/角的测度零位置）；kEps 太小可能仍"贴着"顶点原路返回 → 死锁。
+            // 用一个小而有意义的步长（相对格对角线尺度）确保越过顶点进入相邻格。
+            const double nudge = std::max(1e-3, 0.02 * std::min(map.worldWidth(),
+                                                               map.worldHeight())
+                                                      / static_cast<double>(std::max(1, g.cols)));
+            pos.x += nudge * std::cos(vel.angle);
+            pos.y += nudge * std::sin(vel.angle);
+            cellIdx = g.worldToCell(pos.x, pos.y);
+            if (cellIdx >= 0) continue;  // 已穿越进入相邻格
+            // 顶点两侧都无格：贴地图边界顶点/角。反向 + jitter（与方形撞角语义对应）。
+            vel.angle += kPi + 4.0 * kEps;
+            vel.angle += bounceJitter(ctx);
             continue;
         }
-        // 正常穿越：crossed = 边序号；先判邻格是否越界（边界），再进入。
+        // 正常穿越：crossed = 边序号；先判邻格是否越界（地图边界），再进入。
         int nr, nc;
         g.neighborRaw(cellIdx, crossed, nr, nc);
         const bool offX = (nc < 0 || nc >= g.cols);
         const bool offY = (nr < 0 || nr >= g.rows);
         if (offX || offY) {
-            // 地图边界：wrap 开 → 位置按世界周期环绕（速度/方向不变，0 RNG）；关 → 边线反射反弹。
-            if (ctx.wrap) {
-                wrapPos(pos, offX, offY, ww, wh, nc, nr);
-                relocate();
-            } else {
-                bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed));
-            }
+            // 撞地图边界：边线反射反弹。
+            bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed));
             continue;
         }
         // 进入格（六/三角邻格恒为反向；neighbor 返回界内下标）。
@@ -360,29 +361,40 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
             continue;
         }
         const auto doBounce = [&] { bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed)); };
-        const bool bounced =
-            processEnteredCell(ctx, nb, doBounce, vel, speed, remLength, onLand, mtn, fid, unit,
-                               hist);
+        const bool bounced = [&] {
+            MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
+            return processEnteredCell(ctx, nb, doBounce, vel, speed, remLength, onLand, mtn, fid,
+                                      unit, hist);
+        }();
         // 反弹 → 保持原格（退回）；成功进入 → 跟踪目标格。
         if (!bounced) cellIdx = nb;
     }
-    clampWorld(pos, ww, wh);
+    // 顶点穿越/边界反弹过程中位置可能略越出真实边界（贴界顶点残差），夹回界内——
+    // 仅在移动结束后（循环已退出），不会掩盖"撞边界"信号（否则无法反弹，见卡死分析）。
+    pos.x = std::clamp(pos.x, 0.0, map.worldWidth());
+    pos.y = std::clamp(pos.y, 0.0, map.worldHeight());
 }
 
 }  // namespace
 
 MoveContext MovementSystem::makeContext(Simulation& sim) {
-    return MoveContext{sim.map(),      sim.factions(),       sim.rng(),
-                       sim.pendingSpawns(), sim.deaths(),     sim.registry(),
-                       sim.spatialHash(),   sim.goSeaProbability(),
-                       static_cast<int>(sim.tickCount()), sim.config(),
-                       sim.options().map.wrap,  // P10：边界贯通开关（默认 false → 基线不变）
-                       &sim.stats()};  // P11：统计通道（conquerAt/markDead 记录 credit）
+    MoveContext ctx{sim.map(),      sim.factions(),       sim.rng(),
+                    sim.pendingSpawns(), sim.deaths(),     sim.registry(),
+                    sim.spatialHash(),   sim.goSeaProbability(),
+                    static_cast<int>(sim.tickCount()), sim.config(),
+                    &sim.stats()};  // P11：统计通道（conquerAt/markDead 记录 credit）
+    ctx.moveProfile = sim.profile().enabled ? &sim.profile().move : nullptr;  // 剖析开关
+    return ctx;
 }
 
 void MovementSystem::update(Simulation& sim) {
     MoveContext ctx = makeContext(sim);
+    // 性能细分：hash 重建 / 排序 / 逐兵 move（2026-08 分析；非剖析态仅一次分支判断）。
+    const bool prof = sim.profile().enabled;
+    const auto t_h0 = prof ? Clock::now() : Clock::time_point{};
     ctx.spatialHash.build(ctx.registry, ctx.map.geom());  // P12：按密铺格分桶
+    const auto t_h1 = prof ? Clock::now() : Clock::time_point{};
+    if (prof) setMoveProfile(sim, sim.profile().moveHashNs, t_h1 - t_h0);
     auto view = ctx.registry
                     .view<comp::Position, comp::Velocity, comp::Speed, comp::OnLand,
                           comp::Collider, comp::FactionId, comp::UnitType, comp::LandHistory>();
@@ -392,10 +404,13 @@ void MovementSystem::update(Simulation& sim) {
     std::sort(armies.begin(), armies.end(), [](entt::entity a, entt::entity b) {
         return entt::to_integral(a) > entt::to_integral(b);
     });
+    const auto t_loop = prof ? Clock::now() : Clock::time_point{};
+    if (prof) setMoveProfile(sim, sim.profile().moveSortNs, t_loop - t_h1);
     for (auto e : armies) {
         if (ctx.registry.all_of<comp::Dead>(e)) continue;  // 本 tick 已被战斗标死
         moveArmy(ctx, e);
     }
+    if (prof) setMoveProfile(sim, sim.profile().moveLoopNs, Clock::now() - t_loop);
 }
 
 void MovementSystem::moveArmy(MoveContext& ctx, entt::entity e) {
@@ -410,6 +425,7 @@ void MovementSystem::moveArmy(MoveContext& ctx, entt::entity e) {
     auto& unit = ctx.registry.get<comp::UnitType>(e);
     auto& hist = ctx.registry.get<comp::LandHistory>(e);
 
+    MoveTimer loopTimer(ctx.moveProfile, ctx.moveProfile ? &ctx.moveProfile->loopNs : nullptr);
     // P12：正方形走原版路径（findNextXY 轴对齐穿越，零行为变化）；六/三角走密铺路径。
     if (ctx.map.tiling() == TilingType::Square) {
         moveArmySquare(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist);

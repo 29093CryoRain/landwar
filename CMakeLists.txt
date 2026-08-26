@@ -166,6 +166,15 @@ target_link_libraries(landwar PRIVATE
 landwar_warnings(landwar)
 
 # ---------------------------------------------------------------------------
+# 性能剖析工具（tools/perf_analysis.cpp，临时）：定位无头 tick 各阶段热点。
+# 与项目同警告级别；仅依赖 landwar_core（纯逻辑，无 SDL）。
+# ---------------------------------------------------------------------------
+add_executable(landwar_perf tools/perf_analysis.cpp)
+target_include_directories(landwar_perf PRIVATE src)
+target_link_libraries(landwar_perf PRIVATE landwar_core)
+landwar_warnings(landwar_perf)
+
+# ---------------------------------------------------------------------------
 # 单元测试（gtest, MSYS2: mingw-w64-ucrt-x86_64-gtest）
 # 2026-08：新增 test_baseline.cpp（20k tick 确定性基线 hash 锁定）。
 # ---------------------------------------------------------------------------
@@ -193,6 +202,7 @@ add_executable(landwar_tests
     tests/test_mapgen.cpp
     tests/test_math.cpp
     tests/test_mountain.cpp
+    tests/test_move_perf.cpp
     tests/test_options.cpp
     tests/test_panels.cpp
     tests/test_perf.cpp
@@ -205,8 +215,7 @@ add_executable(landwar_tests
     tests/test_tech.cpp
     tests/test_tiling.cpp
     tests/test_tiling_table.cpp
-    tests/test_tint.cpp
-    tests/test_wrapdraw.cpp)
+    tests/test_tint.cpp)
 target_include_directories(landwar_tests PRIVATE src)
 target_link_libraries(landwar_tests PRIVATE
     landwar_core
