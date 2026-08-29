@@ -27,6 +27,9 @@ void Faction::initFromDef(const Config::Faction& def, const Config& cfg) {
     landCount = 0;
     numArmyProduced = 0;
     economy = cfg.economy.initialEconomy;  // 留存值起点（库存）
+    economyRate = 0.0;
+    techRate = 0.0;
+    maxCityLevel = 0.0;
     freeArmyChance = def.freeArmyChance;
     spawnAngle = 0.0;
     spawnAngleSet = false;
@@ -66,18 +69,19 @@ int Faction::techLevel() const {
     return sum;
 }
 
-void Faction::insertCity(int cityId) {
+void Faction::insertCity(int cityId, double level) {
     if (id <= 0 || id >= kFactionTotal) return;
     if (cityId < 0) return;
     for (int cid : cityIds)
         if (cid == cityId) return;  // 已存在，去重
     cityIds.push_back(cityId);
     cityCount = static_cast<int>(cityIds.size());
+    maxCityLevel = std::max(maxCityLevel, level);
     // 不变量（工程改进）：cityCount 恒等于 cityIds.size()（双簿记防漂移）。
     assert(cityCount == static_cast<int>(cityIds.size()));
 }
 
-void Faction::removeCity(int cityId) {
+void Faction::removeCity(int cityId, double level) {
     if (cityIds.empty() || id <= 0 || id >= kFactionTotal) return;
     for (size_t i = 0; i < cityIds.size(); ++i) {
         if (cityIds[i] == cityId) {
@@ -85,9 +89,18 @@ void Faction::removeCity(int cityId) {
             std::swap(cityIds[i], cityIds.back());
             cityIds.pop_back();
             cityCount = static_cast<int>(cityIds.size());
+            if (level >= maxCityLevel) maxCityLevel = 0.0;
             assert(cityCount == static_cast<int>(cityIds.size()));  // 不变量同上
             break;
         }
+    }
+}
+
+void Faction::recomputeMaxCityLevel(const Map& map) {
+    maxCityLevel = 0.0;
+    for (int cid : cityIds) {
+        if (cid >= 0 && cid < map.cityCount())
+            maxCityLevel = std::max(maxCityLevel, map.city(cid).level);
     }
 }
 
@@ -115,8 +128,9 @@ void Faction::conquerIndex(ConquerContext& ctx, int index) {
         City& city = ctx.map.city(cell.cityId);
         if (city.ownerId != this->id && allBaseCellsOwned(ctx.map, city, this->id)) {
             Faction& curOwner = ctx.factions[static_cast<size_t>(city.ownerId)];
-            curOwner.removeCity(city.id);
-            this->insertCity(city.id);
+            curOwner.removeCity(city.id, city.level);
+            curOwner.recomputeMaxCityLevel(ctx.map);
+            this->insertCity(city.id, city.level);
             city.ownerId = this->id;
             city.lastCapturedTick = ctx.tick;
             // 势力8：整城易主一次免费产兵机会（原版每城一次；多格城市非每格）。

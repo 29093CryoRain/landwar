@@ -62,17 +62,19 @@ TEST(Effect, BombConquersCircleAndExpires) {
     clearArmies(sim);
 
     placeEffect(sim, 20.5, 20.5, 1, EffectType::bomb, 2.4);
-    sim.tick();  // tt=0：r = sqrt(1)*2.4 = 2.4，0%2==0 → 征服
+    sim.tick();  // tt=0：r = sqrt(1)*2.4 = 2.4，0%4==0 → 征服
     EXPECT_EQ(sim.map().at(20, 20).belongi, 1);  // 圆心格
     EXPECT_EQ(sim.map().at(19, 20).belongi, 1);  // 距离 1.0 < 2.4
     EXPECT_EQ(sim.map().at(22, 22).belongi, 0);  // 距离 2.83 > 2.4 未征服
     EXPECT_EQ(sim.map().at(20, 30).belongi, 0);  // 远处未征服
 
-    sim.tick();  // tt=1（奇数不征服）
-    sim.tick();  // tt=2：r = sqrt(3)*2.4 = 4.16 → (22,22) 距离 2.83 被征服
+    sim.tick();  // tt=1（非 4 的倍数不征服）
+    sim.tick();  // tt=2（扩散时间倍率 0.5，未到征服周期）
+    sim.tick();  // tt=3（非 4 的倍数不征服）
+    sim.tick();  // tt=4：r = sqrt(3)*2.4 = 4.16 → (22,22) 距离 2.83 被征服
     EXPECT_EQ(sim.map().at(22, 22).belongi, 1);
 
-    for (int t = 0; t < 8; ++t) sim.tick();  // 到 tt=10（tt>8 已消亡）
+    for (int t = 0; t < 16; ++t) sim.tick();  // 超过 tt=16 后消亡
     EXPECT_EQ(countEffects(sim, EffectType::bomb), 0);
 }
 
@@ -98,6 +100,7 @@ TEST(Effect, MineTriggersAndExplodes) {
     cfg.effect.mine.armTicks = 0;         // 立即进入可引爆状态
     cfg.effect.mine.checkEveryTicks = 1;  // 每 tick 探测
     cfg.effect.mine.timeoutTicks = 3600;  // 不超时（隔离引爆分支）
+    cfg.effect.bomb.conquerEveryTicks = 1;  // 隔离地雷逻辑，爆炸每 tick 生效
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
     clearToLand(sim, 0);
@@ -111,8 +114,7 @@ TEST(Effect, MineTriggersAndExplodes) {
     EXPECT_EQ(countEffects(sim, EffectType::mine), 0);
     EXPECT_EQ(countEffects(sim, EffectType::bomb), 1);
 
-    sim.tick();  // 爆炸 tt=1（奇数不击杀）
-    sim.tick();  // 爆炸 tt=2：r = sqrt(3)*1.1 = 1.9 击杀（敌兵移动 ~0.6 仍在范围内）
+    sim.tick();  // 爆炸 tt=1：击杀（敌兵移动仍在范围内）
     EXPECT_FALSE(sim.registry().valid(enemy));
 }
 
@@ -223,7 +225,8 @@ TEST(Effect, LaserStopsAtEnemyTerritory) {
     auto enemy = SpawnSystem::spawnArmy(sim, 20.5, 10.5, 2, ArmyType::normal);
     ASSERT_TRUE(enemy != entt::null);
 
-    sim.tick();  // tt=0：光束到 (12,10) 边界停（length=1.5 < lst+2）→ 尖端格征服
+    sim.tick();  // tt=0：光束延伸 1 格，尚未到达 (12,10)
+    sim.tick();  // tt=1：光束到 (12,10) 边界停（length=1.5 < lst+1）→ 尖端格征服
     EXPECT_EQ(sim.map().at(12, 10).belongi, 1);  // 尖端敌格被征服
     EXPECT_TRUE(sim.registry().valid(enemy));     // 线段外的敌兵未死
 }
@@ -280,8 +283,8 @@ TEST(Effect, LaserHugsMapBoundary) {
     sim.tick();
     EXPECT_FALSE(sim.registry().valid(nearTop));
 
-    // 生命周期内（22 tick）贴界推进不崩溃。
-    for (int t = 0; t < 30; ++t) sim.tick();
+    // 生命周期内（44 tick）贴界推进不崩溃。
+    for (int t = 0; t < sim.config().effect.laser.durationTicks + 2; ++t) sim.tick();
     EXPECT_EQ(countEffects(sim, EffectType::laser), 0);  // 寿命结束全部消亡
 }
 

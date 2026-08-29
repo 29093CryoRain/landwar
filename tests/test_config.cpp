@@ -30,6 +30,7 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.factions[5].extraLaserBeams, 2);       // 绿：激光 3 条
     EXPECT_EQ(cfg.factions[6].bombRadius, 4.08);         // 橙：爆炸半径覆盖
     EXPECT_EQ(cfg.effect.bomb.baseRadius, 2.4);          // 炸弹死亡爆炸基础半径
+    EXPECT_EQ(cfg.effect.bomb.expansionRate, 1.0);       // 内置默认；数据配置为 0.5
     EXPECT_EQ(cfg.factions[7].mineTriggerRadius, 1.43);  // 紫：地雷引爆爆炸半径覆盖
     EXPECT_EQ(cfg.factions[8].freeArmyChance, 0.6);      // 品红：免费产兵
     // 双色系统（⑫）：副色默认浅灰 191；中立灰占位主色 = 深灰 96（用户定夺"深灰+浅灰"）。
@@ -57,14 +58,14 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.units[6].sizeMult, 1.3);    // 碰撞半径 1.3×
     EXPECT_EQ(cfg.units[6].periodic, lw::PeriodicAction::firePistol);
     EXPECT_EQ(cfg.units[6].periodTicks, 120);
-    EXPECT_EQ(cfg.units[6].bulletSpeed, 0.5);  // 2026-08-07 定为原值 1.5 的 1/3
+    EXPECT_EQ(cfg.units[6].bulletSpeed, 0.5);
     EXPECT_EQ(cfg.units[6].bulletLifespanTicks, 90);
     EXPECT_EQ(cfg.units[7].cost, 120.0);      // 霰弹成本 120
     EXPECT_EQ(cfg.units[7].speedMult, 0.5);
     EXPECT_EQ(cfg.units[7].sizeMult, 1.3);
     EXPECT_EQ(cfg.units[7].periodic, lw::PeriodicAction::fireShotgun);
     EXPECT_EQ(cfg.units[7].periodTicks, 180);
-    EXPECT_NEAR(cfg.units[7].bulletSpeed, 1.0 / 3.0, 1e-12);        // 原值 1.0 的 1/3
+    EXPECT_NEAR(cfg.units[7].bulletSpeed, 1.0 / 3.0, 1e-12);
     // 2026-08 细节改进：速度方差收窄到基准值 0.8~1.2 倍（±20%，原 ±50% = 0.5/3）。
     EXPECT_NEAR(cfg.units[7].bulletSpeedJitter, 0.2 / 3.0, 1e-12);
     EXPECT_EQ(cfg.units[7].bulletCount, 3);
@@ -77,8 +78,8 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.projectile.mountainLifespanPenalty, 2);
     // P14 经济重构：朴素逐 tick 收入键（占位默认）；旧魔法公式键已删除。
     EXPECT_NEAR(cfg.economy.initialEconomy, 1.1, 1e-12);
-    EXPECT_NEAR(cfg.economy.perLandIncome, 0.003, 1e-12);
-    EXPECT_NEAR(cfg.economy.cityBaseMult, 8.0, 1e-12);
+    EXPECT_NEAR(cfg.economy.perLandIncome, 0.003, 1e-12);  // 内置默认保持原值
+    EXPECT_NEAR(cfg.economy.cityBaseMult, 8.0, 1e-12);     // 内置默认保持原值
     EXPECT_NEAR(cfg.economy.capitalBase, 0.0, 1e-12);
 }
 
@@ -161,6 +162,26 @@ TEST(Config, LoadsDataFile) {
     EXPECT_EQ(cfg.map.width, 105);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
     EXPECT_NEAR(cfg.army.spawnAngleStep, 2.0, 1e-12);
+    EXPECT_NEAR(cfg.army.baseSpeed, 0.15, 1e-12);
+    EXPECT_EQ(cfg.effect.bomb.lifetimeTicks, 16);
+    EXPECT_EQ(cfg.effect.bomb.conquerEveryTicks, 4);
+    EXPECT_NEAR(cfg.effect.bomb.expansionRate, 0.5, 1e-12);
+    EXPECT_EQ(cfg.effect.mine.armTicks, 1200);
+    EXPECT_EQ(cfg.effect.mine.checkEveryTicks, 24);
+    EXPECT_EQ(cfg.effect.mine.timeoutTicks, 7200);
+    EXPECT_EQ(cfg.effect.laser.durationTicks, 44);
+    EXPECT_EQ(cfg.effect.laser.extendPerTick, 1);
+    EXPECT_EQ(cfg.projectile.mountainLifespanPenalty, 1);
+    EXPECT_NEAR(cfg.economy.perLandIncome, 0.00015, 1e-12);
+    EXPECT_NEAR(cfg.economy.cityBaseMult, 10.0, 1e-12);
+    EXPECT_NEAR(cfg.capital.relocationDelayTicks, 1200.0, 1e-12);
+    EXPECT_EQ(cfg.units[6].periodTicks, 240);
+    EXPECT_NEAR(cfg.units[6].bulletSpeed, 0.25, 1e-12);
+    EXPECT_EQ(cfg.units[6].bulletLifespanTicks, 180);
+    EXPECT_EQ(cfg.units[7].periodTicks, 360);
+    EXPECT_NEAR(cfg.units[7].bulletSpeed, 1.0 / 6.0, 1e-12);
+    EXPECT_NEAR(cfg.units[7].bulletSpeedJitter, 1.0 / 30.0, 1e-12);
+    EXPECT_EQ(cfg.units[7].bulletLifespanTicks, 120);
     EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 2.0, 1e-12);
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 0.000085, 1e-9);
     EXPECT_NEAR(cfg.sea.goSeaChanceDenominator, 17700.0, 1e-9);

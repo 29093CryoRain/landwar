@@ -318,7 +318,7 @@ void DebugPanel::drawLeaderboard(const Simulation& sim, const DebugCounts& count
     std::sort(ranked_.begin(), ranked_.end(),
               [](const Faction* a, const Faction* b) { return a->landCount > b->landCount; });
 
-    if (ImGui::BeginTable("##leaderboard", 6,
+    if (ImGui::BeginTable("##leaderboard", 9,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("名次");
         ImGui::TableSetupColumn("势力");
@@ -326,6 +326,9 @@ void DebugPanel::drawLeaderboard(const Simulation& sim, const DebugCounts& count
         ImGui::TableSetupColumn("城市");
         ImGui::TableSetupColumn("兵力");
         ImGui::TableSetupColumn("科技");  // P8：科技等级（所有已拥有科技等级之和）
+        ImGui::TableSetupColumn("最高城");
+        ImGui::TableSetupColumn("经济/tick");
+        ImGui::TableSetupColumn("科技/tick");
         ImGui::TableHeadersRow();
         char buf[32];
         for (int i = 0; i < kPlayerFactionCount; ++i) {
@@ -349,6 +352,15 @@ void DebugPanel::drawLeaderboard(const Simulation& sim, const DebugCounts& count
             ImGui::TextUnformatted(buf);
             ImGui::TableNextColumn();
             std::snprintf(buf, sizeof(buf), "%d", f->techLevel());
+            ImGui::TextUnformatted(buf);
+            ImGui::TableNextColumn();
+            std::snprintf(buf, sizeof(buf), "%.2f", f->maxCityLevel);
+            ImGui::TextUnformatted(buf);
+            ImGui::TableNextColumn();
+            std::snprintf(buf, sizeof(buf), "%.4f", f->economyRate);
+            ImGui::TextUnformatted(buf);
+            ImGui::TableNextColumn();
+            std::snprintf(buf, sizeof(buf), "%.4f", f->techRate);
             ImGui::TextUnformatted(buf);
         }
         ImGui::EndTable();

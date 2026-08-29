@@ -156,8 +156,9 @@ struct Config {
 
     struct Effect {
         struct Bomb {
-            int lifetimeTicks = 8;     // tt>8 消亡
-            int conquerEveryTicks = 2; // tt%2==0 时占领/击杀
+            int lifetimeTicks = 8;     // tt>8 消亡（数据配置 16）
+            int conquerEveryTicks = 2; // tt%2==0 时占领/击杀（数据配置 4）
+            double expansionRate = 1.0; // 爆炸半径时间推进倍率
             double baseRadius = 2.4;   // 炸弹死亡爆炸基础半径（橙6 用势力表 bombRadius 覆盖 4.08）
         } bomb;
         struct Mine {
@@ -169,9 +170,9 @@ struct Config {
             double triggerBombRadius = 1.1; // 引爆/超时自爆生成的爆炸特效半径（紫7 用势力表覆盖）
         } mine;
         struct Laser {
-            int durationTicks = 22;        // 基础寿命（绿5 ×1.5 = 33）
+        int durationTicks = 22;        // 基础寿命（数据配置 44；绿5 ×1.5 = 66）
             double length = 30.0;          // 基础长度（绿5 ×1.5 = 45）
-            int extendPerTick = 2;         // 每 tick 至多增长
+        int extendPerTick = 2;         // 每 tick 至多增长（数据配置 1）
             double killExtraRadius = 0.1;  // 击杀判定额外半径
             double beamSpreadPIFrac = 1.0 / 11.0;  // 绿5 三束的 ±π/11 夹角
         } laser;

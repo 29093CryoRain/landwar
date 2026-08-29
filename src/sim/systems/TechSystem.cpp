@@ -71,6 +71,7 @@ void rescaleExistingArmySpeed(Simulation& sim, int factionId, const Config::Tech
 
 void TechSystem::update(Simulation& sim) {
     const Config& cfg = sim.config();
+    for (auto& f : sim.factions()) f.techRate = 0.0;
     if (cfg.tech.techs.empty()) return;  // 无科技表（默认 config）→ 系统惰性，零 RNG
     for (int idx : sim.turnOrder()) {
         const int fid = idx + 1;  // turnOrder 存 0..7 → 势力 id 1..8
@@ -81,7 +82,8 @@ void TechSystem::update(Simulation& sim) {
         // 1. 科技点累积：每座 n 级城每 tick 产 n × pointsPerCityLevel × techGainMult（0 RNG）。
         double cityLevelSum = 0.0;
         for (int cid : f.cityIds) cityLevelSum += sim.map().city(static_cast<size_t>(cid)).level;
-        f.tech.points += cityLevelSum * cfg.tech.pointsPerCityLevel * f.mods.techGainMult;
+        f.techRate = cityLevelSum * cfg.tech.pointsPerCityLevel * f.mods.techGainMult;
+        f.tech.points += f.techRate;
 
         // 2. 阈值触发：获得一次科研机会（思路：到达阈值清空 + 科研机会，阈值提升）。
         if (f.tech.points < f.tech.threshold) continue;

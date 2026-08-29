@@ -193,6 +193,9 @@ TEST(Snapshot, RoundTripPreservesState) {
         EXPECT_EQ(a.landCount, b.landCount) << "fid " << i;
         EXPECT_EQ(a.numArmyProduced, b.numArmyProduced) << "fid " << i;
         EXPECT_DOUBLE_EQ(a.economy, b.economy) << "fid " << i;
+        EXPECT_DOUBLE_EQ(a.economyRate, b.economyRate) << "fid " << i;
+        EXPECT_DOUBLE_EQ(a.techRate, b.techRate) << "fid " << i;
+        EXPECT_DOUBLE_EQ(a.maxCityLevel, b.maxCityLevel) << "fid " << i;
         EXPECT_DOUBLE_EQ(a.freeArmyChance, b.freeArmyChance) << "fid " << i;
         EXPECT_DOUBLE_EQ(a.spawnAngle, b.spawnAngle) << "fid " << i;
         EXPECT_EQ(a.spawnAngleSet, b.spawnAngleSet) << "fid " << i;

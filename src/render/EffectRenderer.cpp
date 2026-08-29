@@ -37,7 +37,11 @@ void EffectRenderer::draw(const Simulation& sim) {
         const EffectType et = reg.get<comp::EffectTypeId>(e).type;
         const double worldRadius =
             (et == EffectType::bomb)
-                ? std::sqrt(static_cast<double>(elapsedTicks) + 1.0) * params.p0 + 1.0
+                ? std::sqrt(static_cast<double>(elapsedTicks)
+                                * sim.config().effect.bomb.expansionRate
+                            + 1.0)
+                      * params.p0
+                    + 1.0
                 : ((et == EffectType::laser) ? params.p1 + 2.0 : 2.0);
         if (!render::isVisibleOnScreen(cam_, pos.x, pos.y, worldRadius)) continue;
         const int cx = cam_.toScreenXi(pos.x);
@@ -51,21 +55,26 @@ void EffectRenderer::draw(const Simulation& sim) {
 
         switch (et) {
             case EffectType::bomb: {
-                // 爆炸：半透明实心圆。r 用 solve 版公式 sqrt(elapsedTicks+1)*bomb_range（§2.9 注记）。
-                if (elapsedTicks < 0 || elapsedTicks > 8) break;  // elapsedTicks>8 已消亡，防御
+                // 爆炸：半透明实心圆，与 EffectSystem 使用同一扩散公式。
+                const auto& bombCfg = sim.config().effect.bomb;
+                if (elapsedTicks < 0 || elapsedTicks > bombCfg.lifetimeTicks) break;
                 const double rWorld =
-                    std::sqrt(static_cast<double>(elapsedTicks) + 1.0) * params.p0;
-                const int alpha = static_cast<int>((9.0 - elapsedTicks) / 9.0 * 255.0);
+                    std::sqrt(static_cast<double>(elapsedTicks) * bombCfg.expansionRate + 1.0)
+                    * params.p0;
+                const int alpha = static_cast<int>(
+                    (static_cast<double>(bombCfg.lifetimeTicks + 1) - elapsedTicks)
+                    / static_cast<double>(bombCfg.lifetimeTicks + 1) * 255.0);
                 r.fillCircle(cx, cy, static_cast<int>(rWorld * cam_.cellPx()),
                              Renderer::toColor(color, alpha));
                 break;
             }
             case EffectType::mine: {
-                // 地雷：闪烁 alpha（elapsedTicks>=600 且 elapsedTicks%12∈{0,1,2,10,11} → 220，否则 60）。
-                const int mod12 = ((elapsedTicks % 12) + 12) % 12;
-                const bool blink = elapsedTicks >= 600
-                                   && (mod12 == 0 || mod12 == 1 || mod12 == 2 || mod12 == 10
-                                       || mod12 == 11);
+                // 地雷：进入可引爆状态后，在每个探测周期的首尾短暂增强亮度。
+                const auto& mineCfg = sim.config().effect.mine;
+                const int period = mineCfg.checkEveryTicks;
+                const int mod = ((elapsedTicks % period) + period) % period;
+                const bool blink = elapsedTicks >= mineCfg.armTicks
+                                   && (mod <= 2 || mod >= period - 3);
                 const int size = render::spriteSize(mineDrawSize_, z);
                 // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png 行 5。
                 SDL_Texture* tex = sheet_.texture(fid - 1);

@@ -75,27 +75,41 @@ TEST(Faction, InsertAndRemoveCity) {
 
     // P13：城市注册到 Map（addCity 返回 cityId），Faction 持 cityIds 列表。
     const int c1 = w.map.addCity(1, 3, 4);
-    f.insertCity(c1);
+    f.insertCity(c1, w.map.city(c1).level);
     ASSERT_EQ(f.cityCount, 1);
     EXPECT_EQ(w.map.city(c1).baseX, 3);
     EXPECT_EQ(w.map.city(c1).baseY, 4);
 
-    f.insertCity(c1);  // 去重
+    f.insertCity(c1, w.map.city(c1).level);  // 去重
     ASSERT_EQ(f.cityCount, 1);
 
     const int c2 = w.map.addCity(1, 5, 5);
-    f.insertCity(c2);
+    f.insertCity(c2, w.map.city(c2).level);
     ASSERT_EQ(f.cityCount, 2);
 
-    f.removeCity(c1);  // swap 删除，另一城仍在
+    f.removeCity(c1, w.map.city(c1).level);  // swap 删除，另一城仍在
     ASSERT_EQ(f.cityCount, 1);
     EXPECT_EQ(f.cityIds[0], c2);
+}
+
+TEST(Faction, MaxCityLevelTracksInsertAndRemoval) {
+    SmallWorld w;
+    auto& f = w.factions[1];
+    const int low = w.map.addCity(1, 1, 1);
+    const int high = w.map.addCity(4, 4, 4);
+    f.insertCity(low, w.map.city(low).level);
+    f.insertCity(high, w.map.city(high).level);
+    EXPECT_DOUBLE_EQ(f.maxCityLevel, 4.0);
+
+    f.removeCity(high, w.map.city(high).level);
+    f.recomputeMaxCityLevel(w.map);
+    EXPECT_DOUBLE_EQ(f.maxCityLevel, 1.0);
 }
 
 TEST(Faction, InsertCityRejectsInvalidId) {
     SmallWorld w;
     auto& f = w.factions[1];
-    f.insertCity(-1);  // 非城市（cityId=-1）拒绝
+    f.insertCity(-1, 0.0);  // 非城市（cityId=-1）拒绝
     EXPECT_EQ(f.cityCount, 0);
 }
 
@@ -103,9 +117,9 @@ TEST(Faction, NeutralCannotOwnCities) {
     SmallWorld w;
     auto& f = w.factions[0];
     const int cid = w.map.addCity(1, 1, 1);
-    f.insertCity(cid);
+    f.insertCity(cid, w.map.city(cid).level);
     EXPECT_EQ(f.cityCount, 0);
-    f.removeCity(cid);
+    f.removeCity(cid, w.map.city(cid).level);
     EXPECT_EQ(f.cityCount, 0);
 }
 

@@ -29,6 +29,7 @@ double EconomySystem::cityEconomyRate(const Config& cfg, const City& city) {
 
 void EconomySystem::accumulate(Simulation& sim, int factionId) {
     auto& faction = sim.faction(factionId);
+    faction.economyRate = 0.0;
     if (!faction.alive) return;  // 灭亡势力零收入（含 land + city，P4 已 gate）
     const auto& cfg = sim.config();
     // 普通领地收入：不分山区/是否基建格（基建格仍归该格 belongi 势力的 land 收入——双计）。
@@ -49,8 +50,9 @@ void EconomySystem::accumulate(Simulation& sim, int factionId) {
         capitalIncome = cfg.economy.capitalBase;
     }
     // P7：经济产出 × 势力增益（基线 economyGainMult=1.0 → 恒等）。
-    faction.economy +=
+    faction.economyRate =
         (landIncome + cityIncome + capitalIncome) * faction.mods.economyGainMult;
+    faction.economy += faction.economyRate;
 }
 
 }  // namespace lw

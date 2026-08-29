@@ -61,8 +61,8 @@ entt::entity placeFrozen(Simulation& sim, double x, double y, int fid, ArmyType 
 TEST(Projectile, PistolFiresForwardPeriodically) {
     Simulation sim = makeCleanSim();
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);  // 朝向 0（正东）
-    // 前 119 tick 无子弹；第 120 tick 触发。
-    for (int t = 0; t < 119; ++t) {
+    // 前 239 tick 无子弹；第 240 tick 触发。
+    for (int t = 0; t < 239; ++t) {
         sim.tick();
         EXPECT_EQ(countBullets(sim), 0) << "tick " << t;
     }
@@ -70,16 +70,16 @@ TEST(Projectile, PistolFiresForwardPeriodically) {
     ASSERT_EQ(countBullets(sim), 1);
     for (auto e : sim.registry().view<comp::Projectile>()) {
         EXPECT_DOUBLE_EQ(sim.registry().get<comp::Velocity>(e).angle, 0.0);  // 正前方
-        EXPECT_DOUBLE_EQ(sim.registry().get<comp::Speed>(e).value, 0.5);     // 恒定速度（1.5 的 1/3）
+        EXPECT_DOUBLE_EQ(sim.registry().get<comp::Speed>(e).value, 0.25);    // 0.5 倍速后的子弹速度
     }
 }
 
 TEST(Projectile, PistolResetsCounterAndFiresEveryPeriod) {
     Simulation sim = makeCleanSim();
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 121; ++t) sim.tick();  // 第 120 tick 首射
+    for (int t = 0; t < 241; ++t) sim.tick();  // 第 240 tick 首射
     EXPECT_EQ(countBullets(sim), 1);
-    for (int t = 0; t < 120; ++t) sim.tick();  // 到 tick 241：首弹已超时（寿命 90），第 2 弹刚射
+    for (int t = 0; t < 240; ++t) sim.tick();  // 到 tick 481：首弹已超时（寿命 180），第 2 弹刚射
     EXPECT_EQ(countBullets(sim), 1) << "第 2 发已发射，首弹已消亡 → 恰 1 颗在飞";
 }
 
@@ -88,12 +88,12 @@ TEST(Projectile, PistolResetsCounterAndFiresEveryPeriod) {
 TEST(Projectile, ShotgunFiresThreeRandomSpeed) {
     Simulation sim = makeCleanSim();
     placeFrozen(sim, 20.5, 20.5, 2, ArmyType::shotgun, 0.0);
-    for (int t = 0; t < 180; ++t) sim.tick();  // 第 180 tick 齐射
+    for (int t = 0; t < 360; ++t) sim.tick();  // 第 360 tick 齐射
     ASSERT_EQ(countBullets(sim), 3);
     for (auto e : sim.registry().view<comp::Projectile>()) {
         const double spd = sim.registry().get<comp::Speed>(e).value;
-        EXPECT_GE(spd, 1.0 / 3.0 - 0.5 / 3.0 - 1e-9);  // 原值 (1.0-0.5) 的 1/3
-        EXPECT_LE(spd, 1.0 / 3.0 + 0.5 / 3.0 + 1e-9);  // 原值 (1.0+0.5) 的 1/3
+        EXPECT_GE(spd, 1.0 / 6.0 - 1.0 / 30.0 - 1e-9);
+        EXPECT_LE(spd, 1.0 / 6.0 + 1.0 / 30.0 + 1e-9);
     }
 }
 
@@ -102,7 +102,7 @@ TEST(Projectile, ShotgunFiresForwardConeNoClump) {
     const Config cfg = baseCfg();
     Simulation sim = makeCleanSim();
     placeFrozen(sim, 20.5, 20.5, 2, ArmyType::shotgun, 0.0);  // 朝向 0（正东）
-    for (int t = 0; t < 180; ++t) sim.tick();  // 第 180 tick 齐射
+    for (int t = 0; t < 360; ++t) sim.tick();  // 第 360 tick 齐射
     ASSERT_EQ(countBullets(sim), 3);
     // 半角 = π·(2/9)/2 = π/9（20°）；抖动 = 0.3·半角（≤半角 → 最外两颗必分居两侧）。
     const double half = kPi * cfg.units[7].bulletSpreadPIFrac / 2.0;
@@ -126,7 +126,7 @@ TEST(Projectile, BulletTimesOut) {
     Simulation sim = makeCleanSim();
     SpawnSystem::spawnProjectile(sim, 50.5, 50.5, 1, ArmyType::pistol, 0.0, 0.0);
     EXPECT_EQ(countBullets(sim), 1);
-    for (int t = 0; t < 89; ++t) sim.tick();  // 90 寿命 → 第 89 tick 后剩 1
+    for (int t = 0; t < 179; ++t) sim.tick();  // 180 寿命 → 第 179 tick 后剩 1
     EXPECT_GE(countBullets(sim), 1);
     sim.tick();  // 归零 → 消失
     EXPECT_EQ(countBullets(sim), 0);
@@ -137,10 +137,10 @@ TEST(Projectile, BulletKillsEnemyBothDie) {
     auto pistol = placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
     auto enemy = SpawnSystem::spawnArmy(sim, 23.5, 20.5, 2, ArmyType::normal);
     sim.registry().get<comp::Speed>(enemy).value = 0.0;  // 敌兵冻结
-    for (int t = 0; t < 120; ++t) sim.tick();            // 发射
+    for (int t = 0; t < 240; ++t) sim.tick();            // 发射
     EXPECT_EQ(countBullets(sim), 1);
     bool enemyDead = false;
-    for (int t = 0; t < 5 && !enemyDead; ++t) {
+    for (int t = 0; t < 20 && !enemyDead; ++t) {
         sim.tick();
         enemyDead = !sim.registry().valid(enemy);
     }
@@ -152,7 +152,7 @@ TEST(Projectile, BulletKillsEnemyBothDie) {
 TEST(Projectile, BulletDoesNotConquerTerritory) {
     Simulation sim = makeCleanSim();  // 全中立陆地
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 140; ++t) sim.tick();  // 发射后子弹东移 ≥1 格（0.5 格/tick）
+    for (int t = 0; t < 260; ++t) sim.tick();  // 发射后子弹东移 ≥1 格（0.25 格/tick）
     EXPECT_EQ(sim.map().at(21, 20).belongi, 0) << "子弹不占领途经领地";
     EXPECT_GT(countBullets(sim), 0) << "子弹仍在飞";
 }
@@ -162,7 +162,7 @@ TEST(Projectile, BulletCrossesSeaWithoutSlow) {
     // 正东路径铺海格（belongi 保持 0；海格征服为 no-op）。
     for (int x = 21; x <= 30; ++x) sim.map().at(x, 20).land = false;
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 200; ++t) sim.tick();  // 0.5 格/tick：跨到 >30 约需 20 tick，200 tick 余量充足
+    for (int t = 0; t < 300; ++t) sim.tick();  // 0.25 格/tick：跨到 >30 约需 40 tick，余量充足
     EXPECT_EQ(countBullets(sim), 1) << "子弹穿海不沉、不减速（仍存活）";
     double bx = 0;
     for (auto e : sim.registry().view<comp::Projectile, comp::Position>())
@@ -174,21 +174,21 @@ TEST(Projectile, BulletDisappearsEnteringMountain) {
     Simulation sim = makeCleanSim();
     sim.map().at(21, 20).mountain = true;  // 子弹正东第一格为山
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 121; ++t) sim.tick();  // 发射后立即撞山
+    for (int t = 0; t < 241; ++t) sim.tick();  // 发射后立即撞山
     EXPECT_EQ(countBullets(sim), 0) << "陆→山子弹消失";
 }
 
 TEST(Projectile, BulletInMountainLifespanShorter) {
-    // 全山地图：子弹始终在山地 → 每 tick 额外扣 2 寿命 → 90/3 ≈ 30 tick 内消失。
+    // 全山地图：子弹始终在山地 → 每 tick 额外扣 1 寿命 → 180/2 ≈ 90 tick 内消失。
     Simulation sim = makeCleanSim();
     for (int y = 0; y < sim.map().height(); ++y)
         for (int x = 0; x < sim.map().width(); ++x) sim.map().at(x, y).mountain = true;
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 120; ++t) sim.tick();  // 发射
+    for (int t = 0; t < 240; ++t) sim.tick();  // 发射
     EXPECT_EQ(countBullets(sim), 1);
     for (int t = 0; t < 5; ++t) sim.tick();
     EXPECT_GE(countBullets(sim), 1) << "发射后短期内仍存活";
-    for (int t = 0; t < 26; ++t) sim.tick();  // 共 31 tick 后（>30）
+    for (int t = 0; t < 86; ++t) sim.tick();  // 共 91 tick 后（>90）
     EXPECT_EQ(countBullets(sim), 0) << "山地留存惩罚生效（寿命显著缩短）";
 }
 
@@ -203,7 +203,7 @@ TEST(Projectile, BehaviorPopulatedFromConfig) {
     EXPECT_EQ(sim.registry().get<comp::Behavior>(normal).deathEffect, DeathEffect::none);
     EXPECT_EQ(sim.registry().get<comp::Behavior>(pistol).deathEffect, DeathEffect::none);
     EXPECT_EQ(sim.registry().get<comp::Behavior>(pistol).periodic, PeriodicAction::firePistol);
-    EXPECT_EQ(sim.registry().get<comp::Behavior>(pistol).periodTicks, 120);
+    EXPECT_EQ(sim.registry().get<comp::Behavior>(pistol).periodTicks, 240);
 }
 
 // ---- 快照往返：子弹实体 + 周期计数 ----
@@ -211,7 +211,7 @@ TEST(Projectile, BehaviorPopulatedFromConfig) {
 TEST(Projectile, SnapshotRoundTripsProjectileAndCounter) {
     Simulation sim = makeCleanSim();
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 125; ++t) sim.tick();  // 已发射 1 弹，counter=5
+    for (int t = 0; t < 245; ++t) sim.tick();  // 已发射 1 弹，counter=5
     EXPECT_EQ(countBullets(sim), 1);
 
     const std::string json = Snapshot::serialize(sim);

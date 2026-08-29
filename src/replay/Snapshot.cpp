@@ -25,7 +25,7 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 8;  // v8：保存势力级产兵方向状态；v7 为统一事件去重状态
+constexpr int kSnapshotVersion = 9;  // v9：保存排行榜统计缓存；v8 为产兵方向状态
 
 void setErr(std::string* err, const std::string& msg) {
     if (err) *err = msg;
@@ -211,14 +211,17 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
     for (const auto& faction : root["factions"]) {
         if (!faction.is_object()) return fail("bad faction record");
         for (const auto& key : {"id", "alive", "aiId", "color", "cityCount", "landCount",
-                                "numArmyProduced", "economy", "freeArmyChance", "spawnAngle",
-                                "spawnAngleSet", "capital", "armyCost", "producedCost",
+                                "numArmyProduced", "economy", "economyRate", "techRate",
+                                "maxCityLevel", "freeArmyChance", "spawnAngle", "spawnAngleSet",
+                                "capital", "armyCost", "producedCost",
                                 "unitPreference", "cityIds", "tech"}) {
             if (!faction.contains(key)) return fail(std::string("missing faction.") + key);
         }
         if (!faction["id"].is_number_integer() || !faction["alive"].is_boolean()
             || !faction["aiId"].is_number_integer() || !faction["color"].is_array()
-            || !faction["spawnAngle"].is_number() || !faction["spawnAngleSet"].is_boolean()
+            || !faction["economyRate"].is_number() || !faction["techRate"].is_number()
+            || !faction["maxCityLevel"].is_number() || !faction["spawnAngle"].is_number()
+            || !faction["spawnAngleSet"].is_boolean()
             || faction["color"].size() != 3 || !faction["capital"].is_object()
             || !faction["armyCost"].is_array() || faction["armyCost"].size() != kArmyTypeCount
             || !faction["producedCost"].is_array()
@@ -397,6 +400,9 @@ std::string Snapshot::serialize(const Simulation& sim) {
         fj["landCount"] = f.landCount;
         fj["numArmyProduced"] = f.numArmyProduced;
         fj["economy"] = f.economy;  // 留存值（库存）
+        fj["economyRate"] = f.economyRate;
+        fj["techRate"] = f.techRate;
+        fj["maxCityLevel"] = f.maxCityLevel;
         fj["freeArmyChance"] = f.freeArmyChance;
         fj["spawnAngle"] = f.spawnAngle;
         fj["spawnAngleSet"] = f.spawnAngleSet;
@@ -597,6 +603,9 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
         f.landCount = fj.at("landCount").get<int>();
         f.numArmyProduced = fj.at("numArmyProduced").get<int>();
         f.economy = fj.at("economy").get<double>();
+        f.economyRate = fj.at("economyRate").get<double>();
+        f.techRate = fj.at("techRate").get<double>();
+        f.maxCityLevel = fj.at("maxCityLevel").get<double>();
         f.freeArmyChance = fj.at("freeArmyChance").get<double>();
         f.spawnAngle = fj.at("spawnAngle").get<double>();
         f.spawnAngleSet = fj.at("spawnAngleSet").get<bool>();

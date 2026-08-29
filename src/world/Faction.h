@@ -69,8 +69,10 @@ public:
     void recomputeMods();
 
     // 城市列表操作（原版 insert_city / remove_city，见翻新计划 §2.8；P13 改为 cityId 列表）。
-    void insertCity(int cityId);
-    void removeCity(int cityId);
+    void insertCity(int cityId, double level);
+    void removeCity(int cityId, double level);
+    // removeCity 无法仅凭 cityIds 得到剩余城市等级，易主路径在移除最高城后调用重扫。
+    void recomputeMaxCityLevel(const Map& map);
 
     // 征服（原版 conquer，见翻新计划 §2.8）。势力8 攻占城市时按概率记待产兵请求。
     void conquer(ConquerContext& ctx, int x, int y);
@@ -87,6 +89,9 @@ public:
     int numArmyProduced = 0; // num_army_have_produced
     // 经济 = **留存值（库存）**（Phase 9 用户定夺）：每 tick 累加收益，产兵扣该兵成本（≥0）。
     double economy = 0.0;
+    double economyRate = 0.0;  // 最近一次经济系统计算的每 tick 产出
+    double techRate = 0.0;     // 最近一次科技系统计算的每 tick 产出
+    double maxCityLevel = 0.0; // 所持城市中的最高等级
     double freeArmyChance = 0.0;  // 势力8 免费产兵概率（来自定义）
     // 产兵方向：spawnAngle 是下一次产兵使用的角度；首次产兵前由 spawnAngleSet 区分未初始化。
     double spawnAngle = 0.0;

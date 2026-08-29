@@ -242,20 +242,20 @@
 - **风险**：中（交互重构，涉及应用状态机）。**验收结果**：`test_input.cpp` 已覆盖 ESC
   独立动作及输入状态更新；构建和完整回归测试通过。
 
-### 3.6 游戏整体速度 0.5 倍（原文 46）
+### 3.6 游戏整体速度 0.5 倍（原文 46）——✅ 已完成
 
-- **做法**：不加全局倍速开关（避免一处漏改），按"消耗点"逐一将对应 config 值减半：
-  `army.baseSpeed`（兵速）、`effect.laser.extendPerTick`/爆炸扩散（特效扩散）、
-  `units[].bulletSpeed`（子弹）、`units[].periodTicks`（开火间隔，翻倍）、
-  `economy.perLandIncome/cityBaseMult`（经济产出）、`tech.pointsPerCityLevel`（科技产出）。
-  并**审计其余**：`effect.laser.length/durationTicks`、`effect.mine.*`、`capital.relocationDelayTicks`
-  （即使语义是"秒"也改变，tick 语义也变）。
+- **做法**：不加全局倍速开关，按消耗点调整实际配置。移动/子弹/经济/科技每 tick
+  产出减半；开火周期、子弹寿命、特效寿命、地雷等待/探测/超时、迁都等待加倍。
+  爆炸新增 `effect.bomb.expansionRate=0.5`，使半径按时间半速扩散；激光
+  `extendPerTick=1`、寿命加倍但长度不变；地雷半径和激光长度等空间范围不缩小。
+  山地子弹寿命惩罚从 2 降为 1，以保持减速后射程口径。
 - **涉及**：`data/config.json`、`.docs/配置说明.md`。
-- **风险**：高（牵动模拟节奏 → **基线更新**；数值体验需用户验收）。**建议单独立项提交**，
+- **风险**：高（牵动模拟节奏 → **基线更新**；数值体验需用户验收）。本次作为独立改动保留，
   与其它行为改动分开，便于回退。
-- **验收**：`test_baseline` 更新；用户实测手感。
+- **验收结果**：配置、特效/射弹/产兵/科技测试已同步；square/hex/tri 2500 tick 基线更新为
+  `0xaca5bc1af36782c4` / `0xbc1a1158437b2624` / `0xb8275591b7affeda`；完整回归通过。
 
-### 3.7 主面板表格统计扩展（原文 47）
+### 3.7 主面板表格统计扩展（原文 47）——✅ 已完成
 
 - **现状**：`DebugPanel::drawLeaderboard` 已有 6 列（名次/势力/领地/城市/兵力/科技）。
 - **做法**：加 3 列——最高等级城、经济生产速度、科技生产速度。**三个数都不再每帧遍历/现算，
@@ -280,7 +280,9 @@
 - **风险**：低（`economyRate/techRate` 每 tick 重算一次并复用，行为不变；`maxCityLevel`
   在 insert/remove 处维护，与城市易主路径一致）。**基线影响**：否。三个缓存字段即使进入快照
   序列化，也不属于语义基线；只有缓存被错误地反馈到产兵、移动或占领逻辑时才会改基线。
-- **验收**：`test_panels.cpp`/`test_economy.cpp`/`test_tech.cpp` 补用例。
+- **验收结果**：排行榜已增加最高城、经济/tick、科技/tick 三列；`Faction` 缓存由城市易主、
+  经济和科技系统维护，快照已升至 v9 并保存缓存字段；`test_faction.cpp`、`test_economy.cpp`、
+  `test_tech.cpp`、`test_snapshot.cpp` 已补用例。
 
 ---
 

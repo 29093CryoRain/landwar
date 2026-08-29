@@ -151,6 +151,7 @@ TEST(Tech, PointsAccumulateFromCities) {
     f.tech.points = 0.0;
     TechSystem::update(sim);
     EXPECT_DOUBLE_EQ(f.tech.points, 6.0);  // 2 级 + 4 级 = 6 点 × 1.0
+    EXPECT_DOUBLE_EQ(f.techRate, 6.0);
 }
 
 TEST(Tech, ObservatoryBoostsPoints) {
@@ -166,6 +167,7 @@ TEST(Tech, ObservatoryBoostsPoints) {
     TechSystem::applyTech(sim, 1, 4);  // 观星台 → techGainMult 1.1
     TechSystem::update(sim);
     EXPECT_DOUBLE_EQ(f.tech.points, 2.2);  // 2 级城 × 1.0 × 1.1
+    EXPECT_DOUBLE_EQ(f.techRate, 2.2);
 }
 
 // ---- 阈值触发：AI 科研 / 玩家待选 ----
@@ -389,10 +391,10 @@ TEST(Tech, RapidFireFiresFaster) {
     Config cfg = techCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
-    SpawnSystem::spawnArmy(sim, 5.0, 5.0, 1, ArmyType::pistol);  // periodTicks=120
-    TechSystem::applyTech(sim, 1, 5);  // 射速 ×1.3 → 有效周期 = round(120/1.3)=92
-    // 跑 100 次：92 时必已触发；无科技则 120 才触发。
-    for (int i = 0; i < 100; ++i) UnitActionSystem::update(sim);
+    SpawnSystem::spawnArmy(sim, 5.0, 5.0, 1, ArmyType::pistol);  // periodTicks=240
+    TechSystem::applyTech(sim, 1, 5);  // 射速 ×1.3 → 有效周期 = round(240/1.3)=185
+    // 跑 200 次：185 时必已触发；无科技则 240 才触发。
+    for (int i = 0; i < 200; ++i) UnitActionSystem::update(sim);
     int projectiles = 0;
     for ([[maybe_unused]] auto e : sim.registry().view<comp::Projectile>()) ++projectiles;
     EXPECT_GE(projectiles, 1);
@@ -402,9 +404,9 @@ TEST(Tech, BarrageFiresMoreBullets) {
     Config cfg = techCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
-    SpawnSystem::spawnArmy(sim, 5.0, 5.0, 1, ArmyType::shotgun);  // periodTicks=180, base 3 发
+    SpawnSystem::spawnArmy(sim, 5.0, 5.0, 1, ArmyType::shotgun);  // periodTicks=360, base 3 发
     TechSystem::applyTech(sim, 1, 6);  // 弹幕 +2 → 5 发
-    for (int i = 0; i < 180; ++i) UnitActionSystem::update(sim);
+    for (int i = 0; i < 360; ++i) UnitActionSystem::update(sim);
     int projectiles = 0;
     for ([[maybe_unused]] auto e : sim.registry().view<comp::Projectile>()) ++projectiles;
     EXPECT_EQ(projectiles, 5);

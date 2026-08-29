@@ -1,8 +1,8 @@
 // EffectSystem.cpp — 特效求解（翻新计划 §2.6，原版 Effect.cpp 的 1:1 移植）。
 // 三种特效：
-//   bomb  — r = sqrt(elapsedTicks+1)*bomb_range，elapsedTicks%2==0 时征服圆内格 + 击杀圆内敌兵，
-//           elapsedTicks>8 消亡。
-//   mine  — elapsedTicks>=600 起每 12 tick 探测敌方兵引爆（生成爆炸特效）；elapsedTicks>=3600 超时引爆。
+//   bomb  — r = sqrt(elapsedTicks*expansionRate+1)*bomb_range，按周期征服圆内格 + 击杀圆内敌兵，
+//           超过 lifetimeTicks 消亡。
+//   mine  — 按配置等待后按探测周期探测敌方兵引爆（生成爆炸特效）；按配置超时引爆。
 //   laser — 沿 angle 逐格延伸，遇界或「进入非己方陆地」停止；击杀线段 ±0.1 内敌兵；
 //           length < lst+2 时尖端格征服，否则每 tick +2 增长。
 // 击杀一律经 markDead 记死亡事件（tick 末由 DeathSystem 统一销毁 + 生成死亡效果），
@@ -41,7 +41,9 @@ void solveBomb(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
     const int elapsedTicks = ctx.move.ttime - reg.get<comp::EffectTimer>(e).createdTick;
     const auto& cfg = ctx.move.config;
 
-    const double radius = std::sqrt(elapsedTicks + 1.0) * params.p0;  // p0 = bomb_range
+    const double radius =
+        std::sqrt(static_cast<double>(elapsedTicks) * cfg.effect.bomb.expansionRate + 1.0)
+        * params.p0;  // p0 = bomb_range
     if (elapsedTicks % cfg.effect.bomb.conquerEveryTicks == 0) {
         // 征服：以 (x,y) 为圆心、半径 radius 内所有格（判定用格心距 < radius）。
         if (ctx.move.map.tiling() == TilingType::Square) {

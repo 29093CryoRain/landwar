@@ -64,6 +64,7 @@ TEST(Economy, LandIncomeScalesWithLandCount) {
     f.capitalState.capitalCityId = -1;  // 无正式首都 → 无 capitalIncome（纯 land 收入）
     EconomySystem::accumulate(sim, 1);
     EXPECT_DOUBLE_EQ(f.economy, cfg.economy.perLandIncome * 10);  // 朴素 land 收入
+    EXPECT_DOUBLE_EQ(f.economyRate, cfg.economy.perLandIncome * 10);
 }
 
 TEST(Economy, CityIncomeUsesLevelsAlpha) {
@@ -82,6 +83,7 @@ TEST(Economy, CityIncomeUsesLevelsAlpha) {
     // cityIncome = perLandIncome × cityBaseMult × (1^alpha + 4^alpha)；alpha=1（内置默认）
     const double expected = cfg.economy.perLandIncome * cfg.economy.cityBaseMult * (1.0 + 4.0);
     EXPECT_NEAR(f.economy, expected, 1e-9);
+    EXPECT_NEAR(f.economyRate, expected, 1e-9);
 }
 
 TEST(Economy, LandAndCityIncomeCombine) {
@@ -138,11 +140,13 @@ TEST(Economy, DeadFactionGetsZeroIncome) {
     auto& f = sim.faction(1);
     f.alive = false;
     f.economy = 0.0;
+    f.economyRate = 123.0;
     f.landCount = 100;
     f.cityIds = {c};
     f.cityCount = 1;
     EconomySystem::accumulate(sim, 1);
     EXPECT_DOUBLE_EQ(f.economy, 0.0);  // 灭亡势力零收入（含 land + city）
+    EXPECT_DOUBLE_EQ(f.economyRate, 0.0);
 }
 
 TEST(Economy, EconomyGainMultMultiplies) {

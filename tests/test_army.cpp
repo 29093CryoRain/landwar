@@ -79,7 +79,7 @@ TEST(Spawn, ArmyFieldsCorrect) {
     ASSERT_TRUE(e != entt::null);
     EXPECT_DOUBLE_EQ(sim.registry().get<comp::Position>(e).x, 5.0);
     EXPECT_DOUBLE_EQ(sim.registry().get<comp::Position>(e).y, 5.0);
-    EXPECT_DOUBLE_EQ(sim.registry().get<comp::Speed>(e).value, 0.3);
+    EXPECT_DOUBLE_EQ(sim.registry().get<comp::Speed>(e).value, 0.15);
     // 半径 = config.army.baseSize × 兵种 sizeMult（随 config 变化，勿硬编码）。
     EXPECT_DOUBLE_EQ(sim.registry().get<comp::Collider>(e).radius, sim.config().army.baseSize);
     EXPECT_TRUE(sim.registry().get<comp::OnLand>(e).value);
@@ -96,15 +96,17 @@ TEST(Spawn, SpeedAndSizeChains) {
         double size;
     };
     // 半径期望 = baseSize × 兵种 sizeMult（随 config 变化，勿硬编码）。
-    const double base = lwtest::loadCfg().army.baseSize;
+    const Config loadedCfg = lwtest::loadCfg();
+    const double base = loadedCfg.army.baseSize;
+    const double speed = loadedCfg.army.baseSpeed;
     const std::vector<Case> cases = {
-        {1, ArmyType::normal, 0.3, base},
-        {3, ArmyType::vanguard, 0.3 * 1.5 * 2.0, base},  // 青：全速 ×1.5 + 先锋 ×2
-        {3, ArmyType::laser, 0.3 * 1.5 * 0.6, base * 1.8},  // 青激光仍有 ×1.5
-        {4, ArmyType::pioneer, 0.3 * 2.0, base},         // 蓝：开拓 ×2
-        {5, ArmyType::laser, 0.3 * 0.6, base * 1.8},     // 绿无全速 ×1.5
-        {1, ArmyType::bomb, 0.3 * 0.6, base * 1.8},
-        {1, ArmyType::mine, 0.3 * 0.6, base * 1.4},
+        {1, ArmyType::normal, speed, base},
+        {3, ArmyType::vanguard, speed * 1.5 * 2.0, base},  // 青：全速 ×1.5 + 先锋 ×2
+        {3, ArmyType::laser, speed * 1.5 * 0.6, base * 1.8},  // 青激光仍有 ×1.5
+        {4, ArmyType::pioneer, speed * 2.0, base},         // 蓝：开拓 ×2
+        {5, ArmyType::laser, speed * 0.6, base * 1.8},     // 绿无全速 ×1.5
+        {1, ArmyType::bomb, speed * 0.6, base * 1.8},
+        {1, ArmyType::mine, speed * 0.6, base * 1.4},
     };
     Simulation sim(lwtest::loadCfg(), 7);
     ASSERT_TRUE(sim.init());

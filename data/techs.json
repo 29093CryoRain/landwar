@@ -3,7 +3,7 @@
     "_comment": "P8 科技系统（思路'科技细节'）。科技点=城市产出；到阈值清空+科研机会、阈值+thresholdStep。levels[i]=第i+1级累计效果；preferenceUnits=每级默认 AI 兵种偏好加成。",
     "thresholdBase": 100.0,
     "thresholdStep": 100.0,
-    "pointsPerCityLevel": 0.01,
+    "pointsPerCityLevel": 0.005,
     "preferencePerLevel": 0.5,
     "playerCandidateCount": 3,
     "techs": [

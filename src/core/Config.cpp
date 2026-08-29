@@ -522,7 +522,8 @@ void validateConfigKeys(const Json& root) {
     // effect 嵌套。
     const Json& eff = obj("effect");
     warnUnknownKeys(eff, {"bomb", "mine", "laser"}, "effect");
-    warnUnknownKeys(child(eff, "bomb"), {"lifetimeTicks", "conquerEveryTicks", "baseRadius"},
+    warnUnknownKeys(child(eff, "bomb"),
+                    {"lifetimeTicks", "conquerEveryTicks", "expansionRate", "baseRadius"},
                     "effect.bomb");
     warnUnknownKeys(child(eff, "mine"),
                     {"radius", "armTicks", "checkEveryTicks", "timeoutTicks", "triggerRadiusMult",
@@ -804,6 +805,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 getInt(effectJson["bomb"], "lifetimeTicks", cfg.effect.bomb.lifetimeTicks);
             cfg.effect.bomb.conquerEveryTicks = getInt(effectJson["bomb"], "conquerEveryTicks",
                                                        cfg.effect.bomb.conquerEveryTicks);
+            cfg.effect.bomb.expansionRate =
+                getNum(effectJson["bomb"], "expansionRate", cfg.effect.bomb.expansionRate);
             cfg.effect.bomb.baseRadius =
                 getNum(effectJson["bomb"], "baseRadius", cfg.effect.bomb.baseRadius);
         }
@@ -1204,7 +1207,8 @@ bool Config::validate(std::string* err) const {
     }
 
     if (effect.bomb.lifetimeTicks <= 0 || effect.bomb.conquerEveryTicks <= 0
-        || !positive(effect.bomb.baseRadius) || !positive(effect.mine.radius)
+        || !positive(effect.bomb.expansionRate) || !positive(effect.bomb.baseRadius)
+        || !positive(effect.mine.radius)
         || effect.mine.armTicks < 0 || effect.mine.checkEveryTicks <= 0
         || effect.mine.timeoutTicks <= 0 || !positive(effect.mine.triggerRadiusMult)
         || !positive(effect.mine.triggerBombRadius) || effect.laser.durationTicks <= 0
@@ -1378,8 +1382,9 @@ std::string Config::toJson() const {
     }
 
     j["effect"]["bomb"] = {{"lifetimeTicks", effect.bomb.lifetimeTicks},
-                           {"conquerEveryTicks", effect.bomb.conquerEveryTicks},
-                           {"baseRadius", effect.bomb.baseRadius}};
+                            {"conquerEveryTicks", effect.bomb.conquerEveryTicks},
+                            {"expansionRate", effect.bomb.expansionRate},
+                            {"baseRadius", effect.bomb.baseRadius}};
     j["effect"]["mine"] = {{"radius", effect.mine.radius},
                            {"armTicks", effect.mine.armTicks},
                            {"checkEveryTicks", effect.mine.checkEveryTicks},
