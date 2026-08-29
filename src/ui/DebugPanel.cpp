@@ -130,7 +130,7 @@ void DebugPanel::draw(PanelCtx& ctx) {
 
     // ---- 操作提示（分多行，避免超宽被截断，用户反馈 Phase 8）----
     ImGui::Separator();
-    ImGui::TextUnformatted("空格 / ESC双击 暂停 · F6 步进");
+    ImGui::TextUnformatted("空格暂停 · ESC退出确认 · F6步进");
     ImGui::TextUnformatted("1/2/3/4 倍速 · +/- 调档(0.25~8x) · F5 重载配置 · F7 重烘焙渲染色");
     ImGui::TextUnformatted("滚轮缩放 · 右拖平移 · 左键点选 · F12 截图");
 

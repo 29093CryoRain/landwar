@@ -1,10 +1,11 @@
-// test_input.cpp — 输入翻译（Phase 8：ESC 双击状态机、空格/倍速/截图/重载、
+// test_input.cpp — 输入翻译（Phase 8：ESC 退出确认、空格/倍速/截图/重载、
 // 鼠标拖拽/单击/滚轮/ImGui 捕获抑制）。InputManager 不依赖渲染器，可纯事件单测。
 #include <gtest/gtest.h>
 
 #include <SDL.h>
 
 #include "app/InputManager.h"
+#include "app/PausePolicy.h"
 
 namespace {
 
@@ -36,32 +37,39 @@ TEST(InputManager, SpaceTogglesPause) {
     EXPECT_FALSE(im.actions().screenshot);
 }
 
-TEST(InputManager, EscDoubleTapPausesNonBlocking) {
-    InputManager im;
-    im.handleEvent(key(SDLK_ESCAPE, 1000));
-    EXPECT_FALSE(im.actions().togglePause);  // 单击不动作
-    im.beginFrame();
-    im.handleEvent(key(SDLK_ESCAPE, 1300));  // 300ms 内 → 双击
-    EXPECT_TRUE(im.actions().togglePause);
+TEST(PausePolicy, ResearchSelectionBlocksPauseToggle) {
+    EXPECT_FALSE(lw::app::shouldTogglePause(true, true));
+    EXPECT_TRUE(lw::app::shouldTogglePause(true, false));
+    EXPECT_FALSE(lw::app::shouldTogglePause(false, false));
 }
 
-TEST(InputManager, EscSingleDoesNothing) {
+TEST(PausePolicy, EscapeTransitionsConfirmationState) {
+    EXPECT_EQ(lw::app::escapeAction(false, false), lw::app::EscapeAction::None);
+    EXPECT_EQ(lw::app::escapeAction(true, false), lw::app::EscapeAction::OpenConfirmation);
+    EXPECT_EQ(lw::app::escapeAction(true, true), lw::app::EscapeAction::ResumeGame);
+}
+
+TEST(InputManager, EscRequestsExitConfirmation) {
     InputManager im;
     im.handleEvent(key(SDLK_ESCAPE, 1000));
-    EXPECT_FALSE(im.actions().togglePause);
-    im.beginFrame();
+    EXPECT_TRUE(im.actions().escape);
     EXPECT_FALSE(im.actions().togglePause);
 }
 
-TEST(InputManager, EscOutsideWindowStartsNewTap) {
+TEST(InputManager, EscIsAnIndependentActionEachPress) {
     InputManager im;
-    im.handleEvent(key(SDLK_ESCAPE, 1000));  // 第一次
+    im.handleEvent(key(SDLK_ESCAPE, 1000));
+    EXPECT_TRUE(im.actions().escape);
     im.beginFrame();
-    im.handleEvent(key(SDLK_ESCAPE, 3000));  // 超窗（2000ms）→ 新的第一次，不触发
+    im.handleEvent(key(SDLK_ESCAPE, 1300));
+    EXPECT_TRUE(im.actions().escape);
     EXPECT_FALSE(im.actions().togglePause);
-    im.beginFrame();
-    im.handleEvent(key(SDLK_ESCAPE, 3200));  // 300ms 内 → 双击
-    EXPECT_TRUE(im.actions().togglePause);
+}
+
+TEST(InputManager, EscTimestampDoesNotChangeAction) {
+    InputManager im;
+    im.handleEvent(key(SDLK_ESCAPE, 3000));
+    EXPECT_TRUE(im.actions().escape);
 }
 
 TEST(InputManager, SpeedKeys) {

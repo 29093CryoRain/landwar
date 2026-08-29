@@ -221,23 +221,26 @@
 - **验收结果**：`test_army.cpp`/`test_snapshot.cpp` 已覆盖角度序列和快照往返；玩家选中/悬停城市与
   AI least-recent 城市均接入 `arrow2.png` 方向提示，语义基线已更新。
 
-### 3.4 科技升级界面空格暂停 bug（原文 41）
+### 3.4 科技升级界面空格暂停 bug（原文 41）——✅ 已完成
 
 - **现状**：`Application::applyInputs` 空格先切 `paused_`（可能解除暂停跑一帧），
   随后 `renderFrame` 才因 `researchPending` 强暂停（`Application.cpp:282-284`）。
 - **做法**：`applyInputs` 处理 `togglePause` 前判断 `tech.researchPending`：待选期间忽略空格
-  切换（或保持暂停）。空格事件仅用于正常游戏。
+  切换（或保持暂停）。空格事件仅用于正常游戏；暂停策略抽成 `PausePolicy` 并由输入单测覆盖。
 - **涉及**：`src/app/Application.cpp`。
-- **风险**：低（UI/交互，不影响模拟）。**验收**：手工验证 + `test_input.cpp`。
+- **风险**：低（UI/交互，不影响模拟）。**验收结果**：`test_input.cpp` 已覆盖待选期间阻止暂停切换，
+  并完成构建与完整回归测试。
 
-### 3.5 ESC 键改为"暂停 + 退出确认面板"（原文 42）
+### 3.5 ESC 键改为"暂停 + 退出确认面板"（原文 42）——✅ 已完成
 
 - **现状**：ESC 双击=暂停（`InputManager.cpp:94-106`），单击不动作。
-- **做法**：ESC 单击 → 暂停 + 弹出"是否退出到主菜单"面板（是/否）。选"是"或再按 ESC →
-  退出到主菜单（销毁 `sim_`、回菜单屏）；选"否" → 解除暂停、关闭面板、继续游戏。
-  需新增 `Application` 状态（如 `exitConfirm_`）与菜单屏切换路径。
+- **做法**：ESC 单击 → 暂停 + 弹出"是否退出到主菜单"面板（是/否）。选"是" →
+  退出到主菜单（清空当前 `sim_`、回菜单屏）；选"否"或确认中再次按 ESC → 解除暂停、关闭面板、继续游戏。
+  `InputManager` 将 ESC 翻译为独立动作，`Application` 通过 `exitConfirm_`/`returnToMenu_`
+  管理确认状态并复用菜单循环。
 - **涉及**：`src/app/InputManager.h/cpp`、`src/app/Application.cpp/h`、`src/ui/Menu.*`。
-- **风险**：中（交互重构，涉及应用状态机）。**验收**：手工验证；`test_input.cpp` 更新。
+- **风险**：中（交互重构，涉及应用状态机）。**验收结果**：`test_input.cpp` 已覆盖 ESC
+  独立动作及输入状态更新；构建和完整回归测试通过。
 
 ### 3.6 游戏整体速度 0.5 倍（原文 46）
 

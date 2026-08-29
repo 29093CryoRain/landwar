@@ -8,7 +8,6 @@
 namespace lw::app {
 
 namespace {
-constexpr Uint32 kEscDoubleTapWindowMs = 500;  // 两次 ESC 间隔上限（非阻塞双击）
 constexpr int kDragThresholdPx = 6;            // 按下后移动超过此像素 → 判定拖拽（否则单击）
 }  // namespace
 
@@ -92,16 +91,7 @@ void InputManager::onKeyDown(const SDL_Event& ev) {
             actions_.stepFrame = true;  // 步进一帧（跑一个逻辑帧后进入暂停）
             break;
         case SDLK_ESCAPE: {
-            // 非阻塞双击状态机：两次 ESC 在窗口内 → 切换暂停；单击不动作
-            // （保留原版「ESC 双击暂停」语义，见翻新计划 §2.10）。
-            const Uint32 now = ev.key.timestamp;
-            if (lastEscPending_ && now - lastEscTime_ <= kEscDoubleTapWindowMs) {
-                actions_.togglePause = true;
-                lastEscPending_ = false;
-            } else {
-                lastEscTime_ = now;
-                lastEscPending_ = true;
-            }
+            actions_.escape = true;
             break;
         }
         default:

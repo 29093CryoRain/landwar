@@ -1,5 +1,6 @@
 // Application.cpp — SDL 窗口应用实现（翻新计划 Phase 7/8）。
 #include "app/Application.h"
+#include "app/PausePolicy.h"
 
 #include <imgui.h>
 #include <SDL_image.h>
@@ -187,8 +188,8 @@ void Application::processEvents() {
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
         ui::processImGuiEvent(ev);  // ImGui 输入透传
-        input_.handleEvent(ev);     // 游戏输入翻译（空格/ESC双击/倍速/鼠标/缩放/F5/F12）
-        if (ev.type == SDL_QUIT) quit_ = true;  // 退出走窗口关闭按钮（ESC 双击=暂停）
+        input_.handleEvent(ev);     // 游戏输入翻译（空格/ESC退出确认/倍速/鼠标/缩放/F5/F12）
+        if (ev.type == SDL_QUIT) quit_ = true;  // 退出走窗口关闭按钮
     }
 }
 
@@ -210,8 +211,25 @@ void Application::applyInputs() {
     }
 
     // ---- 速度 / 暂停（只改渲染节奏）----
-    if (a.togglePause) paused_ = !paused_;
     const bool playerActive = (playerFactionId() > 0);
+    const bool researchPending = playerActive
+        && sim_.faction(playerFactionId()).tech.researchPending;
+    switch (app::escapeAction(a.escape, exitConfirm_)) {
+        case app::EscapeAction::ResumeGame:
+            // 确认面板打开时再次按 ESC = 取消退出并继续游戏。
+            exitConfirm_ = false;
+            paused_ = false;
+            break;
+        case app::EscapeAction::OpenConfirmation:
+            exitConfirm_ = true;
+            paused_ = true;
+            break;
+        case app::EscapeAction::None:
+            break;
+    }
+    if (exitConfirm_) return;  // 确认期间屏蔽步进、选兵种和地图交互
+    // 科研待选期间由弹窗强制暂停，空格不能解除暂停并推进一帧。
+    if (!exitConfirm_ && app::shouldTogglePause(a.togglePause, researchPending)) paused_ = !paused_;
     if (!playerActive && a.speedSelect > 0) {
         // 玩家操控时 1-6 选兵种（数字键冲突）；非玩家 1-4 调速。
         speed_ = static_cast<double>(a.speedSelect);
@@ -325,6 +343,8 @@ void Application::renderFrame() {
     pctx.manager = &panels_;
     panels_.draw(pctx);  // P3：主面板（固定左侧）+ 各可见可移动面板
     drawTechResearchModal(req);  // P8：玩家科研三选一（resarchPending 时绘制）
+    drawExitConfirmModal(ctrl);
+    if (techPlayer > 0 && sim_.faction(techPlayer).tech.researchPending) ctrl.paused = true;
     ui::renderImGui(ren_);
     SDL_RenderPresent(ren_);
 
@@ -765,6 +785,34 @@ void Application::drawTechResearchModal(ui::UiRequests& req) {
     ImGui::End();
 }
 
+void Application::drawExitConfirmModal(ui::UiControls& ctrl) {
+    if (!exitConfirm_ || returnToMenu_) return;
+
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(ui::scaled(280.0f, uiScale_), 0.0f), ImGuiCond_Always);
+    if (!ImGui::Begin("退出确认", nullptr,
+                      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+                          ImGuiWindowFlags_NoMove)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextUnformatted("是否退出到主菜单？");
+    const float buttonWidth =
+        (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    if (ImGui::Button("是", ImVec2(buttonWidth, 0.0f))) {
+        returnToMenu_ = true;
+        exitConfirm_ = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("否", ImVec2(buttonWidth, 0.0f))) {
+        exitConfirm_ = false;
+        ctrl.paused = false;
+    }
+    ImGui::End();
+}
+
 void Application::syncPanelLayout() {
     // 把当前面板布局写回 options_.panels → 退出时随 options.json 持久化（重启读回）。
     options_.panels = panels_.layout();
@@ -773,25 +821,25 @@ void Application::syncPanelLayout() {
 int Application::run() {
     if (!init()) return 1;
 
-    // P1 菜单阶段：skipMenu=false 且未注入预建模拟 → 先跑菜单；点「开始游戏」才进游戏。
-    if (!prebuilt_ && !skipMenu_) {
-        if (!runMenu()) {
-            spdlog::info("menu closed, bye");
-            return 0;  // 退出菜单
-        }
-    }
-    if (!ensureSimulation()) return 1;
-    initPlayerIntent();  // 有玩家：初始意图（普通兵+首都）+ 进入即暂停（P2 修正）
-
-    // 固定步长主循环（§3.7）：模拟每 1/60s 一步，渲染独立帧率。
-    // speed_/paused_ 只改变 tick 节奏，不改变模拟状态本身（确定性成立）。
-    // 2026-08 工程改进：累加器抽为 FixedTimestep（纯逻辑，可单测；语义与旧内联实现一致）。
-    const double step = 1.0 / sim_.config().sim.tickRate;
-    lw::FixedTimestep timestep(step);
-    const Uint64 perfFreq = SDL_GetPerformanceFrequency();
-    Uint64 last = SDL_GetPerformanceCounter();
-
     while (!quit_) {
+        // P1 菜单阶段：首次启动或从游戏确认退出后，点「开始游戏」才构建模拟。
+        if (!simReady_) {
+            if (!prebuilt_ && !skipMenu_) {
+                menuStarted_ = false;
+                if (!runMenu()) break;
+            }
+            if (!ensureSimulation()) return 1;
+            initPlayerIntent();  // 有玩家：初始意图（普通兵+首都）+ 进入即暂停
+        }
+
+        // 固定步长主循环（§3.7）：模拟每 1/60s 一步，渲染独立帧率。
+        // speed_/paused_ 只改变 tick 节奏，不改变模拟状态（确定性成立）。
+        const double step = 1.0 / sim_.config().sim.tickRate;
+        lw::FixedTimestep timestep(step);
+        const Uint64 perfFreq = SDL_GetPerformanceFrequency();
+        Uint64 last = SDL_GetPerformanceCounter();
+
+        while (!quit_ && !returnToMenu_) {
         input_.beginFrame();
         processEvents();
         applyInputs();
@@ -826,11 +874,28 @@ int Application::run() {
         // vsync 生效时 Present 会阻塞到垂直回扫（自限帧率），再加 Delay 会白拖慢 ~1ms
         // （→ ~56 t/s 慢动作）；仅无 vsync（软件兜底等）时用 Delay 让出 CPU。
         if (!vsync_) SDL_Delay(1);
-    }
+        }
 
-    // P3 面板布局持久化：退出时把当前面板位置/可见性写回 options.json（重启读回）。
-    syncPanelLayout();
-    if (!optionsPath_.empty()) options_.saveToFile(optionsPath_);
+        // P3 面板布局持久化：退出时把当前面板位置/可见性写回 options.json。
+        syncPanelLayout();
+        if (!optionsPath_.empty()) options_.saveToFile(optionsPath_);
+
+        if (!returnToMenu_ || quit_) break;
+
+        // 确认返回主菜单：释放当前模拟状态，下一轮重新进入已有菜单循环。
+        spdlog::info("returning to menu from game (tick {})", sim_.tickCount());
+        sim_ = Simulation{};
+        simReady_ = false;
+        prebuilt_ = false;
+        skipMenu_ = false;
+        menuStarted_ = false;
+        returnToMenu_ = false;
+        exitConfirm_ = false;
+        selection_ = app::Selection{};
+        hoverCityId_ = -1;
+        selCityId_ = -1;
+        capitalDesignationMode_ = false;
+    }
 
     spdlog::info("bye ({} ticks)", sim_.tickCount());
     return 0;

@@ -1,7 +1,7 @@
 // InputManager.h — SDL 事件 → 输入动作意图（翻新计划 Phase 8，§3.1 app/）。
 // 只做事件翻译，不触碰模拟/渲染状态；Application 每帧读取 actions() 并应用。
 // 交互不修改 Simulation 内部 → 确定性/回放成立（见翻新计划 §3.7）。
-// 键位：空格=暂停/继续；ESC 双击=暂停/继续（非阻塞状态机，单击不动作）；
+// 键位：空格=暂停/继续；ESC=暂停并打开退出确认，确认中再次按 ESC=继续游戏；
 //       1/2/3/4 = 1x/2x/4x/8x 倍速（玩家操控时 1-6 选兵种）；+/= 快一档、-= 慢一档；
 //       F6=步进一帧（跑一个逻辑帧后进入暂停，再按再跑，测试用）；
 //       滚轮=缩放（锚定光标）；**右键拖拽=平移**、左键单击=点选（2026-08-03 拖动改右键）；
@@ -30,7 +30,8 @@ struct Selection {
 
 // 一帧内的输入动作意图（Application 消费并应用）。
 struct InputActions {
-    bool togglePause = false;     // 空格边沿 或 ESC 双击 → 切换暂停
+    bool togglePause = false;     // 空格边沿 → 切换暂停
+    bool escape = false;          // ESC 按下 → 退出确认/继续游戏
     int speedSelect = 0;          // 0=无；数字键直接设定档位（1/2/4/8）
     int speedCycle = 0;           // +/-：+1 升一档、-1 降一档
     double wheelDelta = 0.0;      // 本帧滚轮档数累积（+滚入，-滚出）
@@ -85,8 +86,6 @@ private:
     bool rightMouseDown_ = false;
     bool rightDragging_ = false;
     int rightDownX_ = 0, rightDownY_ = 0;
-    Uint32 lastEscTime_ = 0;    // 上次 ESC 按下时间（双击状态机）
-    bool lastEscPending_ = false;  // 是否在等待第二次 ESC
 };
 
 }  // namespace lw::app

@@ -4,7 +4,7 @@
 // （InputManager 事件→动作、Camera 缩放/平移、点选、DebugPanel、F5 重载配置、F12 截图）、
 // P1 菜单阶段（skipMenu=false 时先跑菜单，点「开始游戏」后按 Options 构建 Simulation）。
 // 交互只改渲染节奏与视图，绝不触碰 sim RNG/状态 → 确定性回放始终成立。
-// 退出：窗口关闭按钮（SDL_QUIT）。ESC 双击=暂停（原版语义，单击不动作）。
+// 退出：窗口关闭按钮（SDL_QUIT）。ESC=暂停并打开退出确认；确认中再次按 ESC=继续游戏。
 #pragma once
 
 #include <array>
@@ -93,6 +93,7 @@ private:
     // P8 玩家科研三选一弹窗：玩家势力 researchPending 时绘制（点选/跳过写回 req），
     // 由 renderFrame 强制暂停并在选后恢复。
     void drawTechResearchModal(ui::UiRequests& req);
+    void drawExitConfirmModal(ui::UiControls& ctrl);
 
     // P1 菜单阶段：
     bool runMenu();           // 菜单循环；返回是否点「开始游戏」
@@ -154,6 +155,8 @@ private:
     double speed_ = 1.0;   // 倍速（§3.7：只影响渲染节奏；档位 0.25x~8x）
     bool paused_ = false;  // 暂停（不 tick）
     bool stepPending_ = false;  // 步进（F6/面板按钮）：暂停状态下推进一帧，见 run()
+    bool exitConfirm_ = false;  // ESC 后显示退出确认面板
+    bool returnToMenu_ = false; // 确认退出后结束当前游戏循环
     float uiScale_ = 2.0f; // UI 缩放（FontGlobalScale + 面板宽度；默认 2.0，2026-08-03 用户定夺）
     bool quit_ = false;
     int screenshotCounter_ = 0;
