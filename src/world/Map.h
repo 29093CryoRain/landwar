@@ -84,7 +84,8 @@ public:
     // 带基础格序号的版本（半正/Laves 用；方/六忽略 b，三 = b 取 0 正/1 反）。
     int cellIndexAt(int c, int r, int b) const;
 
-    // 邻海修正（P5）：任何山格 8 邻域（含对角）有海格 → 置为普通陆。纯循环、无 RNG、确定性。
+    // 邻海修正（P5/P4）：方形山格 8 邻域、其它密铺共享顶点的点邻有海格 → 置普通陆。
+    // 纯循环、无 RNG、确定性。
     void correctMountainCoast();
 
     // 放置 8 个首都：优先落在"可产城"格（cityAllowed，基图允许城市）；可产城格不足/太挤时

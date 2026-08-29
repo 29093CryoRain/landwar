@@ -155,7 +155,7 @@ bool Application::init() {
     // 双色势力渲染（视觉工程改进 ⑫）：主副色与混合比例全部来自 config.json
     //（factions[i].color/secondary + render.tile / render.city.mix；F7 重烘焙肉眼评美）。
 
-    mapRenderer_ = std::make_unique<render::MapRenderer>(ren_, camera_);
+    mapRenderer_ = std::make_unique<render::MapRenderer>(ren_, camera_, uiConfig_.render.mountain);
     // P13 城市渲染：基建格贴图 + 等级图标 + 高缩放细线围区（在 MapRenderer 之后绘制）。
     cityRenderer_ = std::make_unique<render::CityRenderer>(ren_, camera_);
     armyRenderer_ = std::make_unique<render::ArmyRenderer>(ren_, sheet_, camera_,

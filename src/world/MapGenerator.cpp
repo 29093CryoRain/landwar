@@ -14,6 +14,7 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -96,6 +97,72 @@ private:
     std::array<unsigned char, 256> perm_{};
 };
 
+// 用邻格中心的二维位移拟合局部平面，返回单位距离上的海拔变化。
+// 直接取邻格差值最大值会偏向邻居更多或中心距更大的大多边形。
+double estimateGradient(const TilingGeom& g, int index, const std::vector<double>& height,
+                        bool gridCoordinates) {
+    auto position = [&](int idx, double& x, double& y) {
+        if (gridCoordinates) {
+            int r, c, b;
+            g.indexToRowCol(idx, r, c, b);
+            x = static_cast<double>(c);
+            y = static_cast<double>(r);
+        } else {
+            g.cellCenter(idx, x, y);
+        }
+    };
+
+    double x0, y0;
+    position(index, x0, y0);
+    const double h0 = height[static_cast<size_t>(index)];
+    double xx = 0.0, xy = 0.0, yy = 0.0;
+    double bx = 0.0, by = 0.0, maxSlope = 0.0;
+    const int count = g.type == TilingType::Square ? g.pointNeighborCount(index)
+                                                    : g.neighborCount(index);
+    for (int k = 0; k < count; ++k) {
+        const int nb = g.type == TilingType::Square ? g.pointNeighbor(index, k)
+                                                     : g.neighbor(index, k);
+        if (nb < 0) continue;
+        double x1, y1;
+        position(nb, x1, y1);
+        const double dx = x1 - x0, dy = y1 - y0;
+        const double d2 = dx * dx + dy * dy;
+        if (d2 <= 1e-12) continue;
+        const double dh = height[static_cast<size_t>(nb)] - h0;
+        xx += dx * dx;
+        xy += dx * dy;
+        yy += dy * dy;
+        bx += dx * dh;
+        by += dy * dh;
+        maxSlope = std::max(maxSlope, std::fabs(dh) / std::sqrt(d2));
+    }
+    const double det = xx * yy - xy * xy;
+    if (det <= 1e-12) return maxSlope;
+    const double gx = (bx * yy - by * xy) / det;
+    const double gy = (by * xx - bx * xy) / det;
+    return std::hypot(gx, gy);
+}
+
+bool hasOutsidePointNeighbor(const TilingGeom& g, int index) {
+    for (int k = 0; k < g.pointNeighborCount(index); ++k)
+        if (g.pointNeighbor(index, k) < 0) return true;
+    return false;
+}
+
+double polygonDistanceToBounds(const TilingGeom& g, int index) {
+    double vx[12], vy[12];
+    const int n = g.cellPolygon(index, vx, vy, 12);
+    if (n <= 0) return 0.0;
+    double distance = std::numeric_limits<double>::max();
+    for (int i = 0; i < n; ++i) {
+        distance = std::min(distance, vx[i]);
+        distance = std::min(distance, g.worldWidth() - vx[i]);
+        distance = std::min(distance, vy[i]);
+        distance = std::min(distance, g.worldHeight() - vy[i]);
+    }
+    return std::max(0.0, distance);
+}
+
 }  // namespace
 
 // 前向声明（generate 分派用；实现见文件后部）。
@@ -156,36 +223,25 @@ static bool generateSquare(const std::string& path, std::uint32_t seed, const Ma
             height[static_cast<size_t>(y) * w + x] = noise.fbm(x / baseCell, y / baseCell);
         }
     }
-    // ①a 坡度场（供"山脉"分量选山用）：海拔梯度大的格 = 高原边缘/内部山脊的陡坡，
-    //     沿等高线构成蜿蜒山脉（环绕高原主体），与"高原"分量互补。
+    const TilingGeom squareGeom{TilingType::Square, w, h};
+    // ①a 坡度场（供"山脉"分量选山用）：按真实中心距离拟合局部坡度，
+    //     避免不同密铺的格面积/邻居数量让某类格获得系统性偏高分。
     std::vector<double> grad(static_cast<size_t>(w) * h, 0.0);
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const double hv = height[static_cast<size_t>(y) * w + x];
-            double g = 0.0;
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dx = -1; dx <= 1; ++dx) {
-                    if (dx == 0 && dy == 0) continue;
-                    const int nx = x + dx, ny = y + dy;
-                    if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-                    g = std::max(g, std::abs(hv - height[static_cast<size_t>(ny) * w + nx]));
-                }
-            }
-            grad[static_cast<size_t>(y) * w + x] = g;
-        }
-    }
+    for (int idx = 0; idx < w * h; ++idx)
+        grad[static_cast<size_t>(idx)] = estimateGradient(squareGeom, idx, height, false);
 
-    // ①b 强制边缘为海（2026-08-06 用户要求）：边缘带按到边缘的距离 d 削减海拔，
-    //     越边缘削越多（线性衰减，带宽 band、边缘强度 0.5）→ 海自然从边缘向里延伸；
-    //     最外一圈（d==0）恒为海（见 ②b），故陆地占比 100% 时也只有恰好一圈海。
-    const int edgeBand = std::max(4, std::min(w, h) / 12);
+    // ①b 强制边缘为海：按真实边界距离平滑削减海拔，硬边界在 ②b 单独处理。
+    constexpr double kEdgeBand = 3.0;  // 世界单位；约三格，避免整块密铺被连带清海
     constexpr double kEdgeStrength = 0.5;
     if (p.forceCoast) {
         for (int y = 0; y < h; ++y) {
             for (int x = 0; x < w; ++x) {
-                const int d = std::min({x, w - 1 - x, y, h - 1 - y});
-                if (d < edgeBand) {
-                    const double atten = kEdgeStrength * (1.0 - static_cast<double>(d) / edgeBand);
+                const double d = std::min({static_cast<double>(x), static_cast<double>(w - 1 - x),
+                                           static_cast<double>(y), static_cast<double>(h - 1 - y)});
+                if (d < kEdgeBand) {
+                    const double u = 1.0 - d / kEdgeBand;
+                    const double smooth = u * u * (3.0 - 2.0 * u);
+                    const double atten = kEdgeStrength * smooth;
                     height[static_cast<size_t>(y) * w + x] =
                         std::max(0.0, height[static_cast<size_t>(y) * w + x] - atten);
                 }
@@ -202,14 +258,10 @@ static bool generateSquare(const std::string& path, std::uint32_t seed, const Ma
 
     std::vector<bool> land(static_cast<size_t>(w) * h, false);
     for (size_t i = 0; i < land.size(); ++i) land[i] = height[i] >= threshold;
-    // ②b 强制边缘为海：最外一圈（d==0）必为海（即便 seaRatio=0 全陆地，也只有这圈海）。
+    // ②b 强制边缘为海：与界外点相邻的格必为海（即便 seaRatio=0 也只清真实边界格）。
     if (p.forceCoast) {
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                if (std::min({x, w - 1 - x, y, h - 1 - y}) == 0)
-                    land[static_cast<size_t>(y) * w + x] = false;
-            }
-        }
+        for (int idx = 0; idx < w * h; ++idx)
+            if (hasOutsidePointNeighbor(squareGeom, idx)) land[static_cast<size_t>(idx)] = false;
     }
 
     // ③ 山（地形作用：成片山脉，2026-08-06 用户反馈"分布太均匀"）：
@@ -350,53 +402,29 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
         }
         height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
     }
-    // ①a 坡度场（山脉分量）：边邻海拔差最大。
+    // ①a 坡度场（山脉分量）：使用真实中心距离拟合局部坡度，避免大格偏高。
     std::vector<double> grad(static_cast<size_t>(cellCount), 0.0);
     for (int idx = 0; idx < cellCount; ++idx) {
-        const double hv = height[static_cast<size_t>(idx)];
-        double gr = 0.0;
-        for (int k = 0; k < g.neighborCount(); ++k) {
-            const int nb = g.neighbor(idx, k);
-            if (nb < 0) continue;
-            gr = std::max(gr, std::fabs(hv - height[static_cast<size_t>(nb)]));
-        }
-        grad[static_cast<size_t>(idx)] = gr;
+        grad[static_cast<size_t>(idx)] = estimateGradient(g, idx, height, skew);
     }
 
-    // ①b 强制边缘为海（决策 11：任意密铺生效）：按格**真实世界坐标**到地图矩形边缘的
-    //   欧氏距离削减海拔；外圈恒海。2026-08 修正：旧实现按格索引 (r,c) 估距离，在六/三角
-    //   上失真——三角正/反格共享同一 (r,c) 却被减同一衰减（趋海被拉平、成片同向三角），
-    //   且削减带沿整行/整列垂直延伸，经阈值量化后横贯整行成直线海陆边（"横纹"）。
-    //   改用 cellCenter 世界坐标 → d = min(wx, worldW-wx, wy, worldH-wy)，贴合直边布局；
-    //   edgeBand 由"格数"改以 baseCell（世界尺度）为单位。
-    //   2026-08 斜周期：worldWidth/Height 为平行四边形 AABB（被剪切撑大），世界坐标距边
-    //   的欧氏距离不再贴合"视觉矩形边缘"——改用格坐标（c,r 到 [0,cols]x[0,rows] 边缘距离）
-    //   在**常规矩形域**内计算衰减，与采样一致。
-    const double ebandW = skew
-                              ? std::max(4.0, static_cast<double>(std::min(g.cols, g.rows)) / 6.0)
-                              : std::max(4.0, std::min(g.worldWidth(), g.worldHeight()) / 12.0);
+    // ①b 强制边缘为海：按多边形到地图 AABB 的真实距离平滑削减海拔。
+    constexpr double kEdgeBand = 3.0;
     constexpr double kEdgeStrength = 0.5;
     if (p.forceCoast) {
         for (int idx = 0; idx < cellCount; ++idx) {
-            double d;
-            if (skew) {
-                const double c0 = sampC[static_cast<size_t>(idx)], r0 = sampR[static_cast<size_t>(idx)];
-                d = std::min({c0, static_cast<double>(g.cols - 1) - c0, r0,
-                              static_cast<double>(g.rows - 1) - r0});
-            } else {
-                double wx, wy;
-                g.cellCenter(idx, wx, wy);
-                d = std::min({wx, g.worldWidth() - wx, wy, g.worldHeight() - wy});
-            }
-            if (d < ebandW) {
-                const double atten = kEdgeStrength * (1.0 - d / ebandW);
+            const double d = polygonDistanceToBounds(g, idx);
+            if (d < kEdgeBand) {
+                const double u = 1.0 - d / kEdgeBand;
+                const double smooth = u * u * (3.0 - 2.0 * u);
+                const double atten = kEdgeStrength * smooth;
                 height[static_cast<size_t>(idx)] =
                     std::max(0.0, height[static_cast<size_t>(idx)] - atten);
             }
         }
     }
 
-    // ② 海/陆阈值（排序分位数）+ 外圈恒海。
+    // ② 海/陆阈值（排序分位数）+ 真实界外邻接格硬设为海。
     std::vector<double> sorted = height;
     std::sort(sorted.begin(), sorted.end());
     const size_t k = std::min(static_cast<size_t>(static_cast<double>(sorted.size()) * p.seaRatio),
@@ -404,31 +432,16 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     const double threshold = sorted[k];
     std::vector<bool> land(static_cast<size_t>(cellCount), false);
     for (size_t i = 0; i < land.size(); ++i) land[i] = height[i] >= threshold;
-    // ②b 外圈恒海：按密铺**行/列索引**到边界距离 == 0（与方形 d==0 语义一致——用户
-    //   规范"勾选强制为海且 100% 陆地时，只有最外围一圈是海"）。
-    //   hex：r==0||r==rows-1||c==0||c==cols-1——含**凹进的偶数行最右列**（其右顶点距
-    //   右缘 √3a/2 不贴边，但视觉上属最右列带）；世界坐标距离判定会把 hex 左第二列
-    //   （距左缘同样 √3a/2）与右最列混为一谈，无法两全，索引语义才与方形一致。
-    //   tri：r==0||r==rows-1||i==0||i==cols-1（每行 cols 个三角对；最左/最右对 =
-    //   视觉最外列带，含右缘尖出对与左缘 j=0 贴边对）。
+    // ②b 硬边界：只清除真实存在界外点邻居的格，不按周期块的行/列整圈清除。
     if (p.forceCoast) {
-        const int B = g.baseCount();
-        for (int r = 0; r < g.rows; ++r) {
-            for (int c = 0; c < g.cols; ++c) {
-                const bool outer = (r == 0 || r == g.rows - 1 || c == 0 || c == g.cols - 1);
-                if (!outer) continue;
-                for (int b = 0; b < B; ++b) {
-                    const int idx = g.cellIndexAt(r, c, b);
-                    if (idx >= 0) land[static_cast<size_t>(idx)] = false;
-                }
-            }
-        }
+        for (int idx = 0; idx < cellCount; ++idx)
+            if (hasOutsidePointNeighbor(g, idx)) land[static_cast<size_t>(idx)] = false;
     }
 
-    // ③ 山（内陆：边邻无海 → 确定性山 R=255）。
+    // ③ 山（内陆：点邻无海 → 确定性山 R=255）。
     const auto adjacentSea = [&](int idx) {
-        for (int k = 0; k < g.neighborCount(idx); ++k) {
-            const int nb = g.neighbor(idx, k);
+        for (int k = 0; k < g.pointNeighborCount(idx); ++k) {
+            const int nb = g.pointNeighbor(idx, k);
             if (nb >= 0 && !land[static_cast<size_t>(nb)]) return true;
         }
         return false;

@@ -49,6 +49,10 @@ TEST(Config, Defaults) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.secondary, 0.10, 1e-12);
     EXPECT_NEAR(cfg.render.city.spawnArrow.black, 0.30, 1e-12);
     EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 3.0, 1e-12);
+    EXPECT_EQ(cfg.render.mountain.sourceWidth, 128);
+    EXPECT_EQ(cfg.render.mountain.sourceHeight, 128);
+    EXPECT_NEAR(cfg.render.mountain.strokeWidthPx, 6.0, 1e-12);
+    EXPECT_EQ(cfg.render.mountain.segments.size(), 4u);
     // 旧死键 cyanSeaMult 已删除（势力3 下海概率 ×0.666 由 factions[3].seaMult 承担）。
     EXPECT_NEAR(cfg.factions[3].seaMult, 0.666, 1e-9);
     // P9 新兵种（手枪/霰弹）与 projectile 段。
@@ -90,7 +94,10 @@ TEST(Config, JsonOverrides) {
         "units": [ { "type": "laser", "cost": 99.0 } ],
         "factions": [ { "id": 1, "color": [1,2,3], "secondary": [4,5,6],
                         "unitPreference": { "normal": 2.5 } } ],
-        "render": { "tile": { "primary": 0.4, "secondary": 0.3, "white": 0.3 },
+        "render": { "mountain": { "sourceWidth": 256, "strokeWidthPx": 8.0,
+                                      "areaReference": 2.0,
+                                      "segments": [[0, 128, 128, 0]] },
+                    "tile": { "primary": 0.4, "secondary": 0.3, "white": 0.3 },
                     "city": { "mix": { "primary": 0.7, "secondary": 0.1, "black": 0.2 },
                                "spawnArrow": { "primary": 0.5, "secondary": 0.2, "black": 0.3,
                                                 "areaDivisor": 4.0 } } },
@@ -101,6 +108,10 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(cfg.army.baseSpeed, 0.5, 1e-12);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.07, 1e-12);
     EXPECT_NEAR(cfg.army.spawnAngleStep, 0.25, 1e-12);
+    EXPECT_EQ(cfg.render.mountain.sourceWidth, 256);
+    EXPECT_NEAR(cfg.render.mountain.strokeWidthPx, 8.0, 1e-12);
+    EXPECT_NEAR(cfg.render.mountain.areaReference, 2.0, 1e-12);
+    ASSERT_EQ(cfg.render.mountain.segments.size(), 1u);
     EXPECT_NEAR(cfg.units[3].cost, 99.0, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);  // 未覆盖的保持默认
     EXPECT_EQ(cfg.factions[1].color[0], 1);

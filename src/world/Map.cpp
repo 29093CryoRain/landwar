@@ -371,13 +371,13 @@ void Map::correctMountainCoast() {
         }
         return;
     }
-    // P12 六/三角："距海 ≤1 格" = 边邻有海 → 山置普通陆（决策 4；边邻语义）。
+    // P12 六/三角/表驱动：共享顶点的海格也算邻海，山置普通陆（决策 4）。
     for (int idx = 0; idx < cellCount(); ++idx) {
         MapCell& c = atIndex(idx);
         if (!c.mountain) continue;
         bool nearSea = false;
-        for (int k = 0; k < geom_.neighborCount() && !nearSea; ++k) {
-            const int nb = geom_.neighbor(idx, k);
+        for (int k = 0; k < geom_.pointNeighborCount(idx) && !nearSea; ++k) {
+            const int nb = geom_.pointNeighbor(idx, k);
             if (nb >= 0 && !atIndex(nb).land) nearSea = true;
         }
         if (nearSea) c.mountain = false;

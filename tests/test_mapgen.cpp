@@ -273,12 +273,9 @@ lw::Map loadGeneratedTiled(std::uint32_t seed, const lw::MapGenParams& p, const 
     return map;
 }
 
-// 规范：勾选"强制边缘为海"且陆地比例 100%（seaRatio=0）时，**只有最外围一圈是海**——
-// 外圈 = 密铺**行/列索引**到边界距离 == 0（与方形 d==0 语义一致；含六边形凹进的偶数行
-// 最右列、三角最外对）。48×40 与 120×120（用户 GUI 尺寸）两组。
-// 回归 2026-08：曾用"格中心/多边形到边界世界距离"判定——hex 左第二列与右最列同距
-// 无法两全，导致六偶数行最右列、三角最外对漏判为陆。
-TEST(MapGen, TiledForceCoastZeroSeaIsExactlyOuterRing) {
+// 规范：勾选"强制边缘为海"且陆地比例 100%（seaRatio=0）时，只有真实拥有界外点邻居的格是海。
+// 不再按密铺块的行/列整圈处理；48×40 与 120×120（用户 GUI 尺寸）两组。
+TEST(MapGen, TiledForceCoastUsesActualPointBoundary) {
     const lw::TilingType tilings[2] = {lw::TilingType::Hex, lw::TilingType::Tri};
     for (const lw::TilingType t : tilings) {
         for (const int sz : {48, 120}) {
@@ -290,22 +287,61 @@ TEST(MapGen, TiledForceCoastZeroSeaIsExactlyOuterRing) {
             const lw::TilingGeom& g = map.geom();
             for (int r = 0; r < g.rows; ++r) {
                 for (int c = 0; c < g.cols; ++c) {
-                    const bool outer =
-                        (r == 0 || r == g.rows - 1 || c == 0 || c == g.cols - 1);
                     const int oCount = (t == lw::TilingType::Tri) ? 2 : 1;
                     for (int o = 0; o < oCount; ++o) {
                         const int idx = (t == lw::TilingType::Tri) ? 2 * (r * g.cols + c) + o
                                                                    : r * g.cols + c;
+                        bool outer = false;
+                        for (int k = 0; k < g.pointNeighborCount(idx); ++k)
+                            if (g.pointNeighbor(idx, k) < 0) outer = true;
                         const bool sea = !map.atIndex(idx).land;
                         EXPECT_EQ(sea, outer)
                             << "tiling=" << static_cast<int>(t) << " sz=" << sz
                             << " r=" << r << " c=" << c << " o=" << o
-                            << " (外圈索引格应海、内圈应陆)";
+                            << " (有界外点邻居的格应海、其余应陆)";
                     }
                 }
             }
         }
     }
+}
+
+TEST(MapGen, TableTilingForceCoastUsesActualPointBoundary) {
+    const lw::MapGenParams p{48, 48, 0.0, 0.05, 0.02, 0.3, true,
+                             lw::TilingType::Arch31212};
+    const lw::Map map = loadGeneratedTiled(42, p, "build/_gen_fc_arch31212.lwmap");
+    const lw::TilingGeom& g = map.geom();
+    for (int idx = 0; idx < map.cellCount(); ++idx) {
+        bool boundary = false;
+        for (int k = 0; k < g.pointNeighborCount(idx); ++k)
+            if (g.pointNeighbor(idx, k) < 0) boundary = true;
+        EXPECT_EQ(!map.atIndex(idx).land, boundary) << "idx=" << idx;
+    }
+}
+
+TEST(MapGen, MixedAreaTilingGradientDoesNotFavorLargePolygons) {
+    // arch_31212 同时包含三角形和正十二边形；全陆地场隔离边缘/海影响，
+    // 检查局部坡度排序不会因为多边形面积和邻居数量不同而偏向十二边形。
+    const lw::MapGenParams p{96, 96, 0.0, 0.20, 0.0, 0.3, false,
+                             lw::TilingType::Arch31212};
+    const lw::Map map = loadGeneratedTiled(42, p, "build/_gen_arch31212_gradient.lwmap");
+    int triangles = 0, dodecagons = 0, triangleMountains = 0, dodecagonMountains = 0;
+    for (int idx = 0; idx < map.cellCount(); ++idx) {
+        const int sides = map.geom().neighborCount(idx);
+        if (sides == 3) {
+            ++triangles;
+            if (map.atIndex(idx).mountain) ++triangleMountains;
+        } else if (sides == 12) {
+            ++dodecagons;
+            if (map.atIndex(idx).mountain) ++dodecagonMountains;
+        }
+    }
+    ASSERT_GT(triangles, 0);
+    ASSERT_GT(dodecagons, 0);
+    const double triangleRate = static_cast<double>(triangleMountains) / triangles;
+    const double dodecagonRate = static_cast<double>(dodecagonMountains) / dodecagons;
+    EXPECT_LT(std::fabs(triangleRate - dodecagonRate), 0.20)
+        << "triangle rate=" << triangleRate << " dodecagon rate=" << dodecagonRate;
 }
 
 }  // namespace

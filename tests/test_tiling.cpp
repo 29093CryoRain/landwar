@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <set>
 
 #include "core/Config.h"
 #include "core/GameDefs.h"
@@ -59,6 +60,51 @@ TEST(Tiling, NeighborCounts) {
     EXPECT_EQ(sq.neighborCount(), 4);
     EXPECT_EQ(hx.neighborCount(), 6);
     EXPECT_EQ(tr.neighborCount(), 3);
+}
+
+TEST(Tiling, PointNeighborsIncludeExpectedGeometry) {
+    const TilingGeom sq{TilingType::Square, 5, 5};
+    const int center = 2 * 5 + 2;
+    EXPECT_EQ(sq.pointNeighborCount(center), 8);
+    std::set<int> squarePoints;
+    for (int k = 0; k < sq.pointNeighborCount(center); ++k)
+        squarePoints.insert(sq.pointNeighbor(center, k));
+    EXPECT_EQ(squarePoints.size(), 8u);
+    EXPECT_EQ(sq.pointNeighbor(0, 0), 5);  // edge neighbour remains first
+    EXPECT_EQ(sq.pointNeighbor(0, 4), -1); // diagonal outside the map
+
+    const TilingGeom hx{TilingType::Hex, 5, 6};
+    const int hexCenter = 2 * 5 + 2;
+    EXPECT_EQ(hx.pointNeighborCount(hexCenter), 6);
+    for (int k = 0; k < hx.pointNeighborCount(hexCenter); ++k)
+        EXPECT_EQ(hx.pointNeighbor(hexCenter, k), hx.neighbor(hexCenter, k));
+
+    const TilingGeom tr{TilingType::Tri, 8, 8};
+    const int triCenter = 2 * (4 * 8 + 3);
+    EXPECT_EQ(tr.pointNeighborCount(triCenter), 12);
+    std::set<int> triPoints;
+    for (int k = 0; k < tr.pointNeighborCount(triCenter); ++k) {
+        const int nb = tr.pointNeighbor(triCenter, k);
+        ASSERT_GE(nb, 0);
+        triPoints.insert(nb);
+    }
+    EXPECT_EQ(triPoints.size(), 12u);
+}
+
+TEST(Tiling, RegularCellIncenterMatchesCenterAndUnitArea) {
+    const TilingGeom cases[] = {{TilingType::Square, 5, 5},
+                                {TilingType::Hex, 6, 6},
+                                {TilingType::Tri, 8, 8}};
+    for (const auto& g : cases) {
+        for (int idx = 0; idx < g.cellCount(); ++idx) {
+            double centerX, centerY, incenterX, incenterY;
+            g.cellCenter(idx, centerX, centerY);
+            g.cellIncenter(idx, incenterX, incenterY);
+            EXPECT_DOUBLE_EQ(g.cellArea(idx), 1.0);
+            EXPECT_DOUBLE_EQ(incenterX, centerX);
+            EXPECT_DOUBLE_EQ(incenterY, centerY);
+        }
+    }
 }
 
 // 正方形几何回归：中心/取格/邻格序（0 下、1 上、2 左、3 右）与界外 -1。

@@ -537,8 +537,12 @@ void validateConfigKeys(const Json& root) {
     const Json& ren = obj("render");
     warnUnknownKeys(ren,
                     {"windowWidth", "windowHeight", "spriteSize", "armyDrawSize", "city",
-                     "capital", "tile"},
+                     "capital", "tile", "mountain"},
                     "render");
+    warnUnknownKeys(child(ren, "mountain"),
+                    {"sourceWidth", "sourceHeight", "strokeWidthPx", "areaReference", "colorDarken",
+                     "segments"},
+                    "render.mountain");
     warnUnknownKeys(child(ren, "city"),
                     {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "mix", "spawnArrow"},
                     "render.city");
@@ -913,6 +917,29 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.render.windowHeight = getInt(renderJson, "windowHeight", cfg.render.windowHeight);
         cfg.render.spriteSize = getInt(renderJson, "spriteSize", cfg.render.spriteSize);
         cfg.render.armyDrawSize = getInt(renderJson, "armyDrawSize", cfg.render.armyDrawSize);
+        if (renderJson.contains("mountain") && renderJson["mountain"].is_object()) {
+            const auto& rm = renderJson["mountain"];
+            cfg.render.mountain.sourceWidth =
+                getInt(rm, "sourceWidth", cfg.render.mountain.sourceWidth);
+            cfg.render.mountain.sourceHeight =
+                getInt(rm, "sourceHeight", cfg.render.mountain.sourceHeight);
+            cfg.render.mountain.strokeWidthPx =
+                getNum(rm, "strokeWidthPx", cfg.render.mountain.strokeWidthPx);
+            cfg.render.mountain.areaReference =
+                getNum(rm, "areaReference", cfg.render.mountain.areaReference);
+            cfg.render.mountain.colorDarken =
+                getNum(rm, "colorDarken", cfg.render.mountain.colorDarken);
+            if (rm.contains("segments") && rm["segments"].is_array()) {
+                std::vector<std::array<double, 4>> segments;
+                for (const auto& segment : rm["segments"])
+                    if (segment.is_array() && segment.size() == 4 &&
+                        std::all_of(segment.begin(), segment.end(),
+                                    [](const Json& value) { return value.is_number(); }))
+                        segments.push_back({segment[0].get<double>(), segment[1].get<double>(),
+                                            segment[2].get<double>(), segment[3].get<double>()});
+                if (!segments.empty()) cfg.render.mountain.segments = std::move(segments);
+            }
+        }
         // P13 城市渲染常数（lineMinCellPx/lineThickness/lineDarken/iconDarken/mix；P1.2 删 iconScale）。
         if (renderJson.contains("city") && renderJson["city"].is_object()) {
             const auto& rc = renderJson["city"];
@@ -1238,6 +1265,20 @@ bool Config::validate(std::string* err) const {
         || !positive(render.city.spawnArrow.areaDivisor) || render.capital.minIconSizePx <= 0
         || !positive(render.capital.lineThickness) || !unitInterval(render.capital.designatedAlpha))
         return fail("render numeric range invalid");
+    if (render.mountain.sourceWidth <= 0 || render.mountain.sourceHeight <= 0
+        || !positive(render.mountain.strokeWidthPx) || !positive(render.mountain.areaReference)
+        || render.mountain.segments.empty()
+        || !unitInterval(render.mountain.colorDarken))
+        return fail("render mountain numeric range invalid");
+    for (const auto& segment : render.mountain.segments) {
+        for (double point : segment)
+            if (!finite(point)) return fail("render mountain segment is invalid");
+        if (segment[0] < 0.0 || segment[0] > render.mountain.sourceWidth ||
+            segment[2] < 0.0 || segment[2] > render.mountain.sourceWidth ||
+            segment[1] < 0.0 || segment[1] > render.mountain.sourceHeight ||
+            segment[3] < 0.0 || segment[3] > render.mountain.sourceHeight)
+            return fail("render mountain segment is outside source image");
+    }
     if (!positive(player.hoverCityRadius) || !unitInterval(player.markerAlpha)
         || !finite(player.markerRotateSpeed) || !nonNegative(player.markerRingMargin)
         || !nonNegative(player.markerArrowGap) || ui.messageMaxShown <= 0)
@@ -1457,6 +1498,16 @@ std::string Config::toJson() const {
         renderJ["windowHeight"] = render.windowHeight;
         renderJ["spriteSize"] = render.spriteSize;
         renderJ["armyDrawSize"] = render.armyDrawSize;
+        Json mountainJ;
+        mountainJ["sourceWidth"] = render.mountain.sourceWidth;
+        mountainJ["sourceHeight"] = render.mountain.sourceHeight;
+        mountainJ["strokeWidthPx"] = render.mountain.strokeWidthPx;
+        mountainJ["areaReference"] = render.mountain.areaReference;
+        mountainJ["colorDarken"] = render.mountain.colorDarken;
+        mountainJ["segments"] = Json::array();
+        for (const auto& segment : render.mountain.segments)
+            mountainJ["segments"].push_back({segment[0], segment[1], segment[2], segment[3]});
+        renderJ["mountain"] = std::move(mountainJ);
         // 双色系统（⑫）：地块格 主:副:白 混合比例。
         renderJ["tile"] = {{"primary", render.tileMix.primary},
                             {"secondary", render.tileMix.secondary},

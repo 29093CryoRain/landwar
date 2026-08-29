@@ -213,6 +213,7 @@ add_executable(landwar_tests
     tests/test_map.cpp
     tests/test_mapgen.cpp
     tests/test_math.cpp
+    tests/test_mountain_render.cpp
     tests/test_mountain.cpp
     tests/test_move_perf.cpp
     tests/test_options.cpp

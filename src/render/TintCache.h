@@ -35,6 +35,8 @@ public:
     ~TintCache();
     TintCache(const TintCache&) = delete;
     TintCache& operator=(const TintCache&) = delete;
+    TintCache(TintCache&& other) noexcept;
+    TintCache& operator=(TintCache&& other) noexcept;
 
     // 加载 path，烘焙 colors.size() 份目标色版本（ren 为渲染器）。sizes 指定烘焙档位
     // （如 {128, 64, 32, 16}，须含源图尺寸；> 源图尺寸的档位被忽略，不放大）；为空 →
@@ -43,6 +45,13 @@ public:
               const std::vector<std::array<int, 3>>& colors, TintMode mode = TintMode::Multiply,
               bool grayscaleFirst = false, int preserveWhiteAbove = 0,
               std::vector<int> sizes = {});
+
+    // 从调用方提供的 surface 烘焙纹理；surface 不转移所有权，须为可读 RGBA surface。
+    // 用于地图几何样式的启动期预烘焙，管线与文件加载完全一致。
+    bool loadSurface(SDL_Renderer* ren, SDL_Surface* source,
+                     const std::vector<std::array<int, 3>>& colors,
+                     TintMode mode = TintMode::Multiply, bool grayscaleFirst = false,
+                     int preserveWhiteAbove = 0, std::vector<int> sizes = {});
 
     // 取第 colorIndex 份着色、第 sizeIndex 档纹理（sizeIndex 0 = 源图尺寸；越界/未加载 → nullptr）。
     SDL_Texture* texture(int colorIndex, int sizeIndex) const;

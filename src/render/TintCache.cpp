@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 #include "render/TintMath.h"
 
@@ -74,6 +75,26 @@ SDL_Surface* scaleSurface(SDL_Surface* src, int dstW, int dstH) {
 
 TintCache::~TintCache() {
     release();
+}
+
+TintCache::TintCache(TintCache&& other) noexcept
+    : textures_(std::move(other.textures_)), sizes_(std::move(other.sizes_)),
+      colorCount_(other.colorCount_), texW_(other.texW_), texH_(other.texH_) {
+    other.colorCount_ = 0;
+    other.texW_ = other.texH_ = 0;
+}
+
+TintCache& TintCache::operator=(TintCache&& other) noexcept {
+    if (this == &other) return *this;
+    release();
+    textures_ = std::move(other.textures_);
+    sizes_ = std::move(other.sizes_);
+    colorCount_ = other.colorCount_;
+    texW_ = other.texW_;
+    texH_ = other.texH_;
+    other.colorCount_ = 0;
+    other.texW_ = other.texH_ = 0;
+    return *this;
 }
 
 void TintCache::release() {
@@ -195,6 +216,92 @@ bool TintCache::load(SDL_Renderer* ren, const std::string& path,
     spdlog::info("TintCache: '{}' baked {} color(s) x {} size(s) ({}x{}) [{}]", path,
                  colorCount_, sizeCount(), texW_, texH_,
                  mode == TintMode::HueRotate ? "hue" : "mul");
+    return true;
+}
+
+bool TintCache::loadSurface(SDL_Renderer* ren, SDL_Surface* source,
+                            const std::vector<std::array<int, 3>>& colors, TintMode mode,
+                            bool grayscaleFirst, int preserveWhiteAbove, std::vector<int> sizes) {
+    release();
+    if (!ren || !source) {
+        spdlog::error("TintCache: loadSurface with null renderer or surface");
+        return false;
+    }
+    SDL_Surface* src = SDL_ConvertSurfaceFormat(source, SDL_PIXELFORMAT_RGBA32, 0);
+    if (!src) {
+        spdlog::error("TintCache: surface convert failed: {}", SDL_GetError());
+        return false;
+    }
+    texW_ = src->w;
+    texH_ = src->h;
+    const Uint32* srcPx = static_cast<Uint32*>(src->pixels);
+    SDL_PixelFormat* fmt = src->format;
+    std::vector<double> deltas;
+    if (mode == TintMode::HueRotate) {
+        deltas.reserve(colors.size());
+        const double baseHue = colors.empty() ? 0.0 : hueOf(colors[0][0], colors[0][1], colors[0][2]);
+        for (const auto& c : colors) deltas.push_back(hueOf(c[0], c[1], c[2]) - baseHue);
+    }
+    sizes_.clear();
+    sizes_.push_back(src->w);
+    for (int s : sizes)
+        if (s > 0 && s < src->w) sizes_.push_back(s);
+    std::sort(sizes_.begin(), sizes_.end(), std::greater<int>());
+    sizes_.erase(std::unique(sizes_.begin(), sizes_.end()), sizes_.end());
+    colorCount_ = static_cast<int>(colors.size());
+
+    bool ok = true;
+    for (std::size_t ci = 0; ci < colors.size() && ok; ++ci) {
+        SDL_Surface* base =
+            SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, SDL_PIXELFORMAT_RGBA32);
+        if (!base) {
+            spdlog::error("TintCache: out surface create failed: {}", SDL_GetError());
+            ok = false;
+            break;
+        }
+        const auto& color = colors[ci];
+        const double delta = (mode == TintMode::HueRotate && ci < deltas.size()) ? deltas[ci] : 0.0;
+        const Uint32* sourcePixels = srcPx;
+        Uint32* dstPx = static_cast<Uint32*>(base->pixels);
+        for (int y = 0; y < src->h; ++y) {
+            for (int x = 0; x < src->w; ++x) {
+                Uint8 r = 0, g = 0, b = 0, a = 0;
+                SDL_GetRGBA(sourcePixels[static_cast<size_t>(y) * src->w + x], fmt, &r, &g, &b, &a);
+                const TintRgba t = (mode == TintMode::HueRotate)
+                                       ? hueRotatePixel(r, g, b, a, delta)
+                                       : tintPixel(r, g, b, a, color, grayscaleFirst,
+                                                   preserveWhiteAbove);
+                dstPx[static_cast<size_t>(y) * src->w + x] =
+                    SDL_MapRGBA(base->format, static_cast<Uint8>(t.r), static_cast<Uint8>(t.g),
+                                static_cast<Uint8>(t.b), static_cast<Uint8>(t.a));
+            }
+        }
+        for (int s : sizes_) {
+            const bool isSrc = s == src->w;
+            const int bh = isSrc ? src->h : std::max(1, static_cast<int>(std::lround(
+                                                          static_cast<double>(s) * src->h / src->w)));
+            SDL_Surface* surf = isSrc ? base : scaleSurface(base, s, bh);
+            if (!surf) {
+                spdlog::error("TintCache: scale to {}x{} failed", s, bh);
+                ok = false;
+                break;
+            }
+            SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
+            if (surf != base) SDL_FreeSurface(surf);
+            if (!tex) {
+                spdlog::error("TintCache: texture create failed: {}", SDL_GetError());
+                ok = false;
+                break;
+            }
+            textures_.push_back(tex);
+        }
+        SDL_FreeSurface(base);
+    }
+    SDL_FreeSurface(src);
+    if (!ok) {
+        release();
+        return false;
+    }
     return true;
 }
 

@@ -315,6 +315,19 @@ struct Config {
         int windowHeight = 1425;
         int spriteSize = 32;
         int armyDrawSize = 48;
+        // 山地线稿按原始 mountain.png 参数预烘焙；所有参数仅影响渲染，不消耗模拟 RNG。
+        struct Mountain {
+            int sourceWidth = 128;           // mountain.png 宽
+            int sourceHeight = 128;          // mountain.png 高
+            double strokeWidthPx = 6.0;      // mountain.png 线条中心线粗细
+            double areaReference = 1.0;      // 面积缩放基准，scale=sqrt(cellArea/此值)
+            double colorDarken = 0.08;       // 山线颜色 = 势力色 × 此比例
+            std::vector<std::array<double, 4>> segments = {
+                {0.0, 119.0, 47.0, 1.0},
+                {47.0, 1.0, 92.3, 127.0},
+                {79.0, 90.0, 98.0, 53.0},
+                {98.0, 53.0, 127.0, 127.0}};
+        } mountain;
         // 双色势力渲染混合比例（视觉工程改进 ⑫；JSON: render.tile）：
         // 地块格填色 = 主色:副色:白 加权平均（主副比例接近，默认 0.35:0.35:0.30）。
         // variation（2026-08 双色密铺分档）：arch/laves 密铺按格类型/朝向分档时，

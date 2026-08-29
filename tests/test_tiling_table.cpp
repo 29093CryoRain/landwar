@@ -125,6 +125,59 @@ TEST(TilingTable, ArchNeighborSymmetryAndBoundary) {
     }
 }
 
+TEST(TilingTable, PointNeighborsShareVerticesAndAreSymmetric) {
+    for (TilingType t : kTableTypes) {
+        TilingGeom g{t, 4, 4};
+        for (int idx = 0; idx < g.cellCount(); ++idx) {
+            double vx[12], vy[12];
+            const int n = g.cellPolygon(idx, vx, vy, 12);
+            ASSERT_GE(n, 3) << tilingName(t);
+            for (int k = 0; k < g.pointNeighborCount(idx); ++k) {
+                const int nb = g.pointNeighbor(idx, k);
+                if (nb < 0) continue;
+                double nvx[12], nvy[12];
+                const int nn = g.cellPolygon(nb, nvx, nvy, 12);
+                bool shares = false;
+                for (int i = 0; i < n && !shares; ++i)
+                    for (int j = 0; j < nn; ++j)
+                        if (std::fabs(vx[i] - nvx[j]) < 1e-6 &&
+                            std::fabs(vy[i] - nvy[j]) < 1e-6) {
+                            shares = true;
+                            break;
+                        }
+                EXPECT_TRUE(shares) << tilingName(t) << " idx=" << idx << " k=" << k;
+
+                bool symmetric = false;
+                for (int kk = 0; kk < g.pointNeighborCount(nb); ++kk)
+                    if (g.pointNeighbor(nb, kk) == idx) symmetric = true;
+                EXPECT_TRUE(symmetric) << tilingName(t) << " idx=" << idx << " nb=" << nb;
+            }
+        }
+    }
+}
+
+TEST(TilingTable, CellAreaAndIncenterAreCachedGeometry) {
+    for (TilingType t : kTableTypes) {
+        TilingGeom g{t, 4, 4};
+        for (int idx = 0; idx < g.cellCount(); ++idx) {
+            EXPECT_GT(g.cellArea(idx), 0.0) << tilingName(t) << " idx=" << idx;
+            double cx, cy;
+            g.cellIncenter(idx, cx, cy);
+            double vx[12], vy[12];
+            const int n = g.cellPolygon(idx, vx, vy, 12);
+            double reference = -1.0;
+            for (int i = 0; i < n; ++i) {
+                const int j = (i + 1) % n;
+                const double dx = vx[j] - vx[i], dy = vy[j] - vy[i];
+                const double len = std::hypot(dx, dy);
+                const double distance = std::fabs(dx * (cy - vy[i]) - dy * (cx - vx[i])) / len;
+                if (reference < 0.0) reference = distance;
+                EXPECT_NEAR(distance, reference, 2e-5) << tilingName(t) << " idx=" << idx;
+            }
+        }
+    }
+}
+
 TEST(TilingTable, ArchCellPolygonMatchesCellEdge) {
     for (TilingType t : kTableTypes) {
         TilingGeom g{t, 3, 2};

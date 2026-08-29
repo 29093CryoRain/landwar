@@ -111,6 +111,16 @@ struct TilingGeom {
     // 第 k 个边邻下标（越界/图外返回 -1）。
     int neighbor(int index, int k) const;
 
+    // 点邻数（共享任一顶点；方 8 / 六 6 / 三 12 / 表驱动 = 该格顶点邻数）。
+    // 数量按无限密铺的几何邻域返回，边界上的具体邻格由 pointNeighbor 返回 -1。
+    int pointNeighborCount(int index) const;
+    // 第 k 个点邻下标（越界/图外返回 -1，结果已去重）。
+    int pointNeighbor(int index, int k) const;
+
+    // 地块面积与内切圆圆心（世界坐标）。非表驱动密铺均为单位面积，内切圆圆心等于格中心。
+    double cellArea(int index) const;
+    void cellIncenter(int index, double& wx, double& wy) const;
+
     // 从格 index 内位置 (x,y) 沿 angle（rad）穿越到最近边。返回：
     //   0..neighborCount-1 = 穿过的边（进入格 = neighbor(index, 边)；越界由调用方按
     //   neighborRaw 判断环绕/反弹）；

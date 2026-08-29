@@ -41,7 +41,7 @@ struct MapSelection {
     double seaRatio = 0.40;             // 海占比目标（0 = 全陆地）
     double mountainDensity = 0.08;      // 内陆山占比目标
     double cityDensity = 0.02;          // 城占比目标（占陆地格）
-     bool forceCoast = false;            // 强制边缘为海（P6 随机图）：边缘带削减海拔，最外一圈恒为海
+     bool forceCoast = false;            // 强制边缘为海：真实界外点邻接格必为海，并向内平滑削减海拔
     std::string tiling = "square";      // P12：密铺（square/hex/tri；随机图生成用；预装 BMP 恒方形）
 };
 

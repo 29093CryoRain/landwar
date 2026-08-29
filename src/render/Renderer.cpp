@@ -88,7 +88,7 @@ void Renderer::drawSpriteCentered(SDL_Texture* tex, const SDL_Rect& src, int cx,
 }
 
 void Renderer::drawSpriteCenteredRect(SDL_Texture* tex, const SDL_Rect& src, int cx, int cy,
-                                      int dstW, int dstH, int alpha) {
+                                       int dstW, int dstH, int alpha) {
     if (!tex) return;
     SDL_SetTextureAlphaMod(tex, static_cast<Uint8>(alpha));
     const SDL_Rect dst{cx - dstW / 2, cy - dstH / 2, dstW, dstH};

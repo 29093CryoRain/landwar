@@ -73,8 +73,9 @@ ctest --preset release            # 单元测试
 > （细节改进 2026-08）：下一格为山（不管当前格，含海→山/山→山）都掷进入/反弹（普通/先锋 0.5、
 > 开拓 0.8）、进山减速（开拓不减速）、出山复原；下一格既为敌又为山时两骰独立计算。兵种重置：
 > **先锋**碰敌方领土 60% 不反弹；**开拓**碰敌方领土连占上下左右 4 邻格、山地不减速且难被阻挡。
-> 山/城用简笔画线条贴图（`data/mountain.png`/`city.png`，tint 管线按势力色烘焙；**LOD 多尺寸
-> 128/64/32/16 预烘焙**，缩放小时按屏上格大小选档避免糊成一团）。现有地图已等效转换
+> 山纹按 `mountain.png` 原始线稿在启动期预烘焙，按格面积平方根缩放但保持线宽；源图尺寸、线段、
+> 面积基准和颜色均由 `render.mountain` 配置，纹理使用 tint 管线和 LOD 多尺寸，生成过程不消耗模拟 RNG。城仍使用
+> 简笔画线条贴图。现有地图已等效转换
 > （`tools/gen_probability_maps.py`）。首都只落在可产城格（基图允许成城的格），不会在"必然无城"
 > 的格子出现。调色板见 `.docs/配置说明.md`。
 > **随机地图（P6/P12）**：菜单「选择地图…」→「随机地图」填参数（长/宽/陆地占比/山/城密度/
@@ -164,7 +165,7 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 ```
 new_project_landwar/
   CMakeLists.txt / CMakePresets.json / 编译landwar.bat
-  data/                map_*.bmp（地形基图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint）、ring.png/arrow.png（玩家标记美术图）、mountain.png/city.png（山/城线条贴图）、config.json（核心配置）、render.json、techs.json、factions.json、units.json（配置分片）
+  data/                map_*.bmp（地形基图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint）、ring.png/arrow.png（玩家标记美术图）、city.png（城市线条贴图）、tiling_specs_arch.json/tiling_specs_laves.json（密铺基础格几何）、config.json（核心配置）、render.json、techs.json、factions.json、units.json（配置分片）
   userdata/            运行期产物（可写、可丢弃、不进版本库；启动自动创建）：
                        options.json（菜单选项，开始游戏时保存）、maps/gen_*.bmp + gen_*_hex|tri_*.lwmap
                        （随机地图生成物）、
@@ -199,9 +200,9 @@ new_project_landwar/
 - **固定步长**：逻辑每 `1/60s` 一步（`sim.tickRate`）；渲染独立帧率，vsync 锁帧。
 - **ECS**：兵/特效为 entt 实体；组件见 `src/sim/components.h`；每 tick 各系统按序 update。
 - **渲染解耦**：渲染只读 sim 状态，不改 RNG/状态；`Camera` 提供缩放/平移/剔除。
-- **统一 tint 管线**：`TintCache` 读入源图 → 按势力色烘焙多版本存内存，两种模式——
-  **Multiply**（白/灰源→目标色，玩家标记 `ring.png`/`arrow.png`、P5 山/城线条贴图
-  `mountain.png`/`city.png` 用）与 **HueRotate**（彩色源按色相旋转到目标色，精确复现原图
+- **统一 tint 管线**：`TintCache` 读入源图或内存 mask → 按势力色烘焙多版本存内存，两种模式——
+  **Multiply**（白/灰源→目标色，玩家标记 `ring.png`/`arrow.png`、P5 山纹 mask/城市线条贴图
+  `city.png` 用）与 **HueRotate**（彩色源按色相旋转到目标色，精确复现原图
   "色相处理"，白像素自动不动→激光白芯保留）。军队精灵用 `army_base.png`（源列0 红，
   HueRotate）。
   纯渲染层，不影响模拟确定性。

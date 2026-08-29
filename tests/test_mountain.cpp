@@ -87,6 +87,35 @@ TEST(Mountain, CoastCorrectionClearsSeaAdjacent) {
     EXPECT_TRUE(map.at(2, 0).mountain);   // 内陆保留
 }
 
+TEST(Mountain, TiledCoastCorrectionClearsPointAdjacentMountain) {
+    Config cfg = lwtest::loadCfg();
+    cfg.map.tiling = "tri";
+    cfg.map.width = 12;
+    cfg.map.height = 12;
+    Map map;
+    map.configure(cfg.map);
+    map.setTerrain(cfg.terrain);
+    for (int idx = 0; idx < map.cellCount(); ++idx) map.atIndex(idx).land = true;
+
+    const int mountain = 2 * (3 * map.geom().cols + 3);  // interior upward triangle
+    int sea = -1;
+    for (int k = 0; k < map.geom().pointNeighborCount(mountain); ++k) {
+        const int candidate = map.geom().pointNeighbor(mountain, k);
+        bool edgeNeighbor = false;
+        for (int ek = 0; ek < map.geom().neighborCount(mountain); ++ek)
+            if (map.geom().neighbor(mountain, ek) == candidate) edgeNeighbor = true;
+        if (candidate >= 0 && !edgeNeighbor) {
+            sea = candidate;
+            break;
+        }
+    }
+    ASSERT_GE(sea, 0);
+    map.atIndex(mountain).mountain = true;
+    map.atIndex(sea).land = false;
+    map.correctMountainCoast();
+    EXPECT_FALSE(map.atIndex(mountain).mountain);
+}
+
 // ---- 编码规则（手写小 BMP 直接验证 loadFromBmp）----
 
 // 写标准 24bit BMP：54 头 + 每行 4 字节对齐 + BGR + 自底向上（j 行 = 图像底部行）。

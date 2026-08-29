@@ -61,6 +61,10 @@ struct TilingTable {
         std::vector<Edge> edges;               // 与 v[i]→v[i+1] 同序
     };
     std::vector<Cell> cells;
+    // 表驱动点邻接：每项保存相对周期块和基础格，运行时再做有限地图边界检查。
+    std::vector<std::vector<Edge>> vertexNeighbors;
+    std::vector<double> cellAreas;
+    std::vector<std::array<double, 2>> cellIncenters;
     // 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）：loadTable 尾部派生。
     // paletteSize = 档数（0 = 不分档；方/六/三不计于此）；basePalette[b] = 每基础格档位。
     int paletteSize = 0;
@@ -101,6 +105,58 @@ int pointInConvex(const std::vector<std::array<double, 2>>& poly, double x, doub
         else if (sign != s) return 0;
     }
     return 1;
+}
+
+std::array<double, 2> polygonIncenter(const TilingTable::Cell& cell) {
+    // 对每条边写出“到边的内侧距离 = 半径”，对三元组 (x,y,r) 做最小二乘。
+    // Laves 基元来自浮点 JSON，最小二乘比单次边平分线求交更能吸收微小误差。
+    double ata[3][3] = {};
+    double atb[3] = {};
+    double signedArea2 = 0.0;
+    for (int i = 0; i < cell.n; ++i) {
+        const auto& a = cell.v[static_cast<size_t>(i)];
+        const auto& b = cell.v[static_cast<size_t>((i + 1) % cell.n)];
+        signedArea2 += a[0] * b[1] - b[0] * a[1];
+    }
+    const double winding = signedArea2 >= 0.0 ? 1.0 : -1.0;
+    for (int i = 0; i < cell.n; ++i) {
+        const auto& a = cell.v[static_cast<size_t>(i)];
+        const auto& b = cell.v[static_cast<size_t>((i + 1) % cell.n)];
+        const double ex = b[0] - a[0], ey = b[1] - a[1];
+        const double len = std::hypot(ex, ey);
+        if (len <= kTableTol) continue;
+        const double nx = winding * -ey / len;
+        const double ny = winding * ex / len;
+        const double row[3] = {nx, ny, -1.0};
+        const double rhs = nx * a[0] + ny * a[1];
+        for (int r = 0; r < 3; ++r) {
+            atb[r] += row[r] * rhs;
+            for (int c = 0; c < 3; ++c) ata[r][c] += row[r] * row[c];
+        }
+    }
+    // 3x3 Gaussian elimination with partial pivoting.
+    for (int col = 0; col < 3; ++col) {
+        int pivot = col;
+        for (int row = col + 1; row < 3; ++row)
+            if (std::fabs(ata[row][col]) > std::fabs(ata[pivot][col])) pivot = row;
+        if (std::fabs(ata[pivot][col]) <= 1e-12) return {cell.cx, cell.cy};
+        if (pivot != col) {
+            for (int c = col; c < 3; ++c) std::swap(ata[col][c], ata[pivot][c]);
+            std::swap(atb[col], atb[pivot]);
+        }
+        for (int row = col + 1; row < 3; ++row) {
+            const double factor = ata[row][col] / ata[col][col];
+            for (int c = col; c < 3; ++c) ata[row][c] -= factor * ata[col][c];
+            atb[row] -= factor * atb[col];
+        }
+    }
+    double solution[3] = {};
+    for (int row = 2; row >= 0; --row) {
+        double v = atb[row];
+        for (int c = row + 1; c < 3; ++c) v -= ata[row][c] * solution[c];
+        solution[row] = v / ata[row][row];
+    }
+    return {solution[0], solution[1]};
 }
 
 std::shared_ptr<const TilingTable> loadTable(TilingType t) {
@@ -166,6 +222,20 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
             tab->ymax = std::max(tab->ymax, p[1]);
         }
     }
+    // 面积和内切圆中心只依赖基础格，平移副本在查询时补上周期偏移。
+    tab->cellAreas.resize(tab->cells.size(), 0.0);
+    tab->cellIncenters.resize(tab->cells.size());
+    for (size_t b = 0; b < tab->cells.size(); ++b) {
+        const auto& cell = tab->cells[b];
+        double area2 = 0.0;
+        for (int i = 0; i < cell.n; ++i) {
+            const auto& a = cell.v[static_cast<size_t>(i)];
+            const auto& v = cell.v[static_cast<size_t>((i + 1) % cell.n)];
+            area2 += a[0] * v[1] - v[0] * a[1];
+        }
+        tab->cellAreas[b] = std::fabs(area2) * 0.5;
+        tab->cellIncenters[b] = polygonIncenter(cell);
+    }
     // 建立邻接：每个基础格的每条边，找 ±dr,±dc 平移后与另一基础格反向重合的边。
     const int B = static_cast<int>(tab->cells.size());
     for (int b = 0; b < B; ++b) {
@@ -197,6 +267,46 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
             if (!found)
                 spdlog::warn("TilingTable: no neighbor for {} base {} edge {}", name, b, k);
         }
+    }
+    // 顶点邻接：对每个基础格顶点，扫描附近周期块并按顶点重合建立去重表。
+    // 平移范围 ±2 足以覆盖当前所有基础域；结果按 (dr,dc,base) 排序，保证查询稳定。
+    tab->vertexNeighbors.resize(static_cast<size_t>(B));
+    for (int b = 0; b < B; ++b) {
+        const auto& cell = tab->cells[static_cast<size_t>(b)];
+        auto& neighbors = tab->vertexNeighbors[static_cast<size_t>(b)];
+        for (int dr = -2; dr <= 2; ++dr) {
+            for (int dc = -2; dc <= 2; ++dc) {
+                const double ox = static_cast<double>(dc) * tab->wx + static_cast<double>(dr) * tab->hx;
+                const double oy = static_cast<double>(dc) * tab->wy + static_cast<double>(dr) * tab->hy;
+                for (int nb = 0; nb < B; ++nb) {
+                    if (nb == b && dr == 0 && dc == 0) continue;
+                    const auto& other = tab->cells[static_cast<size_t>(nb)];
+                    bool sharesVertex = false;
+                    for (const auto& v : cell.v) {
+                        for (const auto& ov : other.v) {
+                            if (std::fabs(v[0] - (ov[0] + ox)) <= kTableTol &&
+                                std::fabs(v[1] - (ov[1] + oy)) <= kTableTol) {
+                                sharesVertex = true;
+                                break;
+                            }
+                        }
+                        if (sharesVertex) break;
+                    }
+                    if (!sharesVertex) continue;
+                    const auto duplicate = std::find_if(
+                        neighbors.begin(), neighbors.end(), [&](const TilingTable::Edge& e) {
+                            return e.nb == nb && e.dr == dr && e.dc == dc;
+                        });
+                    if (duplicate == neighbors.end()) neighbors.push_back({nb, dr, dc});
+                }
+            }
+        }
+        std::sort(neighbors.begin(), neighbors.end(), [](const TilingTable::Edge& a,
+                                                         const TilingTable::Edge& b) {
+            if (a.dr != b.dr) return a.dr < b.dr;
+            if (a.dc != b.dc) return a.dc < b.dc;
+            return a.nb < b.nb;
+        });
     }
     fillTilePalette(*tab, t);
     return tab;
@@ -987,6 +1097,110 @@ int TilingGeom::neighbor(int index, int k) const {
         return (r * cols + c) * B + cell.edges[static_cast<size_t>(k)].nb;
     }
     return r * cols + c;
+}
+
+int TilingGeom::pointNeighborCount(int index) const {
+    if (index < 0 || index >= cellCount()) return 0;
+    switch (type) {
+        case TilingType::Square: return 8;
+        case TilingType::Hex: return 6;
+        case TilingType::Tri: return 12;
+        default:
+            ensureTable();
+            if (!table_ || table_->cells.empty()) return 0;
+            return static_cast<int>(table_->vertexNeighbors[static_cast<size_t>(index % table_->cells.size())].size());
+    }
+}
+
+int TilingGeom::pointNeighbor(int index, int k) const {
+    if (index < 0 || index >= cellCount() || k < 0 || k >= pointNeighborCount(index)) return -1;
+    if (type == TilingType::Square) {
+        const int x = index % cols, y = index / cols;
+        static constexpr int kDx[8] = {0, 0, -1, 1, -1, 1, -1, 1};
+        static constexpr int kDy[8] = {1, -1, 0, 0, 1, 1, -1, -1};
+        const int nx = x + kDx[k], ny = y + kDy[k];
+        return nx >= 0 && nx < cols && ny >= 0 && ny < rows ? ny * cols + nx : -1;
+    }
+    if (type == TilingType::Hex) return neighbor(index, k);
+    if (type == TilingType::Tri) {
+        // A triangle only meets cells in its own row or an adjacent row. Enumerate
+        // that fixed neighbourhood, then compare vertices to handle both orientations.
+        const int pair = index >> 1;
+        const int row = pair / cols, col = pair % cols;
+        double vx[3], vy[3];
+        const int vn = cellPolygon(index, vx, vy, 3);
+        std::array<int, 32> matches{};
+        int matchCount = 0;
+        for (int rr = row - 1; rr <= row + 1; ++rr) {
+            for (int cc = col - 2; cc <= col + 2; ++cc) {
+                for (int b = 0; b < 2; ++b) {
+                    const int candidate = cellIndexAt(rr, cc, b);
+                    if (candidate < 0 || candidate == index) continue;
+                    double cvx[3], cvy[3];
+                    const int cn = cellPolygon(candidate, cvx, cvy, 3);
+                    bool shares = false;
+                    for (int i = 0; i < vn && !shares; ++i)
+                        for (int j = 0; j < cn; ++j)
+                            if (std::fabs(vx[i] - cvx[j]) <= kTableTol &&
+                                std::fabs(vy[i] - cvy[j]) <= kTableTol) {
+                                shares = true;
+                                break;
+                            }
+                    if (shares && matchCount < static_cast<int>(matches.size()))
+                        matches[static_cast<size_t>(matchCount++)] = candidate;
+                }
+            }
+        }
+        std::sort(matches.begin(), matches.begin() + matchCount);
+        const auto end = std::unique(matches.begin(), matches.begin() + matchCount);
+        matchCount = static_cast<int>(end - matches.begin());
+        return k < matchCount ? matches[static_cast<size_t>(k)] : -1;
+    }
+    ensureTable();
+    if (!table_ || table_->cells.empty()) return -1;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int row = rc / cols, col = rc % cols;
+    const auto& candidates = table_->vertexNeighbors[static_cast<size_t>(b)];
+    if (k >= static_cast<int>(candidates.size())) return -1;
+    const auto& edge = candidates[static_cast<size_t>(k)];
+    const int nr = row + edge.dr, nc = col + edge.dc;
+    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) return -1;
+    return (nr * cols + nc) * B + edge.nb;
+}
+
+double TilingGeom::cellArea(int index) const {
+    if (index < 0 || index >= cellCount()) return 0.0;
+    if (!isTableType(type)) return 1.0;
+    ensureTable();
+    if (!table_ || table_->cells.empty()) return 0.0;
+    return table_->cellAreas[static_cast<size_t>(index % table_->cells.size())];
+}
+
+void TilingGeom::cellIncenter(int index, double& wx, double& wy) const {
+    if (index < 0 || index >= cellCount()) {
+        wx = wy = 0.0;
+        return;
+    }
+    if (!isTableType(type)) {
+        cellCenter(index, wx, wy);
+        return;
+    }
+    ensureTable();
+    if (!table_ || table_->cells.empty()) {
+        wx = wy = 0.0;
+        return;
+    }
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int row = rc / cols, col = rc % cols;
+    const auto& center = table_->cellIncenters[static_cast<size_t>(b)];
+    wx = center[0] + static_cast<double>(col) * table_->wx + static_cast<double>(row) * table_->hx
+         - worldMinX();
+    wy = center[1] + static_cast<double>(col) * table_->wy + static_cast<double>(row) * table_->hy
+         - worldMinY();
 }
 
 int TilingGeom::crossEdge(int index, double& x, double& y, double angle, double& remLength) const {

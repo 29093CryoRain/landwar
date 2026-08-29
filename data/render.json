@@ -11,6 +11,19 @@
       "white": 0.2,
       "variation": 0.05
     },
+    "mountain": {
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "strokeWidthPx": 6.0,
+      "areaReference": 1.0,
+      "segments": [
+        [0.0, 119.0, 47.0, 1.0],
+        [47.0, 1.0, 92.3, 127.0],
+        [79.0, 90.0, 98.0, 53.0],
+        [98.0, 53.0, 127.0, 127.0]
+      ],
+      "colorDarken": 0.08
+    },
     "city": {
       "_comment": "P13 城市渲染：所有密铺统一走 data/city_icon_fits.json 的 iconFitScale，缺失按 1 倍缩放并告警。",
       "lineMinCellPx": 20.0,
