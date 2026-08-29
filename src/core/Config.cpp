@@ -497,7 +497,8 @@ void validateConfigKeys(const Json& root) {
     // 出现即视为未知键告警。
     warnUnknownKeys(obj("map"),
                     {"blockSize", "panelWidth", "capitalMinDistance",
-                     "cityMountainWeight", "tiling"},
+                     "cityMountainWeight", "forceCoastRangeMultiplier",
+                     "forceCoastStrengthMultiplier", "tiling"},
                     "map");
     warnUnknownKeys(obj("army"), {"baseSpeed", "baseSize", "bounceJitterRangeRad", "spawnAngleStep"},
                     "army");
@@ -676,6 +677,10 @@ Config Config::loadFromJson(const std::string& jsonText) {
             getInt(mapJson, "capitalMinDistance", cfg.map.capitalMinDistance);
         cfg.map.cityMountainWeight =
             getNum(mapJson, "cityMountainWeight", cfg.map.cityMountainWeight);
+        cfg.map.forceCoastRangeMultiplier =
+            getNum(mapJson, "forceCoastRangeMultiplier", cfg.map.forceCoastRangeMultiplier);
+        cfg.map.forceCoastStrengthMultiplier =
+            getNum(mapJson, "forceCoastStrengthMultiplier", cfg.map.forceCoastStrengthMultiplier);
         // P12：密铺类型（square/hex/tri）。预装 BMP 恒为方形；非方形由随机图生成器产出。
         cfg.map.tiling = getStr(mapJson, "tiling", cfg.map.tiling);
     }
@@ -1181,7 +1186,9 @@ bool Config::validate(std::string* err) const {
     };
 
     if (map.width <= 0 || map.height <= 0 || map.blockSize <= 0 || map.panelWidth < 0
-        || map.capitalMinDistance < 0 || !nonNegative(map.cityMountainWeight))
+        || map.capitalMinDistance < 0 || !nonNegative(map.cityMountainWeight)
+        || !nonNegative(map.forceCoastRangeMultiplier)
+        || !nonNegative(map.forceCoastStrengthMultiplier))
         return fail("map dimensions or numeric range invalid");
     bool validTiling = false;
     for (int i = 0; i < kTilingTypeCount; ++i)
@@ -1358,6 +1365,8 @@ std::string Config::toJson() const {
                 {"panelWidth", map.panelWidth},
                 {"capitalMinDistance", map.capitalMinDistance},
                 {"cityMountainWeight", map.cityMountainWeight},
+                {"forceCoastRangeMultiplier", map.forceCoastRangeMultiplier},
+                {"forceCoastStrengthMultiplier", map.forceCoastStrengthMultiplier},
                 {"tiling", map.tiling}};
 
     j["army"] = {{"baseSpeed", army.baseSpeed},

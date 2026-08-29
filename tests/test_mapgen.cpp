@@ -86,6 +86,14 @@ TEST(MapGen, CachePathIncludesAllGenerationParameters) {
     b = a;
     b.cityDensity = 0.021;
     EXPECT_NE(lw::MapGenerator::defaultPath(42, a), lw::MapGenerator::defaultPath(42, b));
+
+    b = a;
+    b.forceCoastRangeMultiplier = 2.0;
+    EXPECT_NE(lw::MapGenerator::defaultPath(42, a), lw::MapGenerator::defaultPath(42, b));
+
+    b = a;
+    b.forceCoastStrengthMultiplier = 2.0;
+    EXPECT_NE(lw::MapGenerator::defaultPath(42, a), lw::MapGenerator::defaultPath(42, b));
 }
 
 TEST(Bmp24, RoundTripUsesStandardStrideAndDimensions) {
@@ -152,6 +160,33 @@ TEST(MapGen, ForceCoastWithoutZeroKeepsRingAndRatio) {
     EXPECT_EQ(s.ringSea, s.ring) << "最外一圈必须全海";
     const double ratio = static_cast<double>(s.sea) / (map.width() * map.height());
     EXPECT_NEAR(ratio, p.seaRatio, 0.05);
+}
+
+TEST(MapGen, ForceCoastLowersInnerEdgeElevation) {
+    // 排除最外圈的硬边界，只统计 d=1、2 的内侧边缘带；
+    // 这些格的海格比例应因海拔衰减而高于未启用强制海岸的同一张噪声图。
+    const lw::MapGenParams noCoast{105, 95, 0.30, 0.08, 0.0, 0.3, false};
+    const lw::MapGenParams coast{105, 95, 0.30, 0.08, 0.0, 0.3, true};
+    const lw::Map mapWithoutCoast = loadGenerated(42, noCoast, "build/_gen_no_coast.bmp");
+    const lw::Map mapWithCoast = loadGenerated(42, coast, "build/_gen_inner_coast.bmp");
+
+    int cells = 0;
+    int seaWithoutCoast = 0;
+    int seaWithCoast = 0;
+    for (int y = 0; y < mapWithCoast.height(); ++y) {
+        for (int x = 0; x < mapWithCoast.width(); ++x) {
+            const int d = std::min({x, mapWithCoast.width() - 1 - x, y,
+                                    mapWithCoast.height() - 1 - y});
+            if (d < 1 || d > 2) continue;
+            ++cells;
+            if (!mapWithoutCoast.at(x, y).land) ++seaWithoutCoast;
+            if (!mapWithCoast.at(x, y).land) ++seaWithCoast;
+        }
+    }
+
+    ASSERT_GT(cells, 0);
+    EXPECT_GT(seaWithCoast, seaWithoutCoast)
+        << "内侧边缘带应因海拔降低而产生更多海格";
 }
 
 TEST(MapGen, NoForceCoastAtZeroSeaIsAllLand) {

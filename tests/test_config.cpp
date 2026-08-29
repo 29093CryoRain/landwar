@@ -11,6 +11,8 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.map.height, 95);
     EXPECT_EQ(cfg.map.blockSize, 15);
     EXPECT_EQ(cfg.map.panelWidth, 600);
+    EXPECT_DOUBLE_EQ(cfg.map.forceCoastRangeMultiplier, 1.0);
+    EXPECT_DOUBLE_EQ(cfg.map.forceCoastStrengthMultiplier, 1.0);
     EXPECT_NEAR(cfg.army.baseSpeed, 0.3, 1e-12);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
     EXPECT_NEAR(cfg.army.spawnAngleStep, 1.0, 1e-12);
@@ -89,7 +91,8 @@ TEST(Config, Defaults) {
 
 TEST(Config, JsonOverrides) {
     const char* json = R"({
-        "map": { "blockSize": 20 },
+        "map": { "blockSize": 20, "forceCoastRangeMultiplier": 2.5,
+                 "forceCoastStrengthMultiplier": 1.75 },
         "army": { "baseSpeed": 0.5, "bounceJitterRangeRad": 0.07, "spawnAngleStep": 0.25 },
         "units": [ { "type": "laser", "cost": 99.0 } ],
         "factions": [ { "id": 1, "color": [1,2,3], "secondary": [4,5,6],
@@ -105,6 +108,8 @@ TEST(Config, JsonOverrides) {
     })";
     const lw::Config cfg = lw::Config::loadFromJson(json);
     EXPECT_EQ(cfg.map.blockSize, 20);
+    EXPECT_DOUBLE_EQ(cfg.map.forceCoastRangeMultiplier, 2.5);
+    EXPECT_DOUBLE_EQ(cfg.map.forceCoastStrengthMultiplier, 1.75);
     EXPECT_NEAR(cfg.army.baseSpeed, 0.5, 1e-12);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.07, 1e-12);
     EXPECT_NEAR(cfg.army.spawnAngleStep, 0.25, 1e-12);
@@ -171,6 +176,8 @@ TEST(Config, LoadsDataFile) {
     // 从项目根运行（ctest 的 WORKING_DIRECTORY 已设为源码根）。
     const lw::Config cfg = lw::Config::loadFromFile("data/config.json");
     EXPECT_EQ(cfg.map.width, 105);
+    EXPECT_DOUBLE_EQ(cfg.map.forceCoastRangeMultiplier, 1.0);
+    EXPECT_DOUBLE_EQ(cfg.map.forceCoastStrengthMultiplier, 1.0);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
     EXPECT_NEAR(cfg.army.spawnAngleStep, 2.0, 1e-12);
     EXPECT_NEAR(cfg.army.baseSpeed, 0.15, 1e-12);

@@ -39,6 +39,9 @@ struct Config {
         int capitalMinDistance = 28;
         // 随机图生成：山地格城市权重（普通陆地=1.0，山地×此值；2026-08 从硬编码移入）。
         double cityMountainWeight = 0.3;
+        // 随机图强制边缘海：边缘海拔衰减范围/强度倍率，1.0 为生成器当前值。
+        double forceCoastRangeMultiplier = 1.0;
+        double forceCoastStrengthMultiplier = 1.0;
         // P12：密铺类型（square/hex/tri）。默认 square → 基线不变；非方形地图由随机图
         // 生成器产出（预装 BMP 恒为方形）。进快照（config 序列化 → 基线变更，已接受）。
         std::string tiling = "square";

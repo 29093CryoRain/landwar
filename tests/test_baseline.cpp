@@ -100,15 +100,15 @@ std::uint64_t runRandomBaseline(lw::TilingType t, int ticks = 2500) {
 }
 
 TEST(Determinism, BaselineSeed42_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0xaf6854d02438053eull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0x1e38727582a30b7full)
         << "square 随机图基线漂移";
 }
 
 // P12：六/三角各自基线（密铺几何 + 移动/特效路径独立于方形）。同随机图参数（种子 42）。
 TEST(Determinism, BaselineHexTri_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0xa7e25ff8f6eea39cull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0x65bdd38e102899c2ull)
         << "hex 随机图基线漂移";
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0x14dcfd4e063ad524ull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0x55c3c89f5bebf61bull)
         << "tri 随机图基线漂移";
 }
 

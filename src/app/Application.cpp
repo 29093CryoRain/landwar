@@ -955,8 +955,10 @@ void Application::resolveMapSelection(Config& cfg) {
         // 确定性：(seed, 参数 + 密铺)。
         const MapGenParams p{options_.map.width,   options_.map.height,
                              options_.map.seaRatio, options_.map.mountainDensity,
-                             options_.map.cityDensity, cfg.map.cityMountainWeight,
-                             options_.map.forceCoast, tilingFromName(options_.map.tiling)};
+                              options_.map.cityDensity, cfg.map.cityMountainWeight,
+                              options_.map.forceCoast, tilingFromName(options_.map.tiling),
+                              cfg.map.forceCoastRangeMultiplier,
+                              cfg.map.forceCoastStrengthMultiplier};
         const std::string path = MapGenerator::defaultPath(options_.map.randomSeed, p);
         if (MapGenerator::generate(path, options_.map.randomSeed, p)) {
             cfg.map.width = p.width;  // 只在生成成功后覆盖尺寸/文件（失败保底可启动）

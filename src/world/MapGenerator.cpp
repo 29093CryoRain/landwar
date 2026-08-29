@@ -163,6 +163,28 @@ double polygonDistanceToBounds(const TilingGeom& g, int index) {
     return std::max(0.0, distance);
 }
 
+// 强制海岸的第二部分：降低靠近真实地图边界的海拔，使海岸从边缘向内自然形成。
+// 距离函数由调用方提供，以便方形和任意多边形密铺使用各自的边界距离。
+template <typename DistanceFn>
+void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
+                                DistanceFn distanceToBounds, double rangeMultiplier,
+                                double strengthMultiplier) {
+    constexpr double kBaseEdgeBand = 3.0;
+    constexpr double kBaseEdgeStrength = 0.5;
+    const double edgeBand = kBaseEdgeBand * rangeMultiplier;
+    const double edgeStrength = kBaseEdgeStrength * strengthMultiplier;
+    if (!forceCoast || edgeBand <= 0.0 || edgeStrength <= 0.0) return;
+
+    for (size_t index = 0; index < height.size(); ++index) {
+        const double distance = distanceToBounds(index);
+        if (distance >= edgeBand) continue;
+
+        const double u = 1.0 - distance / edgeBand;
+        const double smooth = u * u * (3.0 - 2.0 * u);
+        height[index] = std::max(0.0, height[index] - edgeStrength * smooth);
+    }
+}
+
 }  // namespace
 
 // 前向声明（generate 分派用；实现见文件后部）。
@@ -176,6 +198,11 @@ MapGenParams normalizedParams(const MapGenParams& raw) {
     p.seaRatio = std::clamp(p.seaRatio, 0.0, 0.90);
     p.mountainDensity = std::clamp(p.mountainDensity, 0.0, 0.9);
     p.cityDensity = std::clamp(p.cityDensity, 0.0, 0.9);
+    const auto normalizeMultiplier = [](double value) {
+        return std::isfinite(value) && value >= 0.0 ? value : 1.0;
+    };
+    p.forceCoastRangeMultiplier = normalizeMultiplier(p.forceCoastRangeMultiplier);
+    p.forceCoastStrengthMultiplier = normalizeMultiplier(p.forceCoastStrengthMultiplier);
     int cols = p.width, rows = p.height;
     chooseTableDomain(static_cast<int>(p.tiling), p.width, p.height, cols, rows);
     p.width = cols;
@@ -188,9 +215,11 @@ std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p)
     std::ostringstream key;
     key << kGeneratedMapDir << "/gen_" << seed << "_" << tilingName(n.tiling) << "_"
         << n.width << "x" << n.height << "_sea" << std::fixed << std::setprecision(9)
-        << n.seaRatio << "_mtn" << n.mountainDensity << "_city" << n.cityDensity
-        << "_coast" << (n.forceCoast ? 1 : 0)
-        << (n.tiling == TilingType::Square ? ".bmp" : ".lwmap");
+         << n.seaRatio << "_mtn" << n.mountainDensity << "_city" << n.cityDensity
+         << "_coast" << (n.forceCoast ? 1 : 0)
+         << "_coastRange" << n.forceCoastRangeMultiplier
+         << "_coastStrength" << n.forceCoastStrengthMultiplier
+         << (n.tiling == TilingType::Square ? ".bmp" : ".lwmap");
     return key.str();
 }
 
@@ -224,30 +253,19 @@ static bool generateSquare(const std::string& path, std::uint32_t seed, const Ma
         }
     }
     const TilingGeom squareGeom{TilingType::Square, w, h};
+    // ①b 强制边缘为海：先降低边缘带海拔，再计算坡度和海陆阈值，
+    //     让海拔衰减同时作用于海岸线和山脉选择。
+    applyCoastElevationFalloff(height, p.forceCoast, [w, h](size_t index) {
+        const int x = static_cast<int>(index % static_cast<size_t>(w));
+        const int y = static_cast<int>(index / static_cast<size_t>(w));
+        return static_cast<double>(std::min({x, w - 1 - x, y, h - 1 - y}));
+    }, p.forceCoastRangeMultiplier, p.forceCoastStrengthMultiplier);
+
     // ①a 坡度场（供"山脉"分量选山用）：按真实中心距离拟合局部坡度，
     //     避免不同密铺的格面积/邻居数量让某类格获得系统性偏高分。
     std::vector<double> grad(static_cast<size_t>(w) * h, 0.0);
     for (int idx = 0; idx < w * h; ++idx)
         grad[static_cast<size_t>(idx)] = estimateGradient(squareGeom, idx, height, false);
-
-    // ①b 强制边缘为海：按真实边界距离平滑削减海拔，硬边界在 ②b 单独处理。
-    constexpr double kEdgeBand = 3.0;  // 世界单位；约三格，避免整块密铺被连带清海
-    constexpr double kEdgeStrength = 0.5;
-    if (p.forceCoast) {
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                const double d = std::min({static_cast<double>(x), static_cast<double>(w - 1 - x),
-                                           static_cast<double>(y), static_cast<double>(h - 1 - y)});
-                if (d < kEdgeBand) {
-                    const double u = 1.0 - d / kEdgeBand;
-                    const double smooth = u * u * (3.0 - 2.0 * u);
-                    const double atten = kEdgeStrength * smooth;
-                    height[static_cast<size_t>(y) * w + x] =
-                        std::max(0.0, height[static_cast<size_t>(y) * w + x] - atten);
-                }
-            }
-        }
-    }
 
     // ② 海/陆阈值：排序后第 seaRatio 分位数；h < threshold → 海。
     std::vector<double> sorted = height;
@@ -402,26 +420,15 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
         }
         height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
     }
+    // ①b 强制边缘为海：先降低边缘带海拔，再计算坡度和海陆阈值。
+    applyCoastElevationFalloff(height, p.forceCoast, [&g](size_t index) {
+        return polygonDistanceToBounds(g, static_cast<int>(index));
+    }, p.forceCoastRangeMultiplier, p.forceCoastStrengthMultiplier);
+
     // ①a 坡度场（山脉分量）：使用真实中心距离拟合局部坡度，避免大格偏高。
     std::vector<double> grad(static_cast<size_t>(cellCount), 0.0);
     for (int idx = 0; idx < cellCount; ++idx) {
         grad[static_cast<size_t>(idx)] = estimateGradient(g, idx, height, skew);
-    }
-
-    // ①b 强制边缘为海：按多边形到地图 AABB 的真实距离平滑削减海拔。
-    constexpr double kEdgeBand = 3.0;
-    constexpr double kEdgeStrength = 0.5;
-    if (p.forceCoast) {
-        for (int idx = 0; idx < cellCount; ++idx) {
-            const double d = polygonDistanceToBounds(g, idx);
-            if (d < kEdgeBand) {
-                const double u = 1.0 - d / kEdgeBand;
-                const double smooth = u * u * (3.0 - 2.0 * u);
-                const double atten = kEdgeStrength * smooth;
-                height[static_cast<size_t>(idx)] =
-                    std::max(0.0, height[static_cast<size_t>(idx)] - atten);
-            }
-        }
     }
 
     // ② 海/陆阈值（排序分位数）+ 真实界外邻接格硬设为海。

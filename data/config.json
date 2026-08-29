@@ -5,7 +5,9 @@
     "blockSize": 15,
     "panelWidth": 600,
     "capitalMinDistance": 28,
-    "cityMountainWeight": 0.3
+    "cityMountainWeight": 0.3,
+    "forceCoastRangeMultiplier": 1.0,
+    "forceCoastStrengthMultiplier": 1.0
   },
   "army": {
     "baseSpeed": 0.15,

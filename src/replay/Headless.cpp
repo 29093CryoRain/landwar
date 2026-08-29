@@ -78,7 +78,9 @@ int runHeadless(const CliOptions& opts) {
             if (opts.mapPath.empty()
                 && cfg.map.tilingType() != TilingType::Square) {
                 MapGenParams gp{cfg.map.width, cfg.map.height, 0.40, 0.08, 0.02,
-                                cfg.map.cityMountainWeight, false, cfg.map.tilingType()};
+                                cfg.map.cityMountainWeight, false, cfg.map.tilingType(),
+                                cfg.map.forceCoastRangeMultiplier,
+                                cfg.map.forceCoastStrengthMultiplier};
                 const std::string mpath = MapGenerator::defaultPath(seed, gp);
                 if (!MapGenerator::generate(mpath, seed, gp)) {
                     spdlog::error("tiled map generate failed");

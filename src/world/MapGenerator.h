@@ -23,6 +23,8 @@ struct MapGenParams {
     double cityMountainWeight = 0.3; // 山地格城市权重（普通陆地=1.0）
     bool forceCoast = false;        // 强制边缘为海：真实界外点邻接格必为海，并向内平滑削减海拔
     TilingType tiling = TilingType::Square;  // P12：密铺（square/hex/tri）
+    double forceCoastRangeMultiplier = 1.0;    // 边缘海拔衰减范围倍率
+    double forceCoastStrengthMultiplier = 1.0; // 边缘海拔衰减强度倍率
 };
 
 class MapGenerator {
