@@ -44,6 +44,7 @@
 // 2026-08-29 Phase 3.6：整体速度 0.5 倍；更新基线。
 #include <gtest/gtest.h>
 
+#include <array>
 #include <sstream>
 
 #include "core/Simulation.h"
@@ -141,6 +142,28 @@ TEST(Determinism, SmallTiledAllTilingsSameSeedSameHash) {
                   lw::fnv1a64(lw::Snapshot::serialize(b)))
             << "tiling " << lw::tilingName(t) << " 同 seed 哈希不一致";
     }
+}
+
+// Phase 5.0 临时对照：优化前后逐密铺比较语义 hash。该用例故意保持 DISABLED_，
+// 避免普通 ctest 每次都重复运行 14 × 2500 tick；需要更新/核对时显式运行它。
+TEST(Determinism, DISABLED_Phase5TemporaryArchLavesBaselines) {
+    constexpr std::array<lw::TilingType, 14> tilings = {
+        lw::TilingType::Arch33336,  lw::TilingType::Arch33434,
+        lw::TilingType::Arch3464,   lw::TilingType::Arch3636,
+        lw::TilingType::Arch31212,  lw::TilingType::Arch4612,
+        lw::TilingType::Arch488,    lw::TilingType::Laves3636,
+        lw::TilingType::Laves31212, lw::TilingType::Laves4612,
+        lw::TilingType::Laves488,   lw::TilingType::Laves33434,
+        lw::TilingType::Laves33336, lw::TilingType::Laves3464};
+    constexpr std::array<std::uint64_t, 14> expected = {
+        0x94f9e53947422b61ull, 0x27b1199858fca18dull, 0x409702af1a7f41b8ull,
+        0x71b622957ec91a0dull, 0xfd1aa2a36efeccfaull, 0x9eb43ba3a964b485ull,
+        0xe564e598f776030cull, 0x25eb528287c99cc9ull, 0x50bc3c7b6e757e23ull,
+        0x23b6c5252c6da4c0ull, 0x26a90645972d633aull, 0xd9398e717e2fb144ull,
+        0x9117cebc38c022b8ull, 0xa2304b3dc4d2f993ull};
+    for (std::size_t i = 0; i < tilings.size(); ++i)
+        EXPECT_EQ(runRandomBaseline(tilings[i], 2500), expected[i])
+            << "Phase 5.0 baseline drift: " << lw::tilingName(tilings[i]);
 }
 
 }  // namespace

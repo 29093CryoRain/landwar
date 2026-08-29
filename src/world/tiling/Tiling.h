@@ -84,7 +84,8 @@ struct TilingGeom {
     // 边界描线/城市外廓必须以本方法取边，否则画错边）。返回 false = 非法（方/越界）。
     bool cellEdge(int index, int k, double& x0, double& y0, double& x1, double& y1) const;
 
-    // 世界坐标 → 格下标（界外 -1）。
+    // 世界坐标 → 格下标（界外 -1）。表驱动密铺优先使用 5.1 固定分区或 5.2
+    // 周期细网格，边界/顶点/未命中时回退到精确半平面扫描。
     int worldToCell(double wx, double wy) const;
 
     // 世界矩形（AABB）覆盖的行范围（含越界 ±1 保守外扩；供空间哈希/炸弹扫描）。

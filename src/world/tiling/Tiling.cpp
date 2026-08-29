@@ -40,6 +40,8 @@ double raySegHit(double px, double py, double dx, double dy, double ax, double a
 // 基础域 = 周期平行四边形 W=(wx,0)、H=(hx,hy)；B 个基础格在域内按格下标
 //   idx = (r*cols + c)*B + b 平移复制：center = base[b].center + c*W + r*H。
 // 邻接在首次加载时按"某基础格的边经 ±dr,±dc 平移后与另一基础格的边反向重合"求得。
+// 5.1 的规则类型预建半区/象限候选，5.2 的复杂类型预建周期坐标细网格；两者均以
+// 预计算半平面作为精确判定，边界不明确时保留原扫描兜底。
 // ---------------------------------------------------------------------------
 struct TilingTable {
     double wx = 0.0, wy = 0.0, hx = 0.0, hy = 0.0;  // W=(wx,wy)、H=(hx,hy)（一般平行四边形周期域）
@@ -54,17 +56,35 @@ struct TilingTable {
         int dr = 0;    // 邻格所在行偏移
         int dc = 0;    // 邻格所在列偏移
     };
+    struct HalfPlane {
+        // 格中心为原点的未归一化外法向方程：n·p <= d。
+        double nx = 0.0;
+        double ny = 0.0;
+        double d = 0.0;
+    };
     struct Cell {
         int n = 0;
         double cx = 0.0, cy = 0.0;
         std::vector<std::array<double, 2>> v;  // 逆时针顶点（与边序一致）
         std::vector<Edge> edges;               // 与 v[i]→v[i+1] 同序
+        std::vector<HalfPlane> halfPlanes;     // 预计算的未归一化边界方程
+    };
+    struct FastCandidate {
+        int b = -1;
+        int dr = 0;
+        int dc = 0;
     };
     std::vector<Cell> cells;
     // 表驱动点邻接：每项保存相对周期块和基础格，运行时再做有限地图边界检查。
     std::vector<std::vector<Edge>> vertexNeighbors;
     std::vector<double> cellAreas;
     std::vector<std::array<double, 2>> cellIncenters;
+    // 5.1：周期块半区/象限内的候选 owner，边界仍回退精确扫描。
+    int analyticRegionCount = 0;
+    std::vector<std::vector<FastCandidate>> analyticCandidates;
+    // 5.2：周期坐标细网格；b=-1 表示该小块跨越几何边界，必须回退。
+    int lookupGridSize = 0;
+    std::vector<FastCandidate> lookupGrid;
     // 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）：loadTable 尾部派生。
     // paletteSize = 档数（0 = 不分档；方/六/三不计于此）；basePalette[b] = 每基础格档位。
     int paletteSize = 0;
@@ -74,6 +94,198 @@ struct TilingTable {
 namespace {
 
 constexpr double kTableTol = 1e-6;
+
+bool pointInHalfPlanes(const TilingTable::Cell& cell, double x, double y) {
+    for (const auto& hp : cell.halfPlanes)
+        if (hp.nx * x + hp.ny * y > hp.d + kTableTol) return false;
+    return true;
+}
+
+bool pointInHalfPlanesStrict(const TilingTable::Cell& cell, double x, double y) {
+    constexpr double kLookupMargin = 4.0 * kTableTol;
+    for (const auto& hp : cell.halfPlanes)
+        if (hp.nx * x + hp.ny * y >= hp.d - kLookupMargin) return false;
+    return true;
+}
+
+bool isAnalyticType(TilingType t) {
+    switch (t) {
+        case TilingType::Arch33434:
+        case TilingType::Arch3636:
+        case TilingType::Arch488:
+        case TilingType::Laves33434:
+        case TilingType::Laves3464:
+        case TilingType::Laves3636:
+        case TilingType::Laves4612:
+        case TilingType::Laves488:
+        case TilingType::Laves31212: return true;
+        default: return false;
+    }
+}
+
+bool isGridType(TilingType t) {
+    switch (t) {
+        case TilingType::Arch33336:
+        case TilingType::Arch31212:
+        case TilingType::Arch3464:
+        case TilingType::Arch4612:
+        case TilingType::Laves33336: return true;
+        default: return false;
+    }
+}
+
+void periodicCoordinates(const TilingTable& tab, double x, double y, double& u, double& v) {
+    const double det = tab.wx * tab.hy - tab.wy * tab.hx;
+    u = (tab.hy * x - tab.hx * y) / det;
+    v = (-tab.wy * x + tab.wx * y) / det;
+}
+
+void periodicPoint(const TilingTable& tab, double u, double v, double& x, double& y) {
+    x = u * tab.wx + v * tab.hx;
+    y = u * tab.wy + v * tab.hy;
+}
+
+void localVertex(const TilingTable& tab, const TilingTable::Cell& cell, int vertex, int dr, int dc,
+                 double& u, double& v) {
+    const auto& p = cell.v[static_cast<size_t>(vertex)];
+    periodicCoordinates(tab, p[0], p[1], u, v);
+    u += static_cast<double>(dc);
+    v += static_cast<double>(dr);
+}
+
+bool inRect(double x, double y, double x0, double y0, double x1, double y1) {
+    return x >= x0 - kTableTol && x <= x1 + kTableTol && y >= y0 - kTableTol &&
+           y <= y1 + kTableTol;
+}
+
+double cross2(double ax, double ay, double bx, double by, double cx, double cy) {
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+}
+
+bool onSegment(double ax, double ay, double bx, double by, double px, double py) {
+    return inRect(px, py, std::min(ax, bx), std::min(ay, by), std::max(ax, bx),
+                  std::max(ay, by)) && std::fabs(cross2(ax, ay, bx, by, px, py)) <= kTableTol;
+}
+
+bool segmentsIntersect(double ax, double ay, double bx, double by, double cx, double cy, double dx,
+                       double dy) {
+    const double abC = cross2(ax, ay, bx, by, cx, cy);
+    const double abD = cross2(ax, ay, bx, by, dx, dy);
+    const double cdA = cross2(cx, cy, dx, dy, ax, ay);
+    const double cdB = cross2(cx, cy, dx, dy, bx, by);
+    if (((abC > kTableTol && abD < -kTableTol) || (abC < -kTableTol && abD > kTableTol)) &&
+        ((cdA > kTableTol && cdB < -kTableTol) || (cdA < -kTableTol && cdB > kTableTol)))
+        return true;
+    return onSegment(ax, ay, bx, by, cx, cy) || onSegment(ax, ay, bx, by, dx, dy) ||
+           onSegment(cx, cy, dx, dy, ax, ay) || onSegment(cx, cy, dx, dy, bx, by);
+}
+
+bool candidateIntersectsRect(const TilingTable& tab, const TilingTable::Cell& cell, int dr, int dc,
+                             double x0, double y0, double x1, double y1) {
+    std::array<std::array<double, 2>, 12> poly{};
+    for (int i = 0; i < cell.n; ++i)
+        localVertex(tab, cell, i, dr, dc, poly[static_cast<size_t>(i)][0],
+                    poly[static_cast<size_t>(i)][1]);
+
+    for (int i = 0; i < cell.n; ++i)
+        if (inRect(poly[static_cast<size_t>(i)][0], poly[static_cast<size_t>(i)][1], x0, y0, x1,
+                   y1))
+            return true;
+
+    const double corners[4][2] = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+    const double ox = static_cast<double>(dc) * tab.wx + static_cast<double>(dr) * tab.hx;
+    const double oy = static_cast<double>(dc) * tab.wy + static_cast<double>(dr) * tab.hy;
+    for (const auto& corner : corners) {
+        double px, py;
+        periodicPoint(tab, corner[0], corner[1], px, py);
+        if (pointInHalfPlanes(cell, px - (cell.cx + ox), py - (cell.cy + oy))) return true;
+    }
+
+    const double rectEdges[4][4] = {
+        {x0, y0, x1, y0}, {x1, y0, x1, y1}, {x1, y1, x0, y1}, {x0, y1, x0, y0}};
+    for (int i = 0; i < cell.n; ++i) {
+        const auto& a = poly[static_cast<size_t>(i)];
+        const auto& b = poly[static_cast<size_t>((i + 1) % cell.n)];
+        for (const auto& edge : rectEdges)
+            if (segmentsIntersect(a[0], a[1], b[0], b[1], edge[0], edge[1], edge[2], edge[3]))
+                return true;
+    }
+    return false;
+}
+
+constexpr int kLookupGridSize = 64;
+
+void buildFastIndexes(TilingTable& tab, TilingType t) {
+    const int baseCount = static_cast<int>(tab.cells.size());
+    if (baseCount <= 0) return;
+
+    if (isAnalyticType(t)) {
+        tab.analyticRegionCount = (t == TilingType::Arch3636) ? 2 : 4;
+        tab.analyticCandidates.resize(static_cast<size_t>(tab.analyticRegionCount));
+        for (int b = 0; b < baseCount; ++b) {
+            for (int dr = -1; dr <= 1; ++dr) {
+                for (int dc = -1; dc <= 1; ++dc) {
+                    for (int region = 0; region < tab.analyticRegionCount; ++region) {
+                        const double x0 = tab.analyticRegionCount == 2
+                                              ? 0.0
+                                              : ((region & 1) == 0 ? 0.0 : 0.5);
+                        const double x1 = tab.analyticRegionCount == 2
+                                              ? 1.0
+                                              : ((region & 1) == 0 ? 0.5 : 1.0);
+                        const double y0 = tab.analyticRegionCount == 2
+                                              ? (region == 0 ? 0.0 : 0.5)
+                                              : ((region & 2) == 0 ? 0.0 : 0.5);
+                        const double y1 = tab.analyticRegionCount == 2
+                                              ? (region == 0 ? 0.5 : 1.0)
+                                              : ((region & 2) == 0 ? 0.5 : 1.0);
+                        if (candidateIntersectsRect(tab, tab.cells[static_cast<size_t>(b)], dr,
+                                                     dc, x0, y0, x1, y1))
+                            tab.analyticCandidates[static_cast<size_t>(region)].push_back(
+                                {b, dr, dc});
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    if (!isGridType(t)) return;
+    tab.lookupGridSize = kLookupGridSize;
+    tab.lookupGrid.assign(static_cast<size_t>(kLookupGridSize * kLookupGridSize), {});
+    const double step = 1.0 / static_cast<double>(kLookupGridSize);
+    for (int gy = 0; gy < kLookupGridSize; ++gy) {
+        for (int gx = 0; gx < kLookupGridSize; ++gx) {
+            const double x0 = gx * step, x1 = (gx + 1) * step;
+            const double y0 = gy * step, y1 = (gy + 1) * step;
+            auto& result = tab.lookupGrid[static_cast<size_t>(gy * kLookupGridSize + gx)];
+            bool found = false;
+            for (int b = 0; b < baseCount && !found; ++b) {
+                const auto& cell = tab.cells[static_cast<size_t>(b)];
+                for (int dr = -1; dr <= 1 && !found; ++dr) {
+                    for (int dc = -1; dc <= 1 && !found; ++dc) {
+                        const double ox = static_cast<double>(dc) * tab.wx + static_cast<double>(dr) * tab.hx;
+                        const double oy = static_cast<double>(dc) * tab.wy + static_cast<double>(dr) * tab.hy;
+                        const double corners[4][2] = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+                        bool contained = true;
+                        for (const auto& corner : corners) {
+                            double px, py;
+                            periodicPoint(tab, corner[0], corner[1], px, py);
+                            if (!pointInHalfPlanesStrict(cell, px - (cell.cx + ox),
+                                                          py - (cell.cy + oy))) {
+                                contained = false;
+                                break;
+                            }
+                        }
+                        if (contained) {
+                            result = {b, dr, dc};
+                            found = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 // 地块双色分档（定义见下；loadTable 尾部调用）。
 void fillTilePalette(TilingTable& tab, TilingType t);
@@ -89,22 +301,6 @@ double dist2(const std::array<double, 2>& a, const std::array<double, 2>& b) {
 
 bool samePoint(const std::array<double, 2>& a, const std::array<double, 2>& b) {
     return dist2(a, b) <= kTableTol * kTableTol;
-}
-
-int pointInConvex(const std::vector<std::array<double, 2>>& poly, double x, double y) {
-    const int n = static_cast<int>(poly.size());
-    if (n < 3) return 0;
-    int sign = 0;
-    for (int i = 0; i < n; ++i) {
-        const auto& a = poly[static_cast<size_t>(i)];
-        const auto& b = poly[static_cast<size_t>((i + 1) % n)];
-        const double cross = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
-        if (std::fabs(cross) <= kTableTol) continue;
-        const int s = cross > 0.0 ? 1 : -1;
-        if (sign == 0) sign = s;
-        else if (sign != s) return 0;
-    }
-    return 1;
 }
 
 std::array<double, 2> polygonIncenter(const TilingTable::Cell& cell) {
@@ -208,6 +404,27 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
         c.edges.resize(static_cast<size_t>(c.n));
         tab->cells.push_back(std::move(c));
     }
+    // 预计算每个基础格的未归一化半平面。边界方程以格中心为原点，
+    // 查询时只需对候选点做点积，避免临时多边形和逐次平移顶点。
+    for (auto& cell : tab->cells) {
+        double signedArea2 = 0.0;
+        for (int i = 0; i < cell.n; ++i) {
+            const auto& a = cell.v[static_cast<size_t>(i)];
+            const auto& b = cell.v[static_cast<size_t>((i + 1) % cell.n)];
+            signedArea2 += a[0] * b[1] - b[0] * a[1];
+        }
+        const double winding = signedArea2 >= 0.0 ? 1.0 : -1.0;
+        cell.halfPlanes.reserve(static_cast<size_t>(cell.n));
+        for (int i = 0; i < cell.n; ++i) {
+            const auto& a = cell.v[static_cast<size_t>(i)];
+            const auto& b = cell.v[static_cast<size_t>((i + 1) % cell.n)];
+            const double ex = b[0] - a[0], ey = b[1] - a[1];
+            const double nx = winding * ey;
+            const double ny = -winding * ex;
+            cell.halfPlanes.push_back({nx, ny,
+                                       nx * (a[0] - cell.cx) + ny * (a[1] - cell.cy)});
+        }
+    }
     // 2026-08-23：方向规范已直接烘入数据（tools/gen_tiling_specs_v2.py 的 rot90：视角自旧
     // 中间朝向纠正 90°，W/H 互换）。产出的 axis-aligned 几何与旧运行时旋转后的产物逐点一致
     //（gen 脚本已交叉验证），故此处不再做运行时旋转。spec 现为轴对齐矩形周期域 W=(wx,0)、H=(0,hy)。
@@ -308,6 +525,7 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
             return a.nb < b.nb;
         });
     }
+    buildFastIndexes(*tab, t);
     fillTilePalette(*tab, t);
     return tab;
 }
@@ -402,6 +620,105 @@ void fillTilePalette(TilingTable& tab, TilingType t) {
         const int rank = static_cast<int>(it - distinct.begin());
         tab.basePalette[static_cast<size_t>(b)] = rank % p;
     }
+}
+
+int tryFastTableCell(const TilingTable& tab, TilingType type, int cols, int rows, double x,
+                     double y) {
+    constexpr double kFastBoundaryTol = 1e-8;
+    double u, v;
+    periodicCoordinates(tab, x, y, u, v);
+    const int col = static_cast<int>(std::floor(u));
+    const int row = static_cast<int>(std::floor(v));
+    const double fu = u - static_cast<double>(col);
+    const double fv = v - static_cast<double>(row);
+    if (fu <= kFastBoundaryTol || fu >= 1.0 - kFastBoundaryTol ||
+        fv <= kFastBoundaryTol || fv >= 1.0 - kFastBoundaryTol)
+        return -1;
+
+    const auto tryCandidate = [&](const TilingTable::FastCandidate& candidate) {
+        const int rr = row + candidate.dr, cc = col + candidate.dc;
+        if (candidate.b < 0 || rr < 0 || rr >= rows || cc < 0 || cc >= cols) return -1;
+        const auto& cell = tab.cells[static_cast<size_t>(candidate.b)];
+        const double ox = static_cast<double>(cc) * tab.wx + static_cast<double>(rr) * tab.hx;
+        const double oy = static_cast<double>(cc) * tab.wy + static_cast<double>(rr) * tab.hy;
+        if (!pointInHalfPlanes(cell, x - (cell.cx + ox), y - (cell.cy + oy))) return -1;
+        return (rr * cols + cc) * static_cast<int>(tab.cells.size()) + candidate.b;
+    };
+
+    if (isAnalyticType(type)) {
+        int region = 0;
+        if (tab.analyticRegionCount == 2) {
+            if (std::fabs(fv - 0.5) <= kFastBoundaryTol) return -1;
+            region = fv < 0.5 ? 0 : 1;
+        } else {
+            if (std::fabs(fu - 0.5) <= kFastBoundaryTol ||
+                std::fabs(fv - 0.5) <= kFastBoundaryTol)
+                return -1;
+            region = (fu >= 0.5 ? 1 : 0) | (fv >= 0.5 ? 2 : 0);
+        }
+        for (const auto& candidate : tab.analyticCandidates[static_cast<size_t>(region)]) {
+            const int result = tryCandidate(candidate);
+            if (result >= 0) return result;
+        }
+        return -1;
+    }
+
+    if (tab.lookupGridSize <= 0 || tab.lookupGrid.empty()) return -1;
+    const int gx = std::min(tab.lookupGridSize - 1,
+                            static_cast<int>(fu * static_cast<double>(tab.lookupGridSize)));
+    const int gy = std::min(tab.lookupGridSize - 1,
+                            static_cast<int>(fv * static_cast<double>(tab.lookupGridSize)));
+    return tryCandidate(tab.lookupGrid[static_cast<size_t>(gy * tab.lookupGridSize + gx)]);
+}
+
+int scanTableCell(const TilingTable& tab, int cols, int rows, double worldX, double worldY,
+                  double x, double y, double worldWidth, double worldHeight) {
+    const int baseCount = static_cast<int>(tab.cells.size());
+    const double cmax = static_cast<double>(cols - 1), rmax = static_cast<double>(rows - 1);
+    const double xsh[4] = {0.0, cmax * tab.wx, rmax * tab.hx,
+                           cmax * tab.wx + rmax * tab.hx};
+    const double ysh[4] = {0.0, cmax * tab.wy, rmax * tab.hy,
+                           cmax * tab.wy + rmax * tab.hy};
+    const double wxlo = tab.xmin + *std::min_element(xsh, xsh + 4) - tab.rx;
+    const double wxhi = tab.xmax + *std::max_element(xsh, xsh + 4) + tab.rx;
+    const double wylo = tab.ymin + *std::min_element(ysh, ysh + 4) - tab.ry;
+    const double wyhi = tab.ymax + *std::max_element(ysh, ysh + 4) + tab.ry;
+    if (x < wxlo || x > wxhi || y < wylo || y > wyhi) return -1;
+
+    int bestIdx = -1;
+    double bestD2 = 1e18;
+    const double det = tab.wx * tab.hy - tab.wy * tab.hx;
+    for (int b = 0; b < baseCount; ++b) {
+        const auto& cell = tab.cells[static_cast<size_t>(b)];
+        const double px = x - cell.cx, py = y - cell.cy;
+        const double c0f = (px * tab.hy - tab.hx * py) / det;
+        const double r0f = (tab.wx * py - tab.wy * px) / det;
+        const int c0 = static_cast<int>(std::lround(c0f));
+        const int r0 = static_cast<int>(std::lround(r0f));
+        for (int dr = -1; dr <= 1; ++dr) {
+            const int r = r0 + dr;
+            if (r < 0 || r >= rows) continue;
+            for (int dc = -1; dc <= 1; ++dc) {
+                const int c = c0 + dc;
+                if (c < 0 || c >= cols) continue;
+                const double ox = static_cast<double>(c) * tab.wx + static_cast<double>(r) * tab.hx;
+                const double oy = static_cast<double>(c) * tab.wy + static_cast<double>(r) * tab.hy;
+                if (pointInHalfPlanes(cell, x - (cell.cx + ox), y - (cell.cy + oy)))
+                    return (r * cols + c) * baseCount + b;
+                const double ccx = cell.cx + ox, ccy = cell.cy + oy;
+                const double d2 = (x - ccx) * (x - ccx) + (y - ccy) * (y - ccy);
+                if (d2 < bestD2) {
+                    bestD2 = d2;
+                    bestIdx = (r * cols + c) * baseCount + b;
+                }
+            }
+        }
+    }
+    if (bestIdx >= 0 && bestD2 <= 4.0 * tab.rx * tab.rx && worldX >= -kTableTol &&
+        worldX <= worldWidth + kTableTol && worldY >= -kTableTol &&
+        worldY <= worldHeight + kTableTol)
+        return bestIdx;
+    return -1;
 }
 
 }  // namespace
@@ -853,72 +1170,10 @@ int TilingGeom::worldToCell(double wx, double wy) const {
         default: {
             ensureTable();
             if (!table_) return -1;
-            // 世界坐标已由 cellCenter/cellPolygon 统一减世界原点（worldMin）→ 输入点在
-            // [0,worldWidth]x[0,worldHeight] 域内。几何本身仍定义在"未平移"基元域帧，
-            // 故先加回 worldMin 得未平移点 (ux,uy)，再按原求解。平行四边形周期域 W.y/H.x
-            // 剪切下，格中心可越出 [0,·)（未平移帧），预检须用真实范围。
             const double ux = wx + worldMinX(), uy = wy + worldMinY();
-            const double cmax = static_cast<double>(cols - 1), rmax = static_cast<double>(rows - 1);
-            const double xsh[4] = {0.0, cmax * table_->wx, rmax * table_->hx,
-                                   cmax * table_->wx + rmax * table_->hx};
-            const double ysh[4] = {0.0, cmax * table_->wy, rmax * table_->hy,
-                                   cmax * table_->wy + rmax * table_->hy};
-            const double wxlo = table_->xmin + *std::min_element(xsh, xsh + 4) - table_->rx;
-            const double wxhi = table_->xmax + *std::max_element(xsh, xsh + 4) + table_->rx;
-            const double wylo = table_->ymin + *std::min_element(ysh, ysh + 4) - table_->ry;
-            const double wyhi = table_->ymax + *std::max_element(ysh, ysh + 4) + table_->ry;
-            if (ux < wxlo || ux > wxhi || uy < wylo || uy > wyhi) return -1;
-            const int B = static_cast<int>(table_->cells.size());
-            // 对每个基础格 b 解 p - center_b = c*W + r*H，取最近整数行列，再 ±1 邻域
-            // 验证点是否落在平移后的基础多边形内。扫描序固定：b 升序，r 邻域 -1..1，
-            // c 邻域 -1..1（含候选 c0,c0±1）。
-            // 兜底：军队/子弹位置常恰好落在**顶点/缝**（worldToCell 是"严格内部"判定，
-            // 顶点不属于任何格内部）→ 返回 -1 → 移动端误判为边界 → 顶点穿越卡死。
-            // 顶点是相邻格共点，返回任一共点格均合法；故记录最近的候选格，若严格判定
-            // 全失败且点在**真实世界范围内**则返回它。越出真实范围 = 真越界 → -1
-            //（交给移动端反弹）。
-            int bestIdx = -1;
-            double bestD2 = 1e18;
-            for (int b = 0; b < B; ++b) {
-                const auto& cell = table_->cells[static_cast<size_t>(b)];
-                const double px = ux - cell.cx, py = uy - cell.cy;
-                // 一般平行四边形周期域 W=(wx,wy)、H=(hx,hy)：解[c r]矩 = [px py]。
-                const double det = table_->wx * table_->hy - table_->wy * table_->hx;
-                const double c0f = (px * table_->hy - table_->hx * py) / det;
-                const double r0f = (table_->wx * py - table_->wy * px) / det;
-                const int c0 = static_cast<int>(std::lround(c0f));
-                const int r0 = static_cast<int>(std::lround(r0f));
-                for (int dr = -1; dr <= 1; ++dr) {
-                    const int r = r0 + dr;
-                    if (r < 0 || r >= rows) continue;
-                    for (int dc = -1; dc <= 1; ++dc) {
-                        const int c = c0 + dc;
-                        if (c < 0 || c >= cols) continue;
-                        const double ox = static_cast<double>(c) * table_->wx + static_cast<double>(r) * table_->hx;
-                        const double oy = static_cast<double>(c) * table_->wy + static_cast<double>(r) * table_->hy;
-                        std::vector<std::array<double, 2>> poly;
-                        poly.reserve(cell.v.size());
-                        for (const auto& p : cell.v)
-                            poly.push_back({p[0] + ox, p[1] + oy});
-                        if (pointInConvex(poly, ux, uy))
-                            return (r * cols + c) * B + b;
-                        // 到候选格中心的距离（最近兜底用）。
-                        const double ccx = cell.cx + ox, ccy = cell.cy + oy;
-                        const double d2 = (ux - ccx) * (ux - ccx) + (uy - ccy) * (uy - ccy);
-                        if (d2 < bestD2) {
-                            bestD2 = d2;
-                            bestIdx = (r * cols + c) * B + b;
-                        }
-                    }
-                }
-            }
-            // 贴顶点/缝：返回最近的候选格（仅当点在真实世界范围内——out-of-extent 是
-            // 真越界，须留给移动端反弹，不能被兜底救回）。
-            if (bestIdx >= 0 && bestD2 <= 4.0 * table_->rx * table_->rx && wx >= -kTableTol
-                && wx <= worldWidth() + kTableTol && wy >= -kTableTol
-                && wy <= worldHeight() + kTableTol)
-                return bestIdx;
-            return -1;
+            const int fast = tryFastTableCell(*table_, type, cols, rows, ux, uy);
+            if (fast >= 0) return fast;
+            return scanTableCell(*table_, cols, rows, wx, wy, ux, uy, worldWidth(), worldHeight());
         }
     }
     return -1;
