@@ -275,14 +275,15 @@
   - `DebugPanel::drawLeaderboard` 三列直接读 `faction.maxCityLevel/economyRate/techRate`，
     口径与 `EconomySystem`/`TechSystem` 保持一致（每 tick 值；显示如需"每秒"可 ×tickRate）。
 - **涉及**：`src/world/Faction.h/cpp`（3 个缓存字段 + `insertCity`/`removeCity` 签名扩展与维护）、
-  `src/sim/systems/EconomySystem.cpp`、`src/sim/systems/TechSystem.cpp`、`src/ui/DebugPanel.cpp`、
+  `src/sim/systems/EconomySystem.cpp`、`src/sim/systems/TechSystem.cpp`、
+  `src/ui/panels/LeaderboardPanel.cpp`、`src/ui/DebugPanel.cpp`、
   `src/replay/Snapshot.cpp`（新增字段序列化）、`.docs/配置说明.md`（无，纯内部字段）。
 - **风险**：低（`economyRate/techRate` 每 tick 重算一次并复用，行为不变；`maxCityLevel`
   在 insert/remove 处维护，与城市易主路径一致）。**基线影响**：否。三个缓存字段即使进入快照
   序列化，也不属于语义基线；只有缓存被错误地反馈到产兵、移动或占领逻辑时才会改基线。
-- **验收结果**：排行榜已增加最高城、经济/tick、科技/tick 三列；`Faction` 缓存由城市易主、
-  经济和科技系统维护，快照已升至 v9 并保存缓存字段；`test_faction.cpp`、`test_economy.cpp`、
-  `test_tech.cpp`、`test_snapshot.cpp` 已补用例。
+- **验收结果**：排行榜已拆为可移动、可隐藏的独立面板；增加最高城、经济/s、科技/s 三列，
+  速率由每 tick 缓存按 `sim.tickRate` 换算。`Faction` 缓存由城市易主、经济和科技系统维护，
+  快照已升至 v9 并保存缓存字段；相关单测已补齐。
 
 ---
 

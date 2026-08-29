@@ -22,6 +22,7 @@
 #include "ui/ImGuiSetup.h"
 #include "ui/Menu.h"
 #include "ui/UiScale.h"
+#include "ui/panels/LeaderboardPanel.h"  // 3.7：排行榜独立面板
 #include "ui/panels/StatsPanel.h"  // P11：统计面板注册
 #include "ui/panels/TechPanel.h"   // P8：科技面板注册
 #include "world/MapGenerator.h"
@@ -699,6 +700,7 @@ void Application::setupPanels() {
     panels_.registerPanel(std::move(msg));
     panels_.registerPanel(std::make_unique<ui::StatsPanel>());  // P11：统计面板（默认隐藏）
     panels_.registerPanel(std::make_unique<ui::TechPanel>());   // P8：科技面板（默认隐藏）
+    panels_.registerPanel(std::make_unique<ui::LeaderboardPanel>());  // 3.7：排行榜
     // 布局恢复：按 id 匹配回填位置/大小/可见性（主面板恒显示，忽略）。
     panels_.applyLayout(options_.panels);
     spdlog::info("panel system ready ({} panel(s) registered)", panels_.panels().size());

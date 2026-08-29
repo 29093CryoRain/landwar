@@ -112,10 +112,6 @@ void DebugPanel::draw(PanelCtx& ctx) {
     ImGui::SameLine();
     if (ImGui::Button("步进 (F6)")) req.stepFrame = true;
 
-    // ---- 排行榜（合并原 PanelRenderer 的势力排序表）----
-    ImGui::Separator();
-    drawLeaderboard(sim, counts);
-
     // ---- 玩家模式区（P2：兵种图标栏 + 经济 + 已选摘要 + P15 指定首都）----
     if (ctx.sheet) drawPlayerSection(sim, req, ctx.controls, *ctx.sheet);
 
@@ -307,63 +303,6 @@ void DebugPanel::drawPlayerSection(const Simulation& sim, UiRequests& req, UiCon
         const bool designating = controls && controls->capitalDesignating;
         if (ImGui::Button(designating ? "取消指定首都" : "指定首都")) req.toggleCapitalDesignation = true;
         ImGui::TextUnformatted(designating ? "点击己方城市 → 指定/立即迁都" : "左键点己方城市指定候补新都");
-    }
-}
-
-void DebugPanel::drawLeaderboard(const Simulation& sim, const DebugCounts& counts) {
-    ImGui::TextUnformatted("排行榜（按领地降序）");
-    // 势力 1..8 按 landCount 降序（原版 ranked_fact + std::sort）。
-    ranked_.clear();
-    for (int id = 1; id <= kPlayerFactionCount; ++id) ranked_.push_back(&sim.faction(id));
-    std::sort(ranked_.begin(), ranked_.end(),
-              [](const Faction* a, const Faction* b) { return a->landCount > b->landCount; });
-
-    if (ImGui::BeginTable("##leaderboard", 9,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit)) {
-        ImGui::TableSetupColumn("名次");
-        ImGui::TableSetupColumn("势力");
-        ImGui::TableSetupColumn("领地");
-        ImGui::TableSetupColumn("城市");
-        ImGui::TableSetupColumn("兵力");
-        ImGui::TableSetupColumn("科技");  // P8：科技等级（所有已拥有科技等级之和）
-        ImGui::TableSetupColumn("最高城");
-        ImGui::TableSetupColumn("经济/tick");
-        ImGui::TableSetupColumn("科技/tick");
-        ImGui::TableHeadersRow();
-        char buf[32];
-        for (int i = 0; i < kPlayerFactionCount; ++i) {
-            const Faction* f = ranked_[static_cast<size_t>(i)];
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%d", i + 1);
-            ImGui::TextUnformatted(buf);
-            ImGui::TableNextColumn();
-            ImGui::PushStyleColor(ImGuiCol_Text, rgbToImVec4(f->color));
-            ImGui::TextUnformatted(factionShortName(f->id));  // 单字颜色名（红/黄/青/…）
-            ImGui::PopStyleColor();
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%d", f->landCount);
-            ImGui::TextUnformatted(buf);
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%d", f->cityCount);
-            ImGui::TextUnformatted(buf);
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%d", counts.armyPerFaction[static_cast<size_t>(f->id)]);
-            ImGui::TextUnformatted(buf);
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%d", f->techLevel());
-            ImGui::TextUnformatted(buf);
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%.2f", f->maxCityLevel);
-            ImGui::TextUnformatted(buf);
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%.4f", f->economyRate);
-            ImGui::TextUnformatted(buf);
-            ImGui::TableNextColumn();
-            std::snprintf(buf, sizeof(buf), "%.4f", f->techRate);
-            ImGui::TextUnformatted(buf);
-        }
-        ImGui::EndTable();
     }
 }
 
