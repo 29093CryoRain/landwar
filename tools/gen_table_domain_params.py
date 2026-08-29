@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""gen_table_domain_params.py — 离线重算表驱动密铺的"比例保持映射"参数 (s,t,p,q,Ra,Rb).
+"""gen_table_domain_params.py — 离线重算密铺的"比例保持映射"参数 (s,t,p,q,Ra,Rb).
 
 算法两阶段（见 .docs/地图尺寸比例映射.md）：
-  · 算法一（本工具，离线）：遍历 s·t=B 的正因式分解（s=每块列数、t=每块行数）与互质 (p,q)，
+    · 算法一（本工具，离线）：arch/laves 遍历 s·t=B 的正因式分解（s=每块列数、t=每块行数）与互质 (p,q)，
     强约束 max(Ra,Rb) ≤ K_MAX_GAP（用户要求输入间距≤16）。评价**真实地图纵横比**：
     对若干测试输入 (a,b) 模拟 chooseTableDomain → (cols,rows) → 用数据真实几何算
     worldWidth/worldHeight（轴对齐 = 未剪切，斜周期 = 平行四边形 AABB），
     偏差 |ln(纵横比) − ln(a/b)| 越小越好；平局取 max(Ra,Rb) 小、再取块更方(s,t)。
-  · 算法二（在线，C++ chooseTableDomain）：a'=ceil(a/Ra)·Ra、b'=ceil(b/Rb)·Rb；
+    · square 使用恒等映射；hex/tri 使用 TilingGeom 内置几何参数；算法二（在线，C++ chooseTableDomain）：a'=round(a/Ra)·Ra、b'=round(b/Rb)·Rb；
       c=p·a'/q、d=q·b'/p；cols=c/s、rows=d/t。
 
 用法:
@@ -23,6 +23,14 @@ LAVES = os.path.join(ROOT, 'data/tiling_specs_laves.json')
 K_MAX_GAP = 16   # 用户约束：最大输入间距（Ra/Rb 上界）
 P_MAX = 60       # p,q 搜索上界
 TEST_INPUTS = [(105, 95), (150, 80), (80, 150), (120, 120), (60, 200), (200, 60)]
+
+# 基础三密铺没有 tiling_specs JSON；几何常数与 TilingGeom 保持一致。
+# tuple = (B, s, t, p, q, Ra, Rb)，Rb 已包含 hex/tri 的偶数行约束。
+BASIC_PARAMS = {
+    'square': (1, 1, 1, 1, 1, 1, 1),
+    'hex': (1, 1, 1, 13, 14, 14, 13),
+    'tri': (2, 2, 1, 4, 3, 3, 8),
+}
 
 
 def gcd(a, b):
@@ -57,8 +65,8 @@ def world_bounds(d, cols, rows):
 
 def simulate(d, s, t, p, q, Ra, Rb, a, b):
     """在线算法二 → (cols,rows) → 实际纵横比。返回 (aspect, 偏差)。"""
-    a2 = max(1, ((a + Ra - 1) // Ra) * Ra)
-    b2 = max(1, ((b + Rb - 1) // Rb) * Rb)
+    a2 = max(Ra, ((a + Ra // 2) // Ra) * Ra)
+    b2 = max(Rb, ((b + Rb // 2) // Rb) * Rb)
     c = p * a2 // q
     dd = q * b2 // p
     if c % s or dd % t:
@@ -114,7 +122,11 @@ def main():
     tilings = ['arch_33336', 'arch_33434', 'arch_3464', 'arch_3636', 'arch_31212', 'arch_4612',
                'arch_488', 'laves_3636', 'laves_31212', 'laves_4612', 'laves_488', 'laves_33434',
                'laves_33336', 'laves_3464']
-    rows = {}
+    rows = {name: values[1:] for name, values in BASIC_PARAMS.items()}
+    for name, values in BASIC_PARAMS.items():
+        B, s, t, p, q, Ra, Rb = values
+        print('%-14s B=%2d -> s=%2d t=%2d p=%2d q=%2d Ra=%2d Rb=%2d (built-in)' %
+              (name, B, s, t, p, q, Ra, Rb))
     for name in tilings:
         d = data.get(name)
         if not d:
@@ -131,7 +143,7 @@ def main():
 
     if '--emit' in sys.argv:
         print('\n/* ---- 替换 Tiling.cpp tableDomainParams 的 kTable ---- */')
-        order = ['arch_33336', 'arch_33434', 'arch_3464', 'arch_3636', 'arch_31212', 'arch_4612',
+        order = ['square', 'hex', 'tri', 'arch_33336', 'arch_33434', 'arch_3464', 'arch_3636', 'arch_31212', 'arch_4612',
                  'arch_488', 'laves_3636', 'laves_31212', 'laves_4612', 'laves_488',
                  'laves_33434', 'laves_33336', 'laves_3464']
         for n in order:
@@ -140,13 +152,26 @@ def main():
                 print('        /* %s */ {}, {},' % n)
                 continue
             s, t, p, q, Ra, Rb = r
-            print('        /* %s */ {%d, %d, %d, %d, %d, %d},' % (n, s, t, p, q, Ra, Rb))
+            even = 'true' if n in ('hex', 'tri') else 'false'
+            print('        /* %s */ {%d, %d, %d, %d, %d, %d, %s},' %
+                  (n, s, t, p, q, Ra, Rb, even))
 
     if '--verify' in sys.argv:
         print('\n==== 约束校验（对当前 kTable 参数）====')
         ok_all = True
         for name, r in rows.items():
             s, t, p, q, Ra, Rb = r
+            if name in BASIC_PARAMS:
+                B = BASIC_PARAMS[name][0]
+                checks = [
+                    ('s*t==B', s * t == B),
+                    ('gcd(p,q)=1', gcd(p, q) == 1),
+                    ('Ra/Rb positive', Ra > 0 and Rb > 0),
+                ]
+                bad = [n for n, v2 in checks if not v2]
+                print('%-14s  %s' % (name, 'OK' if not bad else 'FAIL ' + ','.join(bad)))
+                ok_all = ok_all and not bad
+                continue
             d = data[name]
             B = len(d['cells'])
             wx = d['W'][0]
@@ -165,8 +190,8 @@ def main():
             conserv = True
             aspect_ok = True
             for a, b in TEST_INPUTS:
-                a2 = max(1, ((a + Ra - 1) // Ra) * Ra)
-                b2 = max(1, ((b + Rb - 1) // Rb) * Rb)
+                a2 = max(Ra, ((a + Ra // 2) // Ra) * Ra)
+                b2 = max(Rb, ((b + Rb // 2) // Rb) * Rb)
                 c = p * a2 // q
                 dd = q * b2 // p
                 if c % s or dd % t or c * dd != a2 * b2 or c // s < 1 or dd // t < 1:

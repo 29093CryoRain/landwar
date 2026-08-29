@@ -7,13 +7,8 @@
 
 namespace lw {
 
-// 位置 → 桶下标（界外/贴界 → 内缩兜底）。方形 = floor（原语义）；六/三 = worldToCell。
+// 位置 → 桶下标（界外/贴界 → 内缩兜底）。所有密铺统一使用 worldToCell。
 int SpatialHash::bucketIndex(double x, double y) const {
-    if (geom_.type == TilingType::Square) {
-        const int cx = std::clamp(static_cast<int>(x), 0, geom_.cols - 1);
-        const int cy = std::clamp(static_cast<int>(y), 0, geom_.rows - 1);
-        return cy * geom_.cols + cx;
-    }
     int idx = geom_.worldToCell(x, y);
     if (idx < 0) {  // 贴界（如 y = worldHeight）：内缩 ε 再取
         idx = geom_.worldToCell(std::clamp(x, 0.0, geom_.worldWidth() - kEps),

@@ -12,6 +12,7 @@
 
 #include "core/MathUtil.h"
 #include "core/Simulation.h"
+#include "sim/systems/CombatSystem.h"
 #include "sim/systems/MovementSystem.h"
 #include "sim/systems/Systems.h"
 
@@ -20,17 +21,11 @@ namespace lw {
 namespace {
 
 // 最大兵碰撞半径（子弹击杀搜索半径 = 子弹半径 + 最大兵半径）。
-double maxArmyRadius(const Config& cfg) {
-    double m = 0;
-    for (const auto& u : cfg.units) m = std::max(m, cfg.army.baseSize * u.sizeMult);
-    return m;
-}
-
 // 击杀判定：子弹当前位置处，首个距 < 子弹半径 + 敌半径 的敌方活兵 → 双方标死，返回 true。
 // 只击杀兵（跳过其他子弹）；命中后子弹由 DeathSystem 销毁（死亡特效 none）。
 bool hitEnemyAt(MoveContext& ctx, entt::entity bullet, const comp::Position& pos,
                 const comp::Collider& col, const comp::FactionId& fid) {
-    const double search = col.radius + maxArmyRadius(ctx.config);
+    const double search = col.radius + CombatSystem::maxArmyRadius(ctx.config);
     for (auto a : ctx.spatialHash.queryCircle(ctx.registry, pos.x, pos.y, search)) {
         if (a == bullet) continue;
         if (ctx.registry.all_of<comp::Dead>(a)) continue;

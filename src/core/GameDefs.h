@@ -149,15 +149,6 @@ inline TilingType tilingFromName(const std::string& name) {
     return TilingType::Square;
 }
 
-// 签名兵种：该兵种使用"特殊版"贴图的势力 id（0=无特殊版）。army_gray.png 第 1 列存特殊版。
-// 目前仅下列势力特色兵种有特殊版（青先锋/蓝开拓/绿激光/橙爆炸/紫地雷）；P8 科技后可作为高级兵。
-// P9 手枪/霰弹暂无特殊版（占位形状渲染，不走 sprite 行）。
-inline constexpr int kSpecialUnitFaction[kArmyTypeCount] = {
-    /*normal*/ 0, /*vanguard(青3)*/ 3, /*pioneer(蓝4)*/ 4,
-    /*laser(绿5)*/ 5, /*bomb(橙6)*/ 6, /*mine(紫7)*/ 7,
-    /*pistol*/ 0, /*shotgun*/ 0,
-};
-
 // 势力名单字显示名（红/黄/青/蓝/绿/橙/紫/品；0/越界=中立"?"）。
 // 与 UI（Menu/DebugPanel）共用一份；P4 消息文案复用（灭亡/统一事件）。
 inline const char* factionShortName(int id) {

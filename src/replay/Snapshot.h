@@ -22,6 +22,10 @@ public:
                            std::string* err = nullptr);
     static bool loadFromFile(Simulation& sim, const std::string& path,
                              std::string* err = nullptr);
+
+private:
+    static bool deserializeInto(Simulation& sim, const std::string& json,
+                                std::string* err);
 };
 
 }  // namespace lw

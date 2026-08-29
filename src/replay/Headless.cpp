@@ -58,7 +58,7 @@ std::string formatSummary(const Simulation& sim, std::uint32_t seed) {
 
 int runHeadless(const CliOptions& opts) {
     const auto t0 = Clock::now();
-    // 默认种子随机（每次运行不同）；显式 --seed 确定性（headless 基线/回放走显式种子）。
+    // 普通无头运行默认随机；CLI replay 在解析阶段显式固定为 seed 42。
     const std::uint32_t seed = opts.seedSet ? opts.seed : Rng::randomSeed();
 
     Simulation sim;

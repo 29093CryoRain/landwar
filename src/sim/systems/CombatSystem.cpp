@@ -6,12 +6,16 @@
 
 namespace lw {
 
-double CombatSystem::queryRadius(const Config& cfg) {
+double CombatSystem::maxArmyRadius(const Config& cfg) {
     double maxSize = 0.0;
     for (const auto& u : cfg.units) {
         maxSize = std::max(maxSize, cfg.army.baseSize * u.sizeMult);
     }
-    return 2.0 * maxSize + 1.0;
+    return maxSize;
+}
+
+double CombatSystem::queryRadius(const Config& cfg) {
+    return 2.0 * maxArmyRadius(cfg) + 1.0;
 }
 
 bool CombatSystem::checkAt(MoveContext& ctx, entt::entity self, const comp::Position& pos,

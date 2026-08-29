@@ -11,6 +11,8 @@ namespace lw {
 
 class CombatSystem {
 public:
+    // 最大活兵碰撞半径，供战斗/特效/射弹的候选查询统一使用。
+    static double maxArmyRadius(const Config& cfg);
     // 战斗查询半径：2 * 最大兵半径 + 冗余，保证覆盖一切可能的 size 和。
     static double queryRadius(const Config& cfg);
 

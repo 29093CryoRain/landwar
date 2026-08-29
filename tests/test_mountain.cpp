@@ -89,11 +89,9 @@ TEST(Mountain, CoastCorrectionClearsSeaAdjacent) {
 
 // ---- 编码规则（手写小 BMP 直接验证 loadFromBmp）----
 
-// 写 24bit BMP：54 头 + 每行 width*3 像素字节 + 1 字节行填充 + BGR + 自底向上（j 行 = 图像底部行）。
-// 注意：与 C++ 读取器（src/world/Map.cpp）一致——它每行只读 1 字节填充（对 105 宽 4 对齐成立；
-// 任意宽度的测试图也按此写，保证逐字节对齐）。
+// 写标准 24bit BMP：54 头 + 每行 4 字节对齐 + BGR + 自底向上（j 行 = 图像底部行）。
 void writeBmp(const std::string& path, int w, int h, const std::vector<std::array<int, 3>>& px) {
-    const int rowsize = w * 3 + 1;
+    const int rowsize = (w * 3 + 3) & ~3;
     std::vector<unsigned char> data(static_cast<std::size_t>(54 + h * rowsize), 0);
     data[0] = 'B';
     data[1] = 'M';
@@ -357,6 +355,53 @@ TEST(MountainMove, MountainToMountainBounces) {
     moveOnce(w, e);
     EXPECT_TRUE(w.reg.get<comp::MountainState>(e).inMountain);   // 仍留在山地
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);  // 反弹
+}
+
+TEST(MountainMove, MountainToSeaFailedLandingKeepsMountainState) {
+    MountainWorld w;
+    w.map.at(1, 1).land = true;
+    w.map.at(1, 1).mountain = true;
+    w.map.at(1, 1).belongi = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true,
+                     /*inMountain=*/true);
+    w.rng.results = {false};  // 下海失败 → 反弹回原山地格
+    moveOnce(w, e);
+    EXPECT_TRUE(w.reg.get<comp::MountainState>(e).inMountain);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.15);
+    EXPECT_TRUE(w.reg.get<comp::OnLand>(e).value);
+}
+
+TEST(MountainMove, MountainToEnemyPlainBounceKeepsMountainState) {
+    MountainWorld w;
+    w.map.at(1, 1).land = true;
+    w.map.at(1, 1).mountain = true;
+    w.map.at(1, 1).belongi = 1;
+    w.map.at(2, 1).land = true;
+    w.map.at(2, 1).belongi = 2;
+    w.factions[2].landCount = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true,
+                     /*inMountain=*/true);
+    w.rng.results = {true};  // 敌方领土反弹
+    moveOnce(w, e);
+    EXPECT_TRUE(w.reg.get<comp::MountainState>(e).inMountain);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.15);
+    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 征服副作用仍保留
+}
+
+TEST(MountainMove, PlainToEnemyMountainBounceKeepsPlainState) {
+    MountainWorld w;
+    w.map.at(1, 1).land = true;
+    w.map.at(1, 1).belongi = 1;
+    w.map.at(2, 1).land = true;
+    w.map.at(2, 1).mountain = true;
+    w.map.at(2, 1).belongi = 2;
+    w.factions[2].landCount = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
+    w.rng.results = {true, true};  // 进山通过，敌方反弹
+    moveOnce(w, e);
+    EXPECT_FALSE(w.reg.get<comp::MountainState>(e).inMountain);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.3);
+    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 征服副作用仍保留
 }
 
 TEST(MountainMove, MountainToMountainPasses) {

@@ -13,6 +13,8 @@
 #include "core/Random.h"
 #include "world/Map.h"
 #include "world/MapGenerator.h"
+#include "world/Bmp24.h"
+#include "world/TerrainCodec.h"
 #include "TestUtil.h"
 
 namespace {
@@ -25,15 +27,14 @@ std::vector<char> readFile(const std::string& path) {
 
 // 与 Map::loadFromBmp 一致的 ramp：p = clamp((x-128)/127, 0, 1)。
 double ramp(int x) {
-    if (x <= 128) return 0.0;
-    return std::min(1.0, static_cast<double>(x - 128) / 127.0);
+    return lw::terrain::ramp(x, lw::Config::Terrain{});
 }
 
-// 从生成 BMP 反解每格 R/G 概率（与读取器同布局：文件行 j = 世界行 j，每行 width*3 + 1）。
+// 从生成 BMP 反解每格 R/G 概率（文件行 j = 世界行 j，行按 4 字节对齐）。
 // 返回三通道值（r,g,b），供计算期望山/城数。
 std::vector<std::array<int, 3>> decodeBmp(const std::string& path, int w, int h) {
     std::vector<char> raw = readFile(path);
-    const int rowsize = w * 3 + 1;
+    const int rowsize = (w * 3 + 3) & ~3;
     std::vector<std::array<int, 3>> px(static_cast<size_t>(w) * h);
     for (int j = 0; j < h; ++j) {
         const size_t rowStart = 54 + static_cast<size_t>(j) * rowsize;
@@ -74,6 +75,30 @@ TEST(MapGen, DifferentSeedDifferentMap) {
     ASSERT_TRUE(lw::MapGenerator::generate("build/_gen_s1.bmp", 1, p));
     ASSERT_TRUE(lw::MapGenerator::generate("build/_gen_s2.bmp", 2, p));
     EXPECT_NE(readFile("build/_gen_s1.bmp"), readFile("build/_gen_s2.bmp"));
+}
+
+TEST(MapGen, CachePathIncludesAllGenerationParameters) {
+    lw::MapGenParams a{105, 95, 0.20, 0.08, 0.02, 0.3, false};
+    lw::MapGenParams b = a;
+    b.forceCoast = true;
+    EXPECT_NE(lw::MapGenerator::defaultPath(42, a), lw::MapGenerator::defaultPath(42, b));
+
+    b = a;
+    b.cityDensity = 0.021;
+    EXPECT_NE(lw::MapGenerator::defaultPath(42, a), lw::MapGenerator::defaultPath(42, b));
+}
+
+TEST(Bmp24, RoundTripUsesStandardStrideAndDimensions) {
+    const std::string path = "build/_bmp24_stride.bmp";
+    const std::vector<std::array<unsigned char, 3>> pixels = {
+        {1, 2, 3}, {4, 5, 6}, {7, 8, 9}, {10, 11, 12}, {13, 14, 15}, {16, 17, 18}};
+    std::string err;
+    ASSERT_TRUE(lw::writeBmp24(path, 2, 3, pixels, &err)) << err;
+    lw::Bmp24Image image;
+    ASSERT_TRUE(lw::readBmp24(path, image, &err)) << err;
+    EXPECT_EQ(image.width, 2);
+    EXPECT_EQ(image.height, 3);
+    EXPECT_EQ(image.pixels, pixels);
 }
 
 // ---- 强制边缘为海（2026-08-06 用户要求）----

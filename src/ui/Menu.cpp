@@ -9,9 +9,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <numeric>
 
-#include <windows.h>  // FindFirstFileA（枚举地图文件；避免 std::filesystem——运行时
+#ifdef _WIN32
+#include <windows.h>  // FindFirstFileA（枚举地图文件；避免 std::filesystem——MSYS2 运行时
                       // libstdc++-6.dll 不导出其符号，会导致 STATUS_ENTRYPOINT_NOT_FOUND）
+#else
+#include <filesystem>
+#endif
 
 #include "core/GameDefs.h"
 #include "core/Random.h"
@@ -313,41 +318,41 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
             st.previews.clear();  // 密铺变了 → 预览失效
         }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        // 三角"长"（视觉列数）生成时减半 → 步进 2 并强制偶。
+        // 三角的周期域映射已经把用户长宽转换为列/行；步进由映射输入限制统一计算。
         int wStep = 1;
-        if (st.tiling == TilingType::Tri) {
-            wStep = 2;
-        }
         // 表驱动密铺：输入限制（算法一硬编码）——长须为 Ra 倍数、宽须为 Rb 倍数，使
         // 长*宽 = 总格数 精确守恒且映射单调（cols∝长、rows∝宽）。菜单按 Ra/Rb 设"-/+"步进。
         int Ra = 1, Rb = 1;
         const bool hasLimit = tableInputRestriction(static_cast<int>(st.tiling), Ra, Rb);
-        if (hasLimit && wStep == 1) wStep = Ra;  // 长步进 = Ra（跳到下一个 Ra 倍数）
+        if (hasLimit) wStep = std::lcm(wStep, Ra);
         ImGui::InputInt("长", &st.randW, wStep, 8);
         // P12 六/三角：行数强制偶数 → "宽"的 "-"/"+" 步进 2（避免点一次不变/偶奇来回跳）。
         // 表驱动：宽步进 = Rb（跳到下一个 Rb 倍数）。
         const bool needEvenRows = (st.tiling == TilingType::Hex || st.tiling == TilingType::Tri);
         const bool isTableTiling = static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri);
         int hStep = 1;
-        if (needEvenRows) {
-            hStep = 2;
-        } else if (isTableTiling) {
-            hStep = Rb;
-        }
+        if (hasLimit) hStep = std::lcm(needEvenRows ? 2 : 1, Rb);
+        else if (needEvenRows) hStep = 2;
+        else if (isTableTiling) hStep = Rb;
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         ImGui::InputInt("宽", &st.randH, hStep, 8);
         st.randW = std::clamp(st.randW, 32, 200);
         st.randH = std::clamp(st.randH, 32, 200);
-        if (needEvenRows && (st.randH & 1)) --st.randH;  // P12：偶数行
-        if (st.tiling == TilingType::Tri && (st.randW & 1)) --st.randW;     // 三角：列对数整数
         if (hasLimit) {
-            // 长/宽夹到最近的下一个 Ra/Rb 倍数（保底 ≥ Ra/Rb；≥32 且 ≤200）。
-            st.randW = std::max(Ra, ((st.randW + Ra - 1) / Ra) * Ra);
-            st.randH = std::max(Rb, ((st.randH + Rb - 1) / Rb) * Rb);
-            if (st.randW > 200) st.randW = (200 / Ra) * Ra;
-            if (st.randH > 200) st.randH = (200 / Rb) * Rb;
+            // 长/宽四舍五入到合法区间 [32,200] 内的最近 Ra/Rb 倍数。
+            const auto snapMenuDimension = [](int v, int base) {
+                int r = ((v + base / 2) / base) * base;
+                if (r < 32) r = ((32 + base - 1) / base) * base;
+                if (r > 200) r = (200 / base) * base;
+                return std::max(base, r);
+            };
+            st.randW = snapMenuDimension(st.randW, Ra);
+            st.randH = snapMenuDimension(st.randH, Rb);
+        } else if (needEvenRows) {
+            st.randH = (st.randH / 2) * 2;
+            if (st.randH < 32) st.randH = 32;
         } else if (isTableTiling) {
-            st.randH = ((st.randH + hStep - 1) / hStep) * hStep;  // 向上取整到 B 的倍数
+            st.randH = ((st.randH + hStep / 2) / hStep) * hStep;  // 四舍五入到 B 的倍数
             if (st.randH > 200) st.randH = (200 / hStep) * hStep;
         }
         // 强制边缘为海（在陆地占比条上方，用户要求调换位置，2026-08-06）。
@@ -453,6 +458,7 @@ SDL_Texture* PreviewCache::lookup(const std::string& key, int* outW, int* outH) 
 
 std::vector<std::string> enumerateMapFiles(const std::string& dataDir) {
     std::vector<std::string> out;
+#ifdef _WIN32
     const std::string pattern = dataDir + "/*.bmp";
     WIN32_FIND_DATAA fd;
     HANDLE hFind = FindFirstFileA(pattern.c_str(), &fd);
@@ -467,6 +473,20 @@ std::vector<std::string> enumerateMapFiles(const std::string& dataDir) {
         }
     } while (FindNextFileA(hFind, &fd) != 0);
     FindClose(hFind);
+#else
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::directory_iterator it(dataDir, ec);
+    const fs::directory_iterator end;
+    for (; it != end && !ec; it.increment(ec)) {
+        const auto& entry = *it;
+        if (!entry.is_regular_file(ec) && !ec) continue;
+        if (entry.path().extension() == ".bmp")
+            out.push_back(dataDir + "/" + entry.path().filename().string());
+    }
+    if (ec)
+        spdlog::warn("map scan '{}' failed: {}", dataDir, ec.message());
+#endif
     std::sort(out.begin(), out.end());
     return out;
 }

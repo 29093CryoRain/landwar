@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python -c \"from PIL import Image; im = Image.open\\('towers.png'\\); print\\(im.size, im.mode\\)\")"
-    ]
-  }
-}

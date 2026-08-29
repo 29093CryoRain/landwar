@@ -1,0 +1,33 @@
+{
+  "render": {
+    "_comment": "双色势力渲染（⑫）：tile=地块格填色 主:副:白 加权平均；city.mix=城市图标填色 主:副:黑 加权平均。",
+    "windowWidth": 2560,
+    "windowHeight": 1600,
+    "spriteSize": 32,
+    "armyDrawSize": 48,
+    "tile": {
+      "primary": 0.5,
+      "secondary": 0.3,
+      "white": 0.2,
+      "variation": 0.05
+    },
+    "city": {
+      "_comment": "P13 城市渲染：所有密铺统一走 data/city_icon_fits.json 的 iconFitScale，缺失按 1 倍缩放并告警。",
+      "lineMinCellPx": 20.0,
+      "lineThickness": 1.5,
+      "lineDarken": 0.7,
+      "iconDarken": 0.8,
+      "mix": {
+        "primary": 0.7,
+        "secondary": 0.1,
+        "black": 0.2
+      }
+    },
+    "capital": {
+      "_comment": "P15 首都渲染常数。",
+      "minIconSizePx": 30,
+      "lineThickness": 2.5,
+      "designatedAlpha": 0.45
+    }
+  }
+}

@@ -18,7 +18,7 @@ std::string cliUsage() {
             "  --replay [SEED] 回放：等价于 --headless --seed SEED 重跑（模拟完全确定）\n"
             "  --seed N        随机种子（默认 42；主种子，驱动首都与后续）\n"
             "  --map-seed N    地图种子（P6，默认 = 主种子；驱动随机图生成与山/城骰子）\n"
-            "  --ticks N       逻辑帧数（默认 20000）\n"
+             "  --ticks N       逻辑帧数（默认 1000）\n"
             "  --speed X       倍速（无头忽略；窗口模式渲染节奏用）\n"
             "  --config PATH   config.json 路径（默认 data/config.json）\n"
             "  --map PATH      覆盖地图文件（默认取 config；--tiling 非方时自动生成 lwmap）\n"
@@ -78,6 +78,8 @@ CliOptions parseCli(int argc, char* argv[]) {
         } else if (a == "--replay") {
             o.headless = true;
             explicitSim = true;
+            o.seed = 42;  // replay without an argument is still deterministic
+            o.seedSet = true;
             // 可选紧跟 seed 值（非 '-' 开头即数字）。
             if (i + 1 < args.size() && !args[i + 1].empty() && args[i + 1][0] != '-') {
                 o.seed = toUint(args[++i], o.seed, "--replay seed");

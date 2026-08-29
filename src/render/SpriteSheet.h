@@ -7,7 +7,7 @@
 // 偏移 模板 → 按各势力 (主色, 副色) 重合成（TwoToneTintCache）。性质：
 //   - 副色=浅灰191 时与旧 HueRotate 逐像素等价 → 默认调色板观感不变；
 //   - 红势力还原源图；白芯（激光/子弹）天然保留；色相偏移照旧平移。
-// army_special.png **停用**（用户定夺：统一 army_base.png）→ 不再加载。
+// 运行时统一加载 army_base.png。
 // 渲染时取势力版纹理（base）+ unitRect(type)。
 #pragma once
 

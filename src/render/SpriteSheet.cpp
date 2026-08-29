@@ -9,7 +9,7 @@ bool SpriteSheet::load(
     SDL_Renderer* ren,
     const std::vector<std::pair<std::array<int, 3>, std::array<int, 3>>>& palettes) {
     // 基础版：源图 = 红势力成品渲染 → 反解模板 → 按 (主色, 副色) 对重合成（TwoToneTintCache）。
-    // army_special.png 停用（用户定夺：统一 army_base.png）。
+    // 统一使用基础兵表。
     if (!baseTint_.load(ren, "data/army_base.png", palettes)) {
         spdlog::error("SpriteSheet: sheet load failed");
         return false;

@@ -1,6 +1,8 @@
 # 构建产物
 /build/
 /build-release/
+/build-linux/
+/build-*/
 
 # 本地第三方源码 (FetchContent 本地源)
 /_deps/
@@ -13,6 +15,7 @@ imgui.ini
 
 # 本地 agent 配置（机器/会话相关）
 /.claude/
+**/.claude/
 
 # 根目录可执行副本（构建产物拷贝，供项目根运行）
 /landwar.exe

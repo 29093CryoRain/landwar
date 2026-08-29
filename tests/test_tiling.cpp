@@ -377,8 +377,8 @@ TEST(Tiling, HexAxialOffsetResolves) {
 
 namespace {
 
-// 形状 → 格下标（锚点取地图中部；六 = 轴向偏移转世界；三 = (b,h) 偏移转世界，
-// 锚朝向 orient（0 正/1 反）决定变体——反锚时 dy 垂直镜像，与 Map::shapeCells 一致）。
+// 形状 → 格下标（锚点取地图中部；P1.2 起 square/hex/tri 的 cells 统一为世界偏移，
+// 三角反锚镜像 dy，与 Map::shapeCells 一致）。
 std::vector<int> shapeToCells(const lw::Config::City::TilingSet& set, int level,
                               const TilingGeom& g, int anchorOrient = 0) {
     const auto* sh = [&]() -> const lw::Config::City::Shape* {
@@ -394,14 +394,8 @@ std::vector<int> shapeToCells(const lw::Config::City::TilingSet& set, int level,
     const bool anchorUp = anchorOrient == 0;
     std::vector<int> out;
     for (const auto& c : sh->cells) {
-        double wx, wy;
-        if (g.type == TilingType::Hex) {
-            wx = ax + TilingGeom::kHexColSpacing * (c.dx + 0.5 * c.dy);
-            wy = ay + TilingGeom::kHexRowSpacing * c.dy;
-        } else {
-            wx = ax + c.dx * TilingGeom::kTriSide;
-            wy = ay + (anchorUp ? c.dy : -c.dy) * TilingGeom::kTriAlt;
-        }
+        const double wx = ax + c.dx;
+        const double wy = ay + (anchorUp ? c.dy : -c.dy);
         out.push_back(g.worldToCell(wx, wy));
     }
     return out;

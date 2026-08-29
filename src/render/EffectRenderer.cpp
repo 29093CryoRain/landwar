@@ -67,7 +67,7 @@ void EffectRenderer::draw(const Simulation& sim) {
                                    && (mod12 == 0 || mod12 == 1 || mod12 == 2 || mod12 == 10
                                        || mod12 == 11);
                 const int size = render::spriteSize(mineDrawSize_, z);
-                // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png 行 5（army_special 停用）。
+                // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png 行 5。
                 SDL_Texture* tex = sheet_.texture(fid - 1);
                 r.drawSpriteCentered(tex, sheet_.rect(5), cx, cy, size, blink ? 220 : 60);
                 break;

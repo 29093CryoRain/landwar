@@ -85,7 +85,6 @@ Options Options::loadFromJson(const std::string& jsonText) {
         o.map.mountainDensity = getDouble(mapJson, "mountainDensity", o.map.mountainDensity);
         o.map.cityDensity = getDouble(mapJson, "cityDensity", o.map.cityDensity);
         o.map.forceCoast = getBool(mapJson, "forceCoast", false);
-        o.map.wrap = getBool(mapJson, "wrap", false);
         o.map.tiling = getStr(mapJson, "tiling", o.map.tiling);  // P12：密铺（随机图生成用）
     }
 
@@ -136,7 +135,6 @@ std::string Options::toJson() const {
                 {"mountainDensity", map.mountainDensity},
                 {"cityDensity", map.cityDensity},
                 {"forceCoast", map.forceCoast},
-                {"wrap", map.wrap},
                 {"tiling", map.tiling}};
     // 面板布局（P3）：与 loadFromJson 键严格对称。
     j["panels"] = Json::array();

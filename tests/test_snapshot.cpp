@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <entt/entt.hpp>
+#include <nlohmann/json.hpp>
 
 #include "core/Config.h"
 #include "core/Simulation.h"
@@ -17,6 +18,7 @@
 #include "replay/Headless.h"
 #include "replay/Snapshot.h"
 #include "sim/components.h"
+#include "world/MapGenerator.h"
 #include "TestUtil.h"
 
 namespace {
@@ -222,6 +224,46 @@ TEST(Snapshot, MapSeedRoundTripsAndContinuationMatches) {
     }
 }
 
+TEST(Snapshot, NonDefaultMapAndCityIconFitsRoundTrip) {
+    const std::string mapPath = "test_snapshot_non_default_map.bmp";
+    MapGenParams params;
+    params.width = 40;
+    params.height = 40;
+    params.seaRatio = 0.0;
+    params.mountainDensity = 0.0;
+    params.cityDensity = 0.0;
+    ASSERT_TRUE(MapGenerator::generate(mapPath, 19, params));
+
+    Config cfg = lwtest::loadCfg();
+    cfg.map.file = mapPath;
+    cfg.map.width = params.width;
+    cfg.map.height = params.height;
+    cfg.map.capitalMinDistance = 1;
+    cfg.render.city.iconFitScale["square"][9] = 7.25;
+    cfg.render.city.iconFitOffsetY["square"] = {
+        Config::Render::City::IconFitOffsetY{9, 1, {0, 2}, -0.375}};
+
+    Simulation original(cfg, 23);
+    ASSERT_TRUE(original.init());
+    ASSERT_EQ(original.map().width(), 40);
+    ASSERT_EQ(original.map().height(), 40);
+
+    Simulation restored;
+    std::string err;
+    ASSERT_TRUE(Snapshot::deserialize(restored, Snapshot::serialize(original), &err)) << err;
+    EXPECT_EQ(restored.config().map.width, 40);
+    EXPECT_EQ(restored.config().map.height, 40);
+    EXPECT_DOUBLE_EQ(restored.config().render.city.iconFitScale.at("square").at(9), 7.25);
+    const auto& offsets = restored.config().render.city.iconFitOffsetY.at("square");
+    ASSERT_FALSE(offsets.empty());
+    EXPECT_EQ(offsets.back().iconLevel, 9);
+    EXPECT_EQ(offsets.back().variant, 1);
+    EXPECT_EQ(offsets.back().bases, (std::vector<int>{0, 2}));
+    EXPECT_DOUBLE_EQ(offsets.back().value, -0.375);
+
+    std::remove(mapPath.c_str());
+}
+
 TEST(Snapshot, EntityIdsPreserved) {
     const Simulation sim = makeSim(42, 150);  // 有战损/回收 → 版本位可能非零
     // P9：系统按 id 迭代、读档存储序与直跑不可复现 → 比较按 id 升序（不依赖 raw 视图序）。
@@ -295,6 +337,30 @@ TEST(Snapshot, OldVersionRejected) {
     EXPECT_FALSE(Snapshot::deserialize(r, R"({"version":3})", &err));
     EXPECT_FALSE(err.empty());
     EXPECT_NE(err.find("unsupported version"), std::string::npos);
+}
+
+TEST(Snapshot, MalformedV6RejectedWithoutMutatingTarget) {
+    Simulation target = makeSim(43, 10);
+    const auto beforeTick = target.tickCount();
+    const auto beforeState = target.rng().state();
+    auto json = nlohmann::json::parse(Snapshot::serialize(makeSim(42, 10)));
+    json["map"].erase("cells");
+
+    std::string err;
+    EXPECT_FALSE(Snapshot::deserialize(target, json.dump(), &err));
+    EXPECT_FALSE(err.empty());
+    EXPECT_EQ(target.tickCount(), beforeTick);
+    EXPECT_EQ(target.rng().state(), beforeState);
+}
+
+TEST(Snapshot, InvalidEntityTypeRejected) {
+    auto json = nlohmann::json::parse(Snapshot::serialize(makeSim(42, 150)));
+    ASSERT_FALSE(json["registry"]["entities"].empty());
+    json["registry"]["entities"][0]["type"] = 999;
+    Simulation target;
+    std::string err;
+    EXPECT_FALSE(Snapshot::deserialize(target, json.dump(), &err));
+    EXPECT_NE(err.find("entity"), std::string::npos);
 }
 
 // ---- CLI 解析 ----

@@ -36,7 +36,6 @@ TEST(Options, DefaultsAllEnabledDefaultAI) {
     }
     EXPECT_EQ(o.map.file, "data/map_bigIslands.bmp");
     EXPECT_EQ(o.map.kind, lw::MapSelection::Kind::File);
-    EXPECT_FALSE(o.map.wrap);
 }
 
 TEST(Options, ToJsonRoundTrip) {
@@ -44,7 +43,6 @@ TEST(Options, ToJsonRoundTrip) {
     a.factions[0].enabled = false;
     a.factions[3].aiId = 1;
     a.map.file = "data/map3.bmp";
-    a.map.wrap = true;
     a.map.randomSeed = 1234u;
     a.map.kind = lw::MapSelection::Kind::Random;
     a.map.width = 88;
@@ -58,7 +56,6 @@ TEST(Options, ToJsonRoundTrip) {
     EXPECT_FALSE(b.factions[0].enabled);
     EXPECT_EQ(b.factions[3].aiId, 1);
     EXPECT_EQ(b.map.file, "data/map3.bmp");
-    EXPECT_TRUE(b.map.wrap);
     EXPECT_EQ(b.map.randomSeed, 1234u);
     EXPECT_EQ(b.map.kind, lw::MapSelection::Kind::Random);
     EXPECT_EQ(b.map.width, 88);

@@ -56,6 +56,37 @@ const TilingType kTableTypes[] = {
     TilingType::Laves488,  TilingType::Arch33434, TilingType::Arch33336,
     TilingType::Laves33434, TilingType::Laves33336};
 
+TEST(TilingTable, DomainMappingIncludesSquareHexTri) {
+    int cols = 0, rows = 0, ra = 0, rb = 0;
+    chooseTableDomain(static_cast<int>(TilingType::Square), 137, 91, cols, rows);
+    EXPECT_EQ(cols, 137);
+    EXPECT_EQ(rows, 91);
+    EXPECT_FALSE(tableInputRestriction(static_cast<int>(TilingType::Square), ra, rb));
+
+    // Hex: p/q=13/14, so 120×120 rounds to 126×117 and maps to 117×126.
+    chooseTableDomain(static_cast<int>(TilingType::Hex), 120, 120, cols, rows);
+    EXPECT_EQ(cols, 117);
+    EXPECT_EQ(rows, 126);
+    EXPECT_EQ(cols * rows, 126 * 117);
+    ASSERT_TRUE(tableInputRestriction(static_cast<int>(TilingType::Hex), ra, rb));
+    EXPECT_EQ(ra, 14);
+    EXPECT_EQ(rb, 13);
+
+    // 110 is closer to 104 than 117; this distinguishes nearest rounding from ceiling.
+    chooseTableDomain(static_cast<int>(TilingType::Hex), 110, 110, cols, rows);
+    EXPECT_EQ(cols, 104);
+    EXPECT_EQ(rows, 112);
+
+    // Tri: p/q=4/3, and Rb is doubled to keep the resulting periodic rows even.
+    chooseTableDomain(static_cast<int>(TilingType::Tri), 120, 120, cols, rows);
+    EXPECT_EQ(cols, 80);
+    EXPECT_EQ(rows, 90);
+    EXPECT_EQ(2 * cols * rows, 120 * 120);
+    ASSERT_TRUE(tableInputRestriction(static_cast<int>(TilingType::Tri), ra, rb));
+    EXPECT_EQ(ra, 3);
+    EXPECT_EQ(rb, 8);
+}
+
 TEST(TilingTable, ArchSpecsLoadAndCellRoundTrip) {
     for (TilingType t : kTableTypes) {
         TilingGeom g{t, 4, 3};
@@ -145,7 +176,6 @@ TEST(TilingTable, SnubTilingsGenerateLoadAndCellRoundTrip) {
         map.setCityConfig(cfg.city);
         Rng rng(42);
         ASSERT_TRUE(map.loadFromLwmap(path, rng)) << tilingName(t);
-        map.finalize();
         EXPECT_EQ(map.cellCount(), expectCells) << tilingName(t);
         // 可玩性：应能放置首都（半正/Laves 从已生成城市分配；多格形状需能解析）。
         ASSERT_TRUE(map.placeCapitals(rng)) << tilingName(t);
@@ -237,7 +267,6 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
     Rng rng(42);
     ASSERT_TRUE(map.loadFromLwmap(path, rng));
     ASSERT_TRUE(map.placeCapitals(rng));
-    map.finalize();
     EXPECT_EQ(map.cellCount(), 84 * 120);  // 用户长*宽 = 总格数（合规输入）
     EXPECT_GE(map.cityCount(), 8);  // 至少 8 个首都城
 }
@@ -259,7 +288,6 @@ TEST(TilingTable, Laves488MapGenerationAndCapitalPlacement) {
     Rng rng(42);
     ASSERT_TRUE(map.loadFromLwmap(path, rng));
     ASSERT_TRUE(map.placeCapitals(rng));
-    map.finalize();
     EXPECT_EQ(map.cellCount(), 32 * 32);  // 用户长*宽 = 总格数
     EXPECT_GE(map.cityCount(), 8);
 }
@@ -619,7 +647,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
         TilingType::Laves33336, TilingType::Laves33434};
     // 每密铺的输入限制 (Ra,Rb)，与 Tiling.cpp 的 tableDomainParams 保持一致（算法一离线求得）。
     // 传合规的长/宽（Ra/Rb 的倍数）→ 命中"长*宽=总格数"精确成立（否则 chooseTableDomain 会
-    // 向上取整，cellCount 为取整后的现值）。
+    // 四舍五入，cellCount 为归一化后的现值）。
     const std::pair<int, int> lim[14] = {
         {8, 9}, {15, 16}, {15, 16}, {9, 8}, {7, 10},   // Arch3464/3636/31212/4612/488
         {8, 9}, {15, 16}, {8, 9}, {4, 6}, {2, 2},      // Laves3464/3636/31212/4612/488
@@ -632,7 +660,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
         // 长 = Ra 倍数（≥64）；宽 = Rb 倍数（≥ ~6 域行 × B，保证城市多样）。
         const int width = std::max(64, ((64 + Ra - 1) / Ra) * Ra);
         const int height = std::max(6, (32 + B - 1) / B) * B;
-        const int hc = ((height + Rb - 1) / Rb) * Rb;  // 宽向上取整到 Rb 倍数
+        const int hc = ((height + Rb - 1) / Rb) * Rb;  // 构造 Rb 的合规输入
         // 守恒预期：chooseTableDomain 会把 (width,hc) 合规后映射出 cols,rows；cellCount 应恰为
         // B*cols*rows（= 合规后的有效长*宽）。
         int tc, tr;
@@ -653,7 +681,6 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
         Rng rng(42);
         ASSERT_TRUE(map.loadFromLwmap(path, rng)) << tilingName(t);
         ASSERT_TRUE(map.placeCapitals(rng)) << tilingName(t);
-        map.finalize();
         EXPECT_EQ(map.cellCount(), expectCells) << tilingName(t);  // 守恒：cellCount = B*cols*rows
         EXPECT_GT(map.cityCount(), 0) << tilingName(t);
         std::set<int> texLevels;
@@ -685,7 +712,6 @@ TEST(TilingTable, Arch488GeneratedCitiesHaveMultipleTextureLevels) {
     Rng rng(42);
     ASSERT_TRUE(map.loadFromLwmap(path, rng));
     ASSERT_TRUE(map.placeCapitals(rng));
-    map.finalize();
     std::set<int> texLevels;
     for (const auto& c : map.cities()) {
         int tl = (c.level >= 10.0) ? 10

@@ -18,7 +18,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 // 把一段时间累加到 Movement 内部细分计数器（剖析用；setMoveProfile 语义清晰）。
-void setMoveProfile(Simulation& sim, std::uint64_t& slot, Clock::duration d) {
+void setMoveProfile(std::uint64_t& slot, Clock::duration d) {
     slot += static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(d).count());
 }
@@ -38,11 +38,10 @@ struct MoveTimer {
     }
 };
 
-// Phase 9：反弹角偏置。每 tick 抖动已取消，改为反弹（地图墙/下海失败/征服反弹）时
-// 添加一个随机小偏置（±~0.0034 rad），避免规则反射的对称性。
+// Phase 3.1：反弹角偏置。每 tick 抖动已取消，改为反弹（地图墙/下海失败/征服反弹）时
+// 添加一个随机小偏置，避免规则反射的对称性；一次 unit() 即完成一次取样。
 double bounceJitter(const MoveContext& ctx) {
-    const auto& a = ctx.config.army;
-    return (ctx.rng.get(97) - a.bounceJitterHalfRange) / a.bounceJitterDenominator;
+    return (ctx.rng.unit() * 2.0 - 1.0) * ctx.config.army.bounceJitterRangeRad;
 }
 
 // 反弹：按穿越方向翻角（水平 boundaryCode 0/2 → π-角；垂直 1/3 → -角）+ 随机小偏置。
@@ -96,19 +95,26 @@ void conquerCell(MoveContext& ctx, int cellIndex, int factionId, ArmyType type) 
 // vel/speed/remLength/onLand/mtn/hist；RNG 顺序与旧 moveArmy 逐位一致。
 // 返回 true = 反弹（未实际进入目标格，调用方应保持原格跟踪）；false = 已进入。
 template <typename Bounce>
-bool processEnteredCell(MoveContext& ctx, int goalIdx, Bounce&& doBounce, comp::Velocity& vel,
-                        comp::Speed& speed, double& remLength, comp::OnLand& onLand,
-                        comp::MountainState& mtn, comp::FactionId& fid, comp::UnitType& unit,
-                        comp::LandHistory& hist) {
+bool processEnteredCell(MoveContext& ctx, int goalIdx, Bounce&& doBounce, comp::Speed& speed,
+                        double& remLength, comp::OnLand& onLand,
+                         comp::MountainState& mtn, comp::FactionId& fid, comp::UnitType& unit,
+                         comp::LandHistory& hist) {
     const auto& cfg = ctx.config;
     const MapCell* goalCell = &ctx.map.atIndex(goalIdx);
+    // Terrain changes are provisional until the target cell is actually entered. A later
+    // sea/mountain/enemy rejection bounces the army back into its original cell.
+    double nextSpeed = speed.value;
+    double nextRemLength = remLength;
+    bool nextOnLand = onLand.value;
+    bool nextInMountain = mtn.inMountain;
+    int nextLastLandTime = hist.lastLandTime;
     if (!goalCell->land && onLand.value) {
         // 陆/山→海：山→海 先复原山地速度（若该兵种在山地减速），再走原下海路径。
-        if (mtn.inMountain) {
-            mtn.inMountain = false;
+        if (nextInMountain) {
+            nextInMountain = false;
             if (slowsInMountain(cfg, static_cast<int>(unit.type))) {
-                speed.value /= cfg.terrain.mountainSpeedMult;
-                remLength /= cfg.terrain.mountainSpeedMult;
+                nextSpeed /= cfg.terrain.mountainSpeedMult;
+                nextRemLength /= cfg.terrain.mountainSpeedMult;
             }
         }
         // 陆→海：概率下海，失败反弹。
@@ -117,9 +123,9 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, Bounce&& doBounce, comp::
         // P7：下海概率 × 势力增益（基线 seaChanceMult=1.0 → 恒等，行为不变）。
         goSeaChance *= ctx.factions[static_cast<size_t>(fid.value)].mods.seaChanceMult;
         if (ctx.rng.chance(goSeaChance)) {
-            onLand.value = false;
-            speed.value *= cfg.sea.seaSpeedMult;   // 下海 speed ×0.5（永久降为海速）
-            remLength *= cfg.sea.seaSpeedMult;     // 剩余移动量按新海速折算
+            nextOnLand = false;
+            nextSpeed *= cfg.sea.seaSpeedMult;   // 下海 speed ×0.5（永久降为海速）
+            nextRemLength *= cfg.sea.seaSpeedMult;     // 剩余移动量按新海速折算
             // 2026-08 用户定夺：去掉原版紧随的 `break`——不再丢弃本 tick 剩余移动，下海后续走
             // （速度与剩余量同步减半，语义自洽；原版 `rem/=2; break` 里 `rem/=2` 因 break 成死代码）。
         } else {
@@ -128,12 +134,12 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, Bounce&& doBounce, comp::
         }
     } else if (goalCell->land && onLand.value) {
         // 陆→陆（含山）：目标非山时先复原离开山地；山地阻挡先判（失败→反弹，不进入不征服）。
-        if (mtn.inMountain && !goalCell->mountain) {
+        if (nextInMountain && !goalCell->mountain) {
             // 山→平地：离开山地，速度复原（若该兵种在山地减速；开拓不减速）。
-            mtn.inMountain = false;
+            nextInMountain = false;
             if (slowsInMountain(cfg, static_cast<int>(unit.type))) {
-                speed.value /= cfg.terrain.mountainSpeedMult;
-                remLength /= cfg.terrain.mountainSpeedMult;
+                nextSpeed /= cfg.terrain.mountainSpeedMult;
+                nextRemLength /= cfg.terrain.mountainSpeedMult;
             }
         }
         // 山地骰：下一格为山（不管当前格是什么，含陆→山/海→山/山→山）都掷进入概率；
@@ -144,11 +150,11 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, Bounce&& doBounce, comp::
                 doBounce();
                 return true;
             }
-            if (!mtn.inMountain) {
-                mtn.inMountain = true;
+            if (!nextInMountain) {
+                nextInMountain = true;
                 if (slowsInMountain(cfg, static_cast<int>(unit.type))) {
-                    speed.value *= cfg.terrain.mountainSpeedMult;
-                    remLength *= cfg.terrain.mountainSpeedMult;
+                    nextSpeed *= cfg.terrain.mountainSpeedMult;
+                    nextRemLength *= cfg.terrain.mountainSpeedMult;
                 }
             }
         }
@@ -176,19 +182,24 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, Bounce&& doBounce, comp::
             doBounce();
             return true;
         }
-        onLand.value = true;
-        speed.value /= cfg.sea.seaSpeedMult;   // 复原陆速（=×2）
-        remLength /= cfg.sea.seaSpeedMult;
-        hist.lastLandTime = ctx.ttime;
+        nextOnLand = true;
+        nextSpeed /= cfg.sea.seaSpeedMult;   // 复原陆速（=×2）
+        nextRemLength /= cfg.sea.seaSpeedMult;
+        nextLastLandTime = ctx.ttime;
         if (goalCell->mountain) {
-            mtn.inMountain = true;
+            nextInMountain = true;
             if (slowsInMountain(cfg, static_cast<int>(unit.type))) {
-                speed.value *= cfg.terrain.mountainSpeedMult;
-                remLength *= cfg.terrain.mountainSpeedMult;
+                nextSpeed *= cfg.terrain.mountainSpeedMult;
+                nextRemLength *= cfg.terrain.mountainSpeedMult;
             }
         }
         conquerCell(ctx, goalIdx, fid.value, unit.type);
     }
+    speed.value = nextSpeed;
+    remLength = nextRemLength;
+    onLand.value = nextOnLand;
+    mtn.inMountain = nextInMountain;
+    hist.lastLandTime = nextLastLandTime;
     return false;
 }
 
@@ -197,7 +208,6 @@ static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos
                            comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
                            comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
                            comp::UnitType& unit, comp::LandHistory& hist) {
-    const auto& cfg = ctx.config;
     const auto& map = ctx.map;
     const int w = map.width();
 
@@ -269,7 +279,7 @@ static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos
         const auto doBounce = [&] { bounce(ctx, vel, boundaryCode); };
         {
             MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
-            processEnteredCell(ctx, gy * w + gx, doBounce, vel, speed, remLength, onLand, mtn, fid,
+            processEnteredCell(ctx, gy * w + gx, doBounce, speed, remLength, onLand, mtn, fid,
                                unit, hist);
         }
     }
@@ -287,7 +297,6 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
                           comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
                           comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
                           comp::UnitType& unit, comp::LandHistory& hist) {
-    const auto& cfg = ctx.config;
     const auto& map = ctx.map;
     const TilingGeom& g = map.geom();
     double remLength = speed.value;
@@ -363,7 +372,7 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
         const auto doBounce = [&] { bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed)); };
         const bool bounced = [&] {
             MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
-            return processEnteredCell(ctx, nb, doBounce, vel, speed, remLength, onLand, mtn, fid,
+            return processEnteredCell(ctx, nb, doBounce, speed, remLength, onLand, mtn, fid,
                                       unit, hist);
         }();
         // 反弹 → 保持原格（退回）；成功进入 → 跟踪目标格。
@@ -394,7 +403,7 @@ void MovementSystem::update(Simulation& sim) {
     const auto t_h0 = prof ? Clock::now() : Clock::time_point{};
     ctx.spatialHash.build(ctx.registry, ctx.map.geom());  // P12：按密铺格分桶
     const auto t_h1 = prof ? Clock::now() : Clock::time_point{};
-    if (prof) setMoveProfile(sim, sim.profile().moveHashNs, t_h1 - t_h0);
+    if (prof) setMoveProfile(sim.profile().moveHashNs, t_h1 - t_h0);
     auto view = ctx.registry
                     .view<comp::Position, comp::Velocity, comp::Speed, comp::OnLand,
                           comp::Collider, comp::FactionId, comp::UnitType, comp::LandHistory>();
@@ -405,12 +414,12 @@ void MovementSystem::update(Simulation& sim) {
         return entt::to_integral(a) > entt::to_integral(b);
     });
     const auto t_loop = prof ? Clock::now() : Clock::time_point{};
-    if (prof) setMoveProfile(sim, sim.profile().moveSortNs, t_loop - t_h1);
+    if (prof) setMoveProfile(sim.profile().moveSortNs, t_loop - t_h1);
     for (auto e : armies) {
         if (ctx.registry.all_of<comp::Dead>(e)) continue;  // 本 tick 已被战斗标死
         moveArmy(ctx, e);
     }
-    if (prof) setMoveProfile(sim, sim.profile().moveLoopNs, Clock::now() - t_loop);
+    if (prof) setMoveProfile(sim.profile().moveLoopNs, Clock::now() - t_loop);
 }
 
 void MovementSystem::moveArmy(MoveContext& ctx, entt::entity e) {

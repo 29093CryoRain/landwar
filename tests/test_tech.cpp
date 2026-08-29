@@ -436,7 +436,7 @@ TEST(Tech, SnapshotRoundTripPreservesTechAndBuffs) {
     EXPECT_EQ(lf.techLevel(), 1);
 }
 
-TEST(Tech, OldSnapshotWithoutTechLoadsForwardCompat) {
+TEST(Tech, SnapshotWithoutTechIsRejected) {
     Config cfg = techCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
@@ -444,13 +444,9 @@ TEST(Tech, OldSnapshotWithoutTechLoadsForwardCompat) {
     json["config"].erase("tech");  // 模拟旧版存档（无 tech 配置）
     for (auto& fj : json["factions"]) fj.erase("tech");
     Simulation loaded;
-    ASSERT_TRUE(Snapshot::deserialize(loaded, json.dump()));
-    EXPECT_EQ(loaded.config().tech.techs.size(), 0u);
-    EXPECT_DOUBLE_EQ(loaded.faction(1).tech.points, 0.0);
-    EXPECT_TRUE(loaded.faction(1).tech.levels.empty());
-    // 无科技 → 惰性（TechSystem 不科研）。
-    TechSystem::update(loaded);
-    EXPECT_EQ(loaded.faction(1).techLevel(), 0);
+    std::string err;
+    EXPECT_FALSE(Snapshot::deserialize(loaded, json.dump(), &err));
+    EXPECT_FALSE(err.empty());
 }
 
 // ---- 确定性：AI 科研同种子逐级一致 ----

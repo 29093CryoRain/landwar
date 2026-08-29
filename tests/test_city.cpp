@@ -30,9 +30,9 @@ public:
     bool chance(double) override { return nextC < chances.size() ? chances[nextC++] : false; }
 };
 
-// 写 24bit BMP（54 头 + 每行 w*3+1 填充 + BGR + 自底向上，与 Map::loadFromBmp 逐字节一致）。
+// 写标准 24bit BMP（54 头 + 4 字节对齐行 + BGR + 自底向上）。
 void writeBmp(const std::string& path, int w, int h, const std::vector<std::array<int, 3>>& px) {
-    const int rowsize = w * 3 + 1;
+    const int rowsize = (w * 3 + 3) & ~3;
     std::vector<unsigned char> data(static_cast<std::size_t>(54 + h * rowsize), 0);
     data[0] = 'B';
     data[1] = 'M';

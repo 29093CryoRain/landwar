@@ -1,8 +1,7 @@
 // test_city_render.cpp — P13 城市渲染纯几何单测（render/CityRenderer::compute，mock 相机/缩放）。
 // 覆盖开发计划 P13 测试计划"渲染"项：高缩放细线围基建地块出现、低缩放图标取最小尺寸、
-// 图标中心（=基建块几何中心）、等级→塔贴图映射（9 级表）、图标尺寸按基建地块框适配
-// （长/宽不超出框且略小）、视野剔除。无需 SDL 渲染器（相机-only 构造 + setTowerSourceSize
-// 模拟塔源纵横比）。
+// 图标中心（=基建块几何中心）、等级→塔贴图映射（9 级表）、图标尺寸按 iconFitScale/1 倍兜底
+// 适配、视野剔除。无需 SDL 渲染器（相机-only 构造 + setTowerSourceSize 模拟塔源纵横比）。
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -39,7 +38,7 @@ struct CityRenderFixture {
 };
 
 // 高缩放（zoom 2 → cellPx=30 > lineMinCellPx=20）：每城生成细线围区（外廓矩形 = 地块屏幕矩形）；
-// 图标尺寸按基建地块框适配（保留源纵横比，长/宽 ≤ 框 × iconScale，且再小一点点）。城放可见区
+// 图标尺寸按 iconFitScale 适配（保留源纵横比，长/宽 ≤ 框 × 填充比，且再小一点点）。城放可见区
 //（zoom 2 居中视野 ~world x∈[-4,69], y∈[24,71]）。
 TEST(CityRender, HighZoomOutlineAndBoxFitIcon) {
     CityRenderFixture f;
@@ -48,6 +47,10 @@ TEST(CityRender, HighZoomOutlineAndBoxFitIcon) {
     const int cid = f.addCity(4, 50, 50);           // 2×2 级4 城
     const City& c = f.map.city(cid);
     f.renderer.setTowerSourceSize(4, 100, 150);     // A = 高/宽 = 1.5（高塔）
+    const double A4 = 150.0 / 100.0;
+    // P1.2：square 也走 iconFitScale（值 = 框内可容纳最大宽 × 0.85，模拟旧 iconScale 行为）。
+    f.rc.city.iconFitScale["square"][4] = std::min(static_cast<double>(c.w),
+                                                   static_cast<double>(c.h) / A4) * 0.85;
     const auto frame = f.compute();
 
     ASSERT_EQ(frame.outlines.size(), 1u);
@@ -63,8 +66,8 @@ TEST(CityRender, HighZoomOutlineAndBoxFitIcon) {
     // 细线颜色 = 该城归属势力的加深色 → 外廓携带 colorIndex = 城市 ownerId。
     EXPECT_EQ(frame.outlines[0].colorIndex, c.ownerId);
 
-    // 图标：框适配。框 = 2×2 格 = 60×60px；A=1.5 → fitW = min(60, 60/1.5) = 40；
-    // dstW = max(min, round(40×0.85)) = 34；dstH = round(34×1.5) = 51。
+    // 图标：iconFitScale 适配。框 = 2×2 格 = 60×60px；A=1.5 → 可容纳最大宽 fitW = min(60, 60/1.5)
+    // = 40；iconFitScale 值 = 40/30 × 0.85 = 1.1333… → dstW = round(1.1333×30) = 34。
     ASSERT_EQ(frame.icons.size(), 1u);
     const auto& ic = frame.icons[0];
     EXPECT_EQ(ic.level, 4);
@@ -73,12 +76,12 @@ TEST(CityRender, HighZoomOutlineAndBoxFitIcon) {
     const double boxH = c.h * cellPx;
     const double A = 150.0 / 100.0;
     const double fitW = std::min(boxW, boxH / A);
-    const int expectedW = std::max(1,  // 普通城市无下限（随缩放继续缩小，2026-08-08）
-                                   static_cast<int>(std::lround(fitW * f.rc.city.iconScale[3])));
+    const int expectedW = std::max(1, static_cast<int>(std::lround(
+                                       f.rc.city.iconFitScale["square"][4] * cellPx)));
     const int expectedH = std::max(1, static_cast<int>(std::lround(expectedW * A)));
     EXPECT_EQ(ic.dstW, expectedW);
     EXPECT_EQ(ic.dstH, expectedH);
-    // 长/宽都不超出基建地块框，且略小于框（iconScale=0.85<1 → 不紧贴边缘）。
+    // 长/宽都不超出基建地块框，且略小于框（0.85<1 → 不紧贴边缘）。
     EXPECT_LE(ic.dstW, boxW);
     EXPECT_LE(ic.dstH, boxH);
     EXPECT_LT(ic.dstW, fitW);  // 再小一点点
@@ -91,7 +94,7 @@ TEST(CityRender, HighZoomOutlineAndBoxFitIcon) {
 }
 
 // 低缩放（zoom 0.25 → cellPx=3.75 < lineMinCellPx）：不画细线。
-// **渲染改版（2026-08-08）**：普通城市随缩放继续缩小（无下限，dstW = round(fitW×iconScale) < minIconSizePx）；
+// **渲染改版（2026-08-08）**：普通城市随缩放继续缩小（无下限，P1.2 后按 1 倍兜底 < minIconSizePx）；
 // 正式首都保底 minIconSizePx（不随缩放继续缩小）。未指定源纵横比 → 方形（dstH == dstW）。
 TEST(CityRender, LowZoomNormalShrinksCapitalKeepsMinSize) {
     CityRenderFixture f;
@@ -125,7 +128,7 @@ TEST(CityRender, LowZoomNormalShrinksCapitalKeepsMinSize) {
 }
 
 // 等级 → 塔贴图映射（9 级塔表下标 = 等级-1，3/5/7/8 占位）+ 框适配：模拟各等级塔源纵横比
-//（高塔→宽塔），高缩放下图标长/宽均 ≤ 基建地块框 × iconScale 且保留源纵横比、略小于框。
+//（高塔→宽塔），高缩放下图标长/宽均 ≤ 基建地块框 × 填充比且保留源纵横比、略小于框。
 TEST(CityRender, LevelsMapToTowersFitWithinBlock) {
     CityRenderFixture f;
     f.cam.zoomAt(2175.0 / 2, 1425.0 / 2, 2.0);  // cellPx=30，确保 fitW×0.85 ≥ min 不触下限
@@ -135,7 +138,12 @@ TEST(CityRender, LevelsMapToTowersFitWithinBlock) {
     const int sh[5] = {145, 145, 150, 180, 187};
     for (int k = 0; k < 5; ++k) {
         f.renderer.setTowerSourceSize(levels[k], sw[k], sh[k]);
-        f.addCity(levels[k], k * 10, 30);  // 同一行铺开（zoom 2 居中视野 ~world x∈[-4,69]）
+        const int cid = f.addCity(levels[k], k * 10, 30);  // 同一行铺开（zoom 2 居中视野 ~world x∈[-4,69]）
+        const City& c = f.map.city(cid);
+        const double A = static_cast<double>(sh[k]) / static_cast<double>(sw[k]);
+        // P1.2：square 走 iconFitScale（模拟旧 iconScale=0.85 行为）。
+        f.rc.city.iconFitScale["square"][levels[k]] =
+            std::min(static_cast<double>(c.w), static_cast<double>(c.h) / A) * 0.85;
     }
     const auto frame = f.compute();
     ASSERT_EQ(frame.icons.size(), 5u);
@@ -150,7 +158,8 @@ TEST(CityRender, LevelsMapToTowersFitWithinBlock) {
         const double boxH = static_cast<double>(c.h) * cellPx;
         const double fitW = std::min(boxW, boxH / A);
         const int expectedW = std::max(1,  // 普通城市无下限（2026-08-08）
-                                       static_cast<int>(std::lround(fitW * f.rc.city.iconScale[static_cast<size_t>(lv - 1)])));
+                                       static_cast<int>(std::lround(
+                                           f.rc.city.iconFitScale["square"][lv] * cellPx)));
         const int expectedH = std::max(1, static_cast<int>(std::lround(expectedW * A)));
         EXPECT_EQ(ic.dstW, expectedW) << "level " << lv;
         EXPECT_EQ(ic.dstH, expectedH) << "level " << lv;
@@ -186,7 +195,8 @@ TEST(CityRender, CapitalAndDesignatedStatusRouting) {
     ASSERT_EQ(frame.capitalOutlines.size(), 1u);      // 正式首都 → 更粗细线
 }
 
-// 首都图标尺寸按基建地块框自适应：用 render.capital.iconScale + 首都源纵横比（A = setCapitalSourceSize）。
+// 首都图标尺寸按普通城图标面积 + 首都源纵横比（A = setCapitalSourceSize）反推。
+// 普通城未配置 iconFitScale 时按 1 倍兜底。
 TEST(CityRender, CapitalIconScalesByLevelAndSourceAspect) {
     CityRenderFixture f;
     f.cam.zoomAt(2175.0 / 2, 1425.0 / 2, 2.0);
@@ -206,7 +216,7 @@ TEST(CityRender, CapitalIconScalesByLevelAndSourceAspect) {
     // srcAspect=0 → 按 1.0）。
     const double normalA = 1.0;
     const double normalFitW = std::min(boxW, boxH / normalA);
-    const int normalDstW = std::max(1, static_cast<int>(std::lround(normalFitW * f.rc.city.iconScale[3])));
+    const int normalDstW = std::max(1, static_cast<int>(std::lround(normalFitW)));
     const int normalDstH = std::max(1, static_cast<int>(std::lround(normalDstW * normalA)));
     const double S = static_cast<double>(normalDstW) * static_cast<double>(normalDstH);
     const int expectedW =

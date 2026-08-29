@@ -11,7 +11,17 @@ find_package(SDL2 REQUIRED)
 find_package(SDL2_image REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(EnTT REQUIRED)
+# EnTT 是 header-only。优先找系统包；找不到时允许本地 _deps/entt/include 兜底（Linux 友好）。
+find_package(EnTT QUIET)
+if(NOT EnTT_FOUND)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/_deps/entt/include/entt/entt.hpp")
+        add_library(EnTT INTERFACE)
+        target_include_directories(EnTT INTERFACE "${CMAKE_SOURCE_DIR}/_deps/entt/include")
+        add_library(EnTT::EnTT ALIAS EnTT)
+    else()
+        message(FATAL_ERROR "EnTT not found. Install EnTT or put headers in _deps/entt/include")
+    endif()
+endif()
 
 # ---------------------------------------------------------------------------
 # Dear ImGui（本地 _deps/imgui-src，非 MSYS2 仓库；Phase 8 接入 UI 时使用）
@@ -60,6 +70,7 @@ add_library(landwar_core STATIC
     src/core/Random.cpp
     src/core/Simulation.cpp
     src/world/Faction.cpp
+    src/world/Bmp24.cpp
     src/world/Map.cpp
     src/world/MapGenerator.cpp
     src/world/tiling/CityIconFitter.cpp
@@ -176,7 +187,7 @@ landwar_warnings(landwar_perf)
 
 # ---------------------------------------------------------------------------
 # 单元测试（gtest, MSYS2: mingw-w64-ucrt-x86_64-gtest）
-# 2026-08：新增 test_baseline.cpp（20k tick 确定性基线 hash 锁定）。
+# 2026-08：新增 test_baseline.cpp（确定性基线与 1000 tick 烟测）。
 # ---------------------------------------------------------------------------
 find_package(GTest REQUIRED)
 add_executable(landwar_tests

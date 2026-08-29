@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """gen_city_shapes_json.py — 从 src/core/Config.cpp 的 initDefaultCity 内置表提取
-半正/Laves 城市等级/形状表，生成 data/city_shapes.json。
+全部密铺（square/hex/tri + 半正/Laves）城市等级/形状表，生成 data/city_shapes.json。
 
 - anchorBaseMask 数值（0x.. / 十进制 / constexpr 表达式）转为 '0'/'1' 串
  （MSB 在左，bit b = 允许 b 号基础格作锚），C++ 读入时按二进制还原为 uint32。
-- square/hex/tri 仍保留在代码内置（量小且 sq() 为程序化生成），不输出。
+- P1.2 起 square/hex/tri 也输出；cells 统一为世界偏移。
 
 用法：
     python tools/gen_city_shapes_json.py [源文件] [输出文件]
 默认：src/core/Config.cpp → data/city_shapes.json
-注意：2026-08-26 表已外置后，当前 Config.cpp 不再含内置表；再生成须指向仍含
-initDefaultCity 完整表的源（如 rubbish/Config.cpp.bak-city-shapes-extract）。
+注意：2026-08-26 表外置后，当前 Config.cpp 只含 square/hex/tri 内置表；若要重新生成
+完整 arch/laves 表，须指向仍含 initDefaultCity 完整表的旧源（如 rubbish 中的备份）。
 """
 import json
 import re
@@ -20,15 +20,14 @@ SRC_DEFAULT = "src/core/Config.cpp"
 OUT_DEFAULT = "data/city_shapes.json"
 
 COMMENT_LINES = [
-    "半正/Laves 城市等级/形状表（2026-08-26 自 src/core/Config.cpp initDefaultCity 外置；",
-    "由 tools/gen_city_shapes_json.py 生成，改表请重跑该工具）。square/hex/tri 仍内置代码。",
+    "全部密铺（square/hex/tri/半正/Laves）城市等级/形状表（2026-08-27 P1.2 重写）。",
+    "由 tools/gen_city_shapes_json.py 生成，改表请重跑该工具。",
     "baseGroups（每密铺，手动填写）：几何完全一致的基础格归为一组，组名任意。示例：",
     "  \"baseGroups\": { \"axis_square\": [2, 8], \"hex_flat\": [0, 3] }",
     "anchorBases（形状的锚限制）：组名或基础格编号的数组，可混用；缺省 = 不限锚。",
     "  示例：\"anchorBases\": [\"axis_square\"] 或 [2, 8] 或 [\"axis_square\", 5]。",
     "朝向参考基准：mask 非 0 取最小编号基础格，否则基础格 b=0。",
-    "cells 每项 = [dx, dy]（相对锚格中心的偏移，已烘入世界/屏幕坐标系；2026-08-26 方案A",
-    "将旧中间朝向的 rot90⁻¹ 存储帧烘焙为世界帧并删除运行时 (dx,dy)→(-dy,dx) 旋转）。",
+    "cells 每项 = [dx, dy]（相对锚格中心的世界偏移；square/hex/tri 与半正/Laves 统一）。",
     "三角正/反朝向由锚格奇偶在运行时镜像处理。",
     "各密铺下 _byEdgeCount 键 = 按边数自动分组的建议数据（下划线键程序不读取），供填写参考。",
 ]
@@ -170,9 +169,6 @@ def main():
         eq = body.index("{", am.end())
         inner, end = extract_braced(body, eq)
         key = varmap.get(var, var)
-        if key in ("square", "hex", "tri"):
-            pos = end  # 三密铺保留内置，不解析（cells 含 2.0/3.0 等表达式）
-            continue
         if key not in sets:
             sets[key] = {}
             order.append(key)
@@ -204,7 +200,9 @@ def main():
     n_shapes_total = 0
     # 键名用 tilingName 约定（Arch488 → arch_488）。
     def camel_to_key(name):
-        # Arch488 → arch_488、Laves33336 → laves_33336（与 tilingName 一致）。
+        # square/hex/tri 已是 tilingName；Arch488 → arch_488、Laves33336 → laves_33336。
+        if name in ("square", "hex", "tri"):
+            return name
         m = re.fullmatch(r"([A-Za-z]+)(\d+)", name)
         assert m, name
         return "%s_%s" % (m.group(1).lower(), m.group(2))
@@ -229,8 +227,6 @@ def main():
 
     result = {"_comment": COMMENT_LINES}
     for key in order:
-        if key in ("square", "hex", "tri"):
-            continue  # 三密铺保留内置
         d = sets[key]
         levels, shapes = d["levels"], d["shapes"]
         sli = d.get("shapeLevelIndex") or list(range(len(shapes)))
@@ -240,9 +236,11 @@ def main():
             entry["iconLevels"] = d["iconLevels"]
         js = []
         for j, sh in enumerate(shapes):
-            # 方案A（2026-08-26）：源表按旧中间朝向存储（= 世界帧 rot90⁻¹），此处烘焙回
-            # 世界帧：(dx,dy) → (-dy,dx)，使 JSON 与屏幕朝向一致、运行时无需旋转。
-            sh["cells"] = [[-c[1], c[0]] for c in sh["cells"]]
+            # 方案A（2026-08-26）：半正/Laves 源表按旧中间朝向存储（= 世界帧 rot90⁻¹），
+            # 此处烘焙回世界帧：(dx,dy) → (-dy,dx)，使 JSON 与屏幕朝向一致、运行时无需旋转。
+            # square/hex/tri 在 Config.cpp 中已直接存世界偏移，不再旋转。
+            if key not in ("square", "hex", "tri"):
+                sh["cells"] = [[-c[1], c[0]] for c in sh["cells"]]
             rec = {"level": levels[sli[j]]}
             if sh["mask"]:
                 rec["anchorBases"] = mask_to_bases(sh["mask"])

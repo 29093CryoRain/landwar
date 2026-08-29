@@ -45,7 +45,7 @@ std::vector<std::array<int, 3>> readBmpPixels(const std::string& path) {
     }
     const int w = hdr[18] | (hdr[19] << 8) | (hdr[20] << 16) | (hdr[21] << 24);
     const int h = hdr[22] | (hdr[23] << 8) | (hdr[24] << 16) | (hdr[25] << 24);
-    const int rowsize = w * 3 + 1;  // 与 C++ 读取器一致（每行 1 字节行填充）
+    const int rowsize = (w * 3 + 3) & ~3;  // 标准 4 字节行对齐
     std::vector<std::array<int, 3>> px;
     px.reserve(static_cast<std::size_t>(w) * h);
     std::vector<unsigned char> row(static_cast<std::size_t>(rowsize));

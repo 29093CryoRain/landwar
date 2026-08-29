@@ -138,6 +138,22 @@ TEST(Effect, MineTimeoutExplodes) {
     }
 }
 
+TEST(Effect, MineTriggerAtTimeoutExplodesOnlyOnce) {
+    Config cfg = baseCfg();
+    cfg.effect.mine.armTicks = 12;
+    cfg.effect.mine.checkEveryTicks = 12;
+    cfg.effect.mine.timeoutTicks = 12;
+    Simulation sim(cfg, 42);
+    ASSERT_TRUE(sim.init());
+    clearToLand(sim, 0);
+    clearArmies(sim);
+
+    placeEffect(sim, 10.5, 10.5, 1, EffectType::mine, 0.0);
+    SpawnSystem::spawnArmy(sim, 10.5, 10.5, 2, ArmyType::normal);
+    for (int i = 0; i < 13; ++i) sim.tick();  // elapsedTicks=12：探测和超时同 tick
+    EXPECT_EQ(countEffects(sim, EffectType::bomb), 1);
+}
+
 TEST(Effect, MineTriggersOnceWithMultipleEnemies) {
     // Phase 9 修原版怪癖：多个敌兵在地雷范围内 → 每雷只产生一个爆炸特效。
     Config cfg = baseCfg();

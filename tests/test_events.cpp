@@ -131,6 +131,28 @@ TEST(Unification, NotEmittedWhenMultipleAlive) {
     EXPECT_TRUE(sim.takeEvents().empty());  // 8 个势力都 alive
 }
 
+TEST(Unification, SnapshotPreservesEmittedState) {
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+        if (id == 3) continue;
+        sim.faction(id).alive = false;
+        sim.faction(id).cityIds.clear();
+        sim.faction(id).cityCount = 0;
+    }
+    sim.setTickCount(1);
+    sim.detectAnnihilationAndUnification();
+    ASSERT_EQ(sim.takeEvents().size(), 1u);
+    ASSERT_EQ(sim.stats().cutoffTick, 1u);
+
+    lw::Simulation loaded;
+    std::string err;
+    ASSERT_TRUE(Snapshot::deserialize(loaded, Snapshot::serialize(sim), &err)) << err;
+    loaded.detectAnnihilationAndUnification();
+    EXPECT_TRUE(loaded.takeEvents().empty());
+    EXPECT_EQ(loaded.stats().cutoffTick, 1u);
+}
+
 // ---- 事件不进快照 ----
 
 TEST(Events, NotSerializedInSnapshot) {

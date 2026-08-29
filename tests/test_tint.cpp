@@ -1,7 +1,7 @@
 // test_tint.cpp — 单色 tint 数学单测（统一"读图→tint→多版本"管线）。
 #include <gtest/gtest.h>
 
-#include "core/GameDefs.h"  // kSpecialUnitFaction / ArmyType
+#include "core/GameDefs.h"  // ArmyType
 #include "render/TintMath.h"
 
 namespace {
@@ -132,18 +132,6 @@ TEST(TintMath, HueRotateKeepsWhiteCore) {
 TEST(TintMath, HueRotateTransparentStaysTransparent) {
     const TintRgba o = lw::render::hueRotatePixel(255, 0, 0, 0, 60.0);
     EXPECT_EQ(o.a, 0);
-}
-
-// ---- 特殊版归属表（签名兵种）----
-
-TEST(TintMath, SpecialUnitFactionMapping) {
-    // normal 无特殊；vanguard→青3、pioneer→蓝4、laser→绿5、bomb→橙6、mine→紫7。
-    EXPECT_EQ(lw::kSpecialUnitFaction[static_cast<int>(lw::ArmyType::normal)], 0);
-    EXPECT_EQ(lw::kSpecialUnitFaction[static_cast<int>(lw::ArmyType::vanguard)], 3);
-    EXPECT_EQ(lw::kSpecialUnitFaction[static_cast<int>(lw::ArmyType::pioneer)], 4);
-    EXPECT_EQ(lw::kSpecialUnitFaction[static_cast<int>(lw::ArmyType::laser)], 5);
-    EXPECT_EQ(lw::kSpecialUnitFaction[static_cast<int>(lw::ArmyType::bomb)], 6);
-    EXPECT_EQ(lw::kSpecialUnitFaction[static_cast<int>(lw::ArmyType::mine)], 7);
 }
 
 // ---- 双色模板（视觉工程改进 ⑫：红势力成品渲染 → 反解 → 任意势力主副色重合成）----

@@ -1,17 +1,15 @@
 // CityRenderer.h — P13 城市渲染（render/CityRenderer，改造 MapRenderer 城市绘制）。
 // 两部分绘制（顺序即层级，在 MapRenderer 陆地/山贴图之后）：
 //   1. 等级塔图标（data/tower/tower<N>.png，9 级高塔贴图，文件名即等级；画于城市中心；
-//      尺寸按基建地块框自适应（2026-08-07 反馈）：框 = 形状 w×h 个格子，保留源纵横比
-//      下能放进框的最大宽 fitW = min(w×cellPx, h×cellPx/A)，图标宽 = max(minIconSizePx,
-//      round(fitW×iconScale[level-1]))，图标高 = round(宽×A)——长/宽都不超出框且略小
-//      （iconScale<1），避免贴图过大/紧贴框边缘；低缩放取最小尺寸不继续缩小；
+//      尺寸按基建地块框自适应：所有密铺统一优先 iconFitScale[tiling][texLevel]，
+//      缺失时按 1 倍缩放兜底（不再有全局 iconScale，P1.2/P1.3）；
 //      按势力色 tint，同玩家指示管线）；
 //   2. 高缩放细线（屏上格 > render.city.lineMinCellPx）围基建地块区域（外廓矩形），
 //      细线颜色 = 势力色 × render.city.lineDarken（与图标同势力色处理但加深）。
 //   （2026-08-07 用户反馈：去除 data/city.png 基建格贴图——城市只由塔图标 + 细线表示。）
-// 图标中心 = 基建地块几何中心（2026-08-07：移除 offsetY 错开偏移）。
-// 渲染常数全外置 render.city 段（lineMinCellPx/minIconSizePx/lineThickness/lineDarken/
-// iconScale[]）。
+// 图标中心 = 基建地块几何中心（2026-08-07：移除 offsetY 错开偏移；P1.2 后仅保留
+// iconFitOffsetY 的竖直平移）。
+// 渲染常数全外置 render.city 段（lineMinCellPx/lineThickness/lineDarken/iconFitScale）。
 //
 // **纯几何（compute）与 SDL 绘制分离** → 可 mock 相机/缩放单测（无需 SDL）：
 // compute() 返回绘制命令（细线/图标），draw() 内部调用 compute 并落纹理。
@@ -22,6 +20,7 @@
 #include <array>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <SDL.h>
@@ -65,8 +64,8 @@ public:
         int colorIndex;
         std::vector<std::array<int, 4>> segs;  // {x0,y0,x1,y1} 屏幕像素
     };
-    // 图标（城市中心；尺寸按基建地块框适配，dstW 已含 minIconSizePx 下限，dstH 已按源纵横比
-    // 算好——长/宽均 ≤ 框尺寸 × iconScale）。等级塔用 towers_[level-1]；首都/候补用 capital_。
+    // 图标（城市中心；尺寸按 iconFitScale/1 倍兜底算好，dstH 已按源纵横比）。
+    // 等级塔用 towers_[level-1]；首都/候补用 capital_。
     struct Icon {
         int level;        // 等级 1..9（框适配缩放表下标 = 等级-1）
         int cx, cy;       // 图标中心（屏幕像素，= 城市基建块几何中心）
@@ -104,14 +103,8 @@ private:
     TintCache tower10_;                    // 10级+统一贴图（data/tower/tower10.png）
     double tower10Aspect_ = 0.0;           // tower10 源纵横比 高/宽（0 → 按 1.0）
     TintCache capital_;                    // 首都图标贴图（data/tower/capital.png，P15）
-    // CityIconFitter 缓存：键 = tiling|texLevel|aspect‰|orient，值 = (scale, offX, offY)。
-    // offX/offY 是贴图中心相对城市几何中心的世界偏移（允许平移）。
-    struct FitEntry {
-        double scale = 0.0;
-        double offX = 0.0;
-        double offY = 0.0;
-    };
-    mutable std::unordered_map<std::string, FitEntry> fitCache_;
+    mutable std::unordered_set<std::string> warnedMissingFits_;
+    mutable std::unordered_set<std::string> warnedMissingOffsets_;
 };
 
 }  // namespace lw::render

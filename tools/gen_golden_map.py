@@ -110,13 +110,6 @@ def ramp(x):
     return min(1.0, (x - PROB_FLOOR) / PROB_SCALE)
 
 
-def sample_level(rng, s):
-    """旧接口保留（当前 C++ 已不使用采样，改为最大余数分配）。"""
-    u = rng.unit()
-    idx = min(len(LEVELS) - 1, int(u * len(LEVELS)))
-    return LEVELS[idx]
-
-
 def can_place(land, cityid, cityallowed, level, x, y):
     """P13 放置检查：与 C++ Map::canPlaceCity 一致。"""
     w, h = SHAPES[level]

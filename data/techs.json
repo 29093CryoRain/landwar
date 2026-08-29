@@ -1,0 +1,245 @@
+{
+  "tech": {
+    "_comment": "P8 科技系统（思路'科技细节'）。科技点=城市产出；到阈值清空+科研机会、阈值+thresholdStep。levels[i]=第i+1级累计效果；preferenceUnits=每级默认 AI 兵种偏好加成。",
+    "thresholdBase": 100.0,
+    "thresholdStep": 100.0,
+    "pointsPerCityLevel": 0.01,
+    "preferencePerLevel": 0.5,
+    "playerCandidateCount": 3,
+    "techs": [
+      {
+        "id": "throttle_normal",
+        "name": "节流·普通兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "normal", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "normal", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "normal", "magnitude": 0.75},
+          {"type": "UnitCostMult", "param": "normal", "magnitude": 0.7}
+        ],
+        "preferenceUnits": ["normal"]
+      },
+      {
+        "id": "throttle_vanguard",
+        "name": "节流·先锋兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "vanguard", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "vanguard", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "vanguard", "magnitude": 0.75}
+        ],
+        "preferenceUnits": ["vanguard"]
+      },
+      {
+        "id": "throttle_pioneer",
+        "name": "节流·开拓兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "pioneer", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "pioneer", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "pioneer", "magnitude": 0.75}
+        ],
+        "preferenceUnits": ["pioneer"]
+      },
+      {
+        "id": "throttle_laser",
+        "name": "节流·激光兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "laser", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "laser", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "laser", "magnitude": 0.75}
+        ],
+        "preferenceUnits": ["laser"]
+      },
+      {
+        "id": "throttle_bomb",
+        "name": "节流·爆炸兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "bomb", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "bomb", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "bomb", "magnitude": 0.75}
+        ],
+        "preferenceUnits": ["bomb"]
+      },
+      {
+        "id": "throttle_mine",
+        "name": "节流·地雷兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "mine", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "mine", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "mine", "magnitude": 0.75}
+        ],
+        "preferenceUnits": ["mine"]
+      },
+      {
+        "id": "throttle_pistol",
+        "name": "节流·手枪兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "pistol", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "pistol", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "pistol", "magnitude": 0.75}
+        ],
+        "preferenceUnits": ["pistol"]
+      },
+      {
+        "id": "throttle_shotgun",
+        "name": "节流·霰弹兵",
+        "desc": "造价",
+        "levels": [
+          {"type": "UnitCostMult", "param": "shotgun", "magnitude": 0.9},
+          {"type": "UnitCostMult", "param": "shotgun", "magnitude": 0.82},
+          {"type": "UnitCostMult", "param": "shotgun", "magnitude": 0.75}
+        ],
+        "preferenceUnits": ["shotgun"]
+      },
+      {
+        "id": "march_normal",
+        "name": "行军·普通兵",
+        "desc": "速度",
+        "levels": [
+          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.2},
+          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.4},
+          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.6},
+          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.8}
+        ],
+        "preferenceUnits": ["normal"]
+      },
+      {
+        "id": "march_vanguard",
+        "name": "行军·先锋兵",
+        "desc": "速度",
+        "levels": [
+          {"type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.2},
+          {"type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.4},
+          {"type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.6}
+        ],
+        "preferenceUnits": ["vanguard"]
+      },
+      {
+        "id": "march_pioneer",
+        "name": "行军·开拓兵",
+        "desc": "速度",
+        "levels": [
+          {"type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.2},
+          {"type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.4},
+          {"type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.6}
+        ],
+        "preferenceUnits": ["pioneer"]
+      },
+      {
+        "id": "march_laser",
+        "name": "行军·激光兵",
+        "desc": "速度",
+        "levels": [
+          {"type": "UnitSpeedMult", "param": "laser", "magnitude": 1.2},
+          {"type": "UnitSpeedMult", "param": "laser", "magnitude": 1.4},
+          {"type": "UnitSpeedMult", "param": "laser", "magnitude": 1.6}
+        ],
+        "preferenceUnits": ["laser"]
+      },
+      {
+        "id": "march_bomb",
+        "name": "行军·爆炸兵",
+        "desc": "速度",
+        "levels": [
+          {"type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.2},
+          {"type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.4},
+          {"type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.6}
+        ],
+        "preferenceUnits": ["bomb"]
+      },
+      {
+        "id": "march_mine",
+        "name": "行军·地雷兵",
+        "desc": "速度",
+        "levels": [
+          {"type": "UnitSpeedMult", "param": "mine", "magnitude": 1.2},
+          {"type": "UnitSpeedMult", "param": "mine", "magnitude": 1.4},
+          {"type": "UnitSpeedMult", "param": "mine", "magnitude": 1.6}
+        ],
+        "preferenceUnits": ["mine"]
+      },
+      {
+        "id": "big_bang",
+        "name": "大爆炸",
+        "desc": "爆炸半径",
+        "levels": [
+          {"type": "BombRadiusMult", "param": "all", "magnitude": 1.3},
+          {"type": "BombRadiusMult", "param": "all", "magnitude": 1.6},
+          {"type": "BombRadiusMult", "param": "all", "magnitude": 1.8}
+        ],
+        "preferenceUnits": ["bomb", "mine"]
+      },
+      {
+        "id": "stable_laser",
+        "name": "稳定激光",
+        "desc": "激光持续时间",
+        "levels": [
+          {"type": "LaserDurationMult", "param": "all", "magnitude": 1.5},
+          {"type": "LaserDurationMult", "param": "all", "magnitude": 2.0}
+        ],
+        "preferenceUnits": ["laser"]
+      },
+      {
+        "id": "extend_laser",
+        "name": "延长激光",
+        "desc": "激光长度",
+        "levels": [
+          {"type": "LaserLengthMult", "param": "all", "magnitude": 1.5},
+          {"type": "LaserLengthMult", "param": "all", "magnitude": 2.0}
+        ],
+        "preferenceUnits": ["laser"]
+      },
+      {
+        "id": "rapid_fire",
+        "name": "高速射击",
+        "desc": "手枪兵攻击速度",
+        "levels": [
+          {"type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.3},
+          {"type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.6},
+          {"type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.9}
+        ],
+        "preferenceUnits": ["pistol"]
+      },
+      {
+        "id": "barrage",
+        "name": "弹幕",
+        "desc": "霰弹兵每次子弹数",
+        "levels": [
+          {"type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 2.0},
+          {"type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 3.0},
+          {"type": "ProjectileCountExtra", "param": "shotgun", "magnitude": 4.0}
+        ],
+        "preferenceUnits": ["shotgun"]
+      },
+      {
+        "id": "economy_boost",
+        "name": "经济振兴",
+        "desc": "经济获取",
+        "levels": [
+          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.05},
+          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.1},
+          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.15},
+          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.2}
+        ],
+        "preferenceUnits": []
+      },
+      {
+        "id": "observatory",
+        "name": "观星台",
+        "desc": "科技获取",
+        "levels": [
+          {"type": "TechGainMult", "param": "all", "magnitude": 1.1},
+          {"type": "TechGainMult", "param": "all", "magnitude": 1.2},
+          {"type": "TechGainMult", "param": "all", "magnitude": 1.3},
+          {"type": "TechGainMult", "param": "all", "magnitude": 1.4}
+        ],
+        "preferenceUnits": []
+      }
+    ]
+  }
+}

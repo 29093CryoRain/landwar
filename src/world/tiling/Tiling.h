@@ -67,7 +67,7 @@ struct TilingGeom {
     // 格下标 → 世界中心。
     void cellCenter(int index, double& wx, double& wy) const;
 
-    // 格多边形顶点（世界坐标；六 6 / 三 3 顶点，逆时针）。返回顶点数（方返回 0）。
+    // 格多边形顶点（世界坐标；方 4 / 六 6 / 三 3 顶点，逆时针）。返回顶点数。
     // 渲染/预览/边界描线共用；maxVerts 至少 6（六边形）。
     int cellPolygon(int index, double* wx, double* wy, int maxVerts) const;
 
@@ -98,7 +98,7 @@ struct TilingGeom {
     // 第 index 格的边邻数（方 4 / 六 6 / 三 3 / 表驱动 = 该格边数）。
     int neighborCount(int index) const;
 
-    // 基础格数（表驱动 = 周期域内格数；方/六 = 1，三 = 2）。
+    // 基础格数（表驱动 = 周期域内格数；方/六 = 1，三 = 2）。所有索引接口均按此值布局。
     int baseCount() const;
     // 行列/基础格 → 格下标（方：b 忽略；六：b 忽略；三：b=0 正/1 反）。
     int cellIndexAt(int r, int c, int b) const;
@@ -141,18 +141,18 @@ private:
     void ensureTable() const;
 };
 
-// 表驱动密铺（半正/Laves）的周期域列/行选择（2026-08 依 .docs/临时文本.txt 两阶段算法）：
+// 所有密铺的周期域列/行选择（2026-08 依 .docs/地图尺寸比例映射.md 两阶段算法）：
 // 硬约束：① a*b = B*cols*rows（守恒）② cols 为 s 倍数、rows 为 t 倍数（s*t=B 每块格数）
 //          ③ cols ∝ a、rows ∝ b（正比例 → 调长只改cols、调宽只改rows，完全单调方向一致）。
 // 优化：④ (cols*u)/(rows*v) ≈ a/b（u=wx/s、v=wy/t 每格世界比例，算法一离线求 p/q≈√(v/u)）。
 // 算法一（离线，硬编码）：每密铺求互质 p,q + 输入限制 Ra,Rb（见 Tiling.cpp 的 tableDomainParams）。
 // 算法二（在线）：a'=ceil(a/Ra)*Ra、b'=ceil(b/Rb)*Rb；c=p·a'/q、d=q·b'/p；cols=c/s、rows=d/t。
-// 对非表驱动类型按原语义返回。
+// square 为恒等映射；hex/tri 与表驱动密铺统一按周期域比例映射。
 void chooseTableDomain(int tilingType, int userLength, int userWidth, int& cols, int& rows);
 
-// 表驱动密铺的"输入限制"：长须为 Ra 倍数、宽须为 Rb 倍数（算法一硬编码，见 Tiling.cpp）。
+// 密铺的"输入限制"：长须为 Ra 倍数、宽须为 Rb 倍数（算法一硬编码，见 Tiling.cpp）。
 // 菜单据此设置步进/夹取，使输入天然合规（长*宽=总格数精确，无需微调）。
-// 返回 false = 非表驱动 / 无限制参数（方/六/三 —— 调用方按原语义）。
+// square 无需限制，返回 false；hex/tri 及表驱动密铺返回 true。
 bool tableInputRestriction(int tilingType, int& ra, int& rb);
 
 }  // namespace lw

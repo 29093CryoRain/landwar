@@ -16,6 +16,7 @@
 #include "core/MathUtil.h"
 #include "core/Simulation.h"
 #include "sim/systems/MovementSystem.h"
+#include "sim/systems/CombatSystem.h"
 #include "sim/systems/SpawnSystem.h"
 #include "sim/systems/Systems.h"
 
@@ -29,13 +30,6 @@ struct EffectCtx {
     MoveContext move;          // makeContext 构建（ttime = 本 tick 的 tickCount）
     double maxArmySize = 0;    // 空间查询搜索半径 / 包围盒扩展用
 };
-
-// 最大兵碰撞半径 = baseSize * max(sizeMult)（炸弹搜索、激光击杀包围盒需覆盖最大兵）。
-double maxArmyRadius(const Config& cfg) {
-    double m = 0;
-    for (const auto& u : cfg.units) m = std::max(m, cfg.army.baseSize * u.sizeMult);
-    return m;
-}
 
 // ---- 爆炸（type0，原版 Effect::solve0）----
 void solveBomb(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDestroy) {
@@ -54,7 +48,7 @@ void solveBomb(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
             // 循环上界：原版用 double 比较 i < min(Map_x, x+radius+1)，等价于整数上界
             // ceil(min(Map_x, x+radius+1))——x+radius+1 非整时多跑一格（含恰为整数时的 min 夹取）。
             // 改用等值整数上界，迭代集合、征服/RNG 顺序完全不变（§2.6 回填语义），更清晰更快。
-            // （2026-08 已用 build/landwar.exe --headless --seed 42 --ticks 20000 双向验证
+            // （2026-08 已用 build-release/landwar.exe --headless --seed 42 --ticks 1000 双向验证
             //   state_hash 逐字节一致，行为无漂移。）
             const int xMin = std::max(0, static_cast<int>(pos.x - radius));
             const int yMin = std::max(0, static_cast<int>(pos.y - radius));
@@ -140,7 +134,7 @@ void solveMine(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
             }
         }
     }
-    if (elapsedTicks >= static_cast<int>(mineCfg.timeoutTicks * fmodsMine.mineTimeoutMult)) {
+    else if (elapsedTicks >= static_cast<int>(mineCfg.timeoutTicks * fmodsMine.mineTimeoutMult)) {
         // 超时自爆：爆炸半径统一为**引爆半径**（2026-08 用户定夺；原版超时更大 1.3 / 紫7 1.95）。
         const double bombRadius =
             (fid.value == 7 ? f7.mineTriggerRadius : mineCfg.triggerBombRadius)
@@ -301,7 +295,7 @@ void EffectSystem::update(Simulation& sim) {
     // 特效查询需要军队移动后的位置：重建空间哈希。
     sim.spatialHash().build(reg, sim.map().geom());  // P12：按密铺格分桶
 
-    EffectCtx ctx{sim, MovementSystem::makeContext(sim), maxArmyRadius(sim.config())};
+    EffectCtx ctx{sim, MovementSystem::makeContext(sim), CombatSystem::maxArmyRadius(sim.config())};
     std::vector<entt::entity> toDestroy;
     for (auto e : effects) {
         if (!reg.valid(e)) continue;

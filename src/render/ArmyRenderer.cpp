@@ -35,8 +35,8 @@ void ArmyRenderer::draw(const Simulation& sim) {
         if (!render::isVisibleOnScreen(cam_, p.x, p.y, size / cam_.cellPx())) continue;
         const int sx = cam_.toScreenXi(p.x);
         const int sy = cam_.toScreenYi(p.y);
-        // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png（army_special.png 停用，
-        // 用户定夺）→ 势力版 = 该势力 (主色, 副色) 合成纹理。
+        // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png → 势力版 = 该势力
+        // (主色, 副色) 合成纹理。
         SDL_Texture* tex = sheet_.texture(fid - 1);
         // P9（2026-08-07）：手枪/霰弹兵贴图随运动方向旋转——枪管（图中朝上）朝前。
         // 子弹与其他兵不旋转（drawSpriteCentered）。公式：朝上贴图 = 激光朝下贴图公式 +180°

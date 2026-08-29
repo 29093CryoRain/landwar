@@ -19,11 +19,11 @@ spdlog、EnTT、gtest；ImGui 为本地 `_deps/imgui-src`）。编译器 g++ (Mi
 
 ```bash
 cmake --preset default            # 配置（Ninja Debug；生成 build/）
-cmake --build --preset default    # 编译 → build/landwar.exe
-ctest --preset default            # 单元测试
+cmake --build --preset release    # 编译 → build-release/landwar.exe
+ctest --preset release            # 单元测试
 ```
 
-> 两个 build 预设相关文件：`CMakePresets.json`（工具链路径）与 `构建命令.bat`（命令速查）。
+> 构建预设见 `CMakePresets.json`；也可使用根目录 `编译landwar.bat`。
 > 若 CMake 找不到依赖，检查 `CMakePresets.json` 中 `CMAKE_PREFIX_PATH` 指向的 MSYS2 根。
 
 ## 运行
@@ -31,7 +31,7 @@ ctest --preset default            # 单元测试
 **从项目根运行**（`data/` 相对路径解析；运行期产物写 `userdata/`，见下）：
 
 ```bash
-./landwar.exe                    # 窗口模式（默认随机种子，每次启动不同；`--seed N` 指定确定性）
+./build-release/landwar.exe      # 窗口模式（默认随机种子；`--seed N` 指定确定性）
 ```
 
 > **数据目录约定（2026-08 工程改进）**：资产（只读，随源码分发）在 `data/`
@@ -111,13 +111,6 @@ ctest --preset default            # 单元测试
 > 底部新贴图（行 9/10/8，势力色 tint，2026-08-07 用户提供）；**手枪/霰弹兵贴图随运动方向旋转**
 > （枪管朝前，2026-08-07），子弹与其他兵不旋转；数字键 7/8 可选。P9 起系统按实体 id 确定性迭代
 > → 存档续跑位精确。
-> **地图边界贯通（P10）**：菜单选图页「地图边界贯通（环绕）」勾选（存 `options.json`，CLI 用
-> `--wrap`）→ 兵碰地图边界**传送对侧**，速度大小方向不变（环绕消耗 0 RNG）。跨边界双渲染：
-> 兵距边界 < 绘制尺寸时在 `x±宽/y±高` 副本位置再画一次（含角上对角）；相机 `clampPan` 保证视口
-> 不越图界，`MapRenderer` 无需铺贴。兵点选对全部副本取最近。关闭时仍反弹（原行为回归）。
-> 默认关闭，`--headless` 基线不变（`0x42d404e8ccc24bc4`；`--wrap` 新基线 `0xde929f83e5b024ff`）。
-> **作用范围**：只做**兵**环绕——特效（激光/爆炸）与射弹（P9 子弹）环绕列 P12（子弹碰边界仍
-> 销毁；跨边界近距战斗为已知轻微不完善）。快照不含 Options → wrap=ON 存档续跑重启时须同样开启。
 > **UI 缩放默认 2.0**（可调 0.6~2.0，菜单与游戏面板共用）。
 
 ### 命令行
@@ -125,7 +118,7 @@ ctest --preset default            # 单元测试
 ```
 landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--speed X]
         [--config PATH] [--map PATH] [--save PATH] [--load PATH] [--summary]
-        [--screenshot PATH] [--no-menu] [--wrap] [--tiling T]
+         [--screenshot PATH] [--no-menu] [--tiling T]
 ```
 
 | 参数 | 说明 |
@@ -134,7 +127,7 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 | `--replay [SEED]` | 回放：等价 `--headless --seed SEED` 重跑（模拟完全确定） |
 | `--seed N` | 主随机种子（默认随机；显式指定后全程确定性。驱动首都与后续一切） |
 | `--map-seed N` | 地图随机种子（P6；默认=主种子；驱动随机图生成与山/城骰子，独立于主种子） |
-| `--ticks N` | 逻辑帧数（默认 20000） |
+| `--ticks N` | 逻辑帧数（默认 1000） |
 | `--speed X` | 倍速（无头忽略；窗口模式渲染节奏） |
 | `--config PATH` | config.json 路径（默认 `data/config.json`） |
 | `--map PATH` | 覆盖地图文件 |
@@ -143,7 +136,6 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 | `--summary` | 终局按势力打印 land/city/army/经济 + `state_hash` |
 | `--screenshot PATH` | 窗口模式：跑到 tick=`--ticks` 时截图保存并退出（QA 钩子） |
 | `--no-menu` | 窗口模式：跳过菜单直接开始（P1；`--load`/`--screenshot` 自动跳过菜单） |
-| `--wrap` | 地图边界贯通（环绕，P10）：兵碰边界传送对侧，速度/方向不变（headless 用；窗口走菜单勾选，存 options.json） |
 | `--tiling T` | 密铺（P12）：`square|hex|tri`（headless 用；非方自动生成随机 lwmap。窗口走菜单「随机地图」下拉，存 options.json） |
 
 > **菜单（P1/P6）**：窗口模式默认先进入主菜单，可配置势力出场/产兵 AI；点「选择地图…」
@@ -160,19 +152,19 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 示例：
 
 ```bash
-./landwar.exe --headless --seed 42 --ticks 20000 --summary   # 确定性回归基线
-./landwar.exe --seed 7                                        # 指定 seed 的窗口局
-./landwar.exe --screenshot shot.png --ticks 10000 --speed 1000  # 跑到 10000 tick 截图
-./landwar.exe --save snap.bin --ticks 5000 --seed 1           # 存档
-./landwar.exe --load snap.bin --summary                       # 读档续跑
+./build-release/landwar.exe --headless --seed 42 --ticks 1000 --summary  # 确定性烟测
+./build-release/landwar.exe --seed 7                                     # 指定 seed 的窗口局
+./build-release/landwar.exe --screenshot shot.png --ticks 1000           # 截图
+./build-release/landwar.exe --save snap.json --ticks 1000 --seed 1       # 存档
+./build-release/landwar.exe --load snap.json --summary                    # 读档续跑
 ```
 
 ## 目录结构
 
 ```
 new_project_landwar/
-  CMakeLists.txt / CMakePresets.json / 构建命令.bat
-  data/                map_*.bmp（地形基图：RGB 概率权重，任一分量<32=海、山概率=ramp(R)、城概率=ramp(G)；map_bigIslands.bmp 基线、map_mountains.bmp 用户手绘山/城图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint：红势力成品渲染 → 按各势力主副色反解重烘焙，⑫）、army_special.png（签名兵种特殊版，**双色系统起停用**）、ring.png/arrow.png（玩家标记美术图）、mountain.png/city.png（山/城简笔画线条贴图）、config.json
+  CMakeLists.txt / CMakePresets.json / 编译landwar.bat
+  data/                map_*.bmp（地形基图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint）、ring.png/arrow.png（玩家标记美术图）、mountain.png/city.png（山/城线条贴图）、config.json（核心配置）、render.json、techs.json、factions.json、units.json（配置分片）
   userdata/            运行期产物（可写、可丢弃、不进版本库；启动自动创建）：
                        options.json（菜单选项，开始游戏时保存）、maps/gen_*.bmp + gen_*_hex|tri_*.lwmap
                        （随机地图生成物）、
@@ -189,7 +181,7 @@ new_project_landwar/
                        UnitActionSystem（P9 周期发射）、ProjectileSystem（P9 子弹求解）
     render/            Renderer、SpriteSheet、Camera、Map/Army/Effect/Projectile/CityMarkerRenderer、
                        TintCache（读图→单色 tint→多版本存内存；含 LOD 选档）、
-                       RendererUtil（渲染器公共辅助：剔除/精灵尺寸/颜色缩放，2026-08）、
+                        RendererUtil（渲染器公共辅助：剔除/精灵尺寸/颜色缩放，2026-08）、
                        MapPreview（P6 地形预览缩略图）、TintMath（纯逻辑可单测）
     app/               Application（主循环）、InputManager（输入翻译）
     ui/                ImGuiSetup（含中文字体）、DebugPanel（主面板）、Menu（P1/P6 菜单+二级选图页）、
@@ -211,14 +203,16 @@ new_project_landwar/
   **Multiply**（白/灰源→目标色，玩家标记 `ring.png`/`arrow.png`、P5 山/城线条贴图
   `mountain.png`/`city.png` 用）与 **HueRotate**（彩色源按色相旋转到目标色，精确复现原图
   "色相处理"，白像素自动不动→激光白芯保留）。军队精灵用 `army_base.png`（源列0 红，
-  HueRotate）+ `army_special.png`（签名兵种特殊版原样彩色，`kSpecialUnitFaction` 决定谁用）。
+  HueRotate）。
   纯渲染层，不影响模拟确定性。
 - **存档/回放**：`Snapshot` 全量序列化（实体 id 保持）→ `--save/--load/--replay`。
 - 行为规格见 `.docs/翻新计划.md`；工程约定见 `.docs/工程规范.md`。
 
 ## 配置手册
 
-所有魔法数字外置在 `data/config.json`（缺键回退内置默认）。**每个键的含义与出处**见
+所有魔法数字外置在 `data/` 配置文件中：`config.json` 保存核心/模拟段，`render.json`、`techs.json`、
+`factions.json`、`units.json` 保存对应长段；由 `Config::loadFromFile` 合并（缺键回退内置默认）。
+**每个键的含义与出处**见
 `.docs/配置说明.md`。运行中按 `F5` 热加载（重建模拟）。
 **未知键校验（2026-08）**：打错的键名会在启动/重载时记警告（不再静默失效），详见
 `.docs/工程规范.md` §4。
@@ -234,5 +228,5 @@ new_project_landwar/
 ## 测试
 
 `ctest --preset default` 全绿。覆盖：数学工具逐分支、地图黄金数据、移动/战斗/特效/经济/
-产兵、存档回放往返、输入翻译、相机、确定性回归（20000 tick 摘要哈希）、性能验证
+产兵、存档回放往返、输入翻译、相机、确定性回归、1000 tick 烟测、性能验证
 （2500 兵吞吐 ≥ 60Hz + 空间哈希剪枝）。

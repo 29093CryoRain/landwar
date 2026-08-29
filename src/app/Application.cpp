@@ -402,6 +402,7 @@ void Application::pickSelection() {
                 gy = rr;
             }
             selection_.kind = app::Selection::Kind::Cell;
+            selection_.cellIndex = cellIdx;
             selection_.cellX = gx;
             selection_.cellY = gy;
             return;
@@ -523,7 +524,7 @@ void Application::updatePlayerIntent() {
 
 bool Application::applyPaletteColors() {
     // 双色势力渲染统一重烘焙（init / F5 / F7 共用；视觉工程改进 ⑫）。
-    // 数据源 = uiConfig_（config.json）：factions[i].color=主色、.secondary=副色；
+    // 数据源 = uiConfig_（data/ 下合并后的配置）：factions[i].color=主色、.secondary=副色；
     // render.tileMix / render.city.mix = 地块格/城市图标混合比例。
     // 势力 1..8 主副色对 → 兵表双色烘焙（TwoToneTintCache：反解模板 → 按 (主,副) 合成）。
     std::vector<std::pair<std::array<int, 3>, std::array<int, 3>>> pairs;
@@ -577,7 +578,7 @@ void Application::rebuildTilePalette() {
 }
 
 void Application::reloadPalette() {
-    // F7：按当前 uiConfig_（config.json 的 factions 主副色 / render.tile / render.city.mix）
+    // F7：按当前 uiConfig_（data/ 下配置的 factions 主副色 / render.tile / render.city.mix）
     // 重烘焙全部势力色（不重建模拟，当前局面保留）。改 config.json 后按 F5 会连带重建。
     applyPaletteColors();
     spdlog::info("palette re-baked from config (sim untouched)");

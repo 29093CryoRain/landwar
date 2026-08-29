@@ -48,10 +48,8 @@ struct Config {
     struct Army {
         double baseSpeed = 0.3;
         double baseSize = 1.1;
-        // 反弹角偏置 = (get(97)-bounceJitterHalfRange)/bounceJitterDenominator（±~0.0034 rad）。
-        // 每 tick 抖动已取消（Phase 9）；出生方向为 0~2π 纯随机（思路.txt「随机方向」）。
-        double bounceJitterHalfRange = 48.5;
-        double bounceJitterDenominator = 14447.0;
+        // 反弹角偏置的弧度半区间；每次反弹取一次 unit()，范围为 [-range, range)。
+        double bounceJitterRangeRad = 0.03;
     } army;
 
     struct Sea {
@@ -271,14 +269,14 @@ struct Config {
         //   P(x) ∝ n_x * (x + beta)^{-s}
         // beta 按当前密铺最小等级动态取 (1 - minLevel)/2。
         double levelRankExponent = 0.5;
-        // 各密铺等级/形状表（square/hex/tri 内置；半正/Laves 默认从 data/city_shapes.json
-        // 加载，缺失时单格兜底；config.json 的 city 段仍可覆盖。square 段兼容旧 {level,w,h}）。
-        // square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]。
+        // 各密铺等级/形状表（默认从 data/city_shapes.json 加载；代码内置表作无文件兜底。
+        // P1.2 起 square/hex/tri/半正/Laves 的 cells 统一为世界偏移，config.json 的 city 段
+        // 仍可覆盖。square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]）。
         TilingSet square;  // 默认 1/2/4/6/9：1×1 / 1×2 / 2×2 / 2×3 / 3×3
-        TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，轴向偏移在 Config.cpp 转世界偏移）
+        TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，世界偏移）
         TilingSet tri;     // 默认 1/2/4/6/8（P12 形状表，世界偏移）
         std::array<TilingSet, kTilingTypeCount> sets;  // 半正/Laves 的等级形状表（默认空）
-        // 默认构造：填充三密铺内置等级/形状表（裸 City{} 即可用，Map::cityConfig_ 等）。
+        // 默认构造：填充全部密铺内置等级/形状表（裸 City{} 即可用，Map::cityConfig_ 等）。
         City();
         // 幂律总指数 s = alpha + gamma（采样用；经济 alpha 仍为 levelIncomeExponent）。纯函数。
         double rankExponent() const { return levelIncomeExponent + levelRankExponent; }
@@ -327,8 +325,9 @@ struct Config {
             double white = 0.30;
             double variation = 0.1;
         } tileMix;
-        // P13 城市渲染常数（render/CityRenderer）：细线围区阈值 / 图标最小尺寸 / 等级图标缩放表 /
-        // 细线势力色加深系数。全部外置，mock 相机/缩放可测。
+        // P13 城市渲染常数（render/CityRenderer）：细线围区阈值 / 细线势力色加深系数。
+        // 等级图标不再有全局 iconScale 表：所有密铺（含 square）统一走预计算
+        // iconFitScale[tilingName][texLevel]；缺失时按 1 倍缩放兜底（P1.2/P1.3）。
         struct City {
             // 屏上格大小阈值（逻辑像素）：屏上格 > 此值 → 高缩放档（画细线围基建地块区域）。
             double lineMinCellPx = 20.0;
@@ -339,18 +338,11 @@ struct Config {
             // 高缩放细线颜色加深系数（0-1）：细线颜色 = 势力色 × lineDarken（与图标同势力色处理，
             // 但加深以便与城市图标区分）。0 → 黑，1 → 势力色原色。
             double lineDarken = 0.7;
-            // 等级图标缩放系数表（9 项，下标 = 等级-1，与 data/tower/tower<N>.png 一一对应）。
-            // 图标尺寸按"基建地块框"自适应（2026-08-07 反馈）：框 = 形状 w×h 个格子
-            //（宽 boxW = w×cellPx、高 boxH = h×cellPx）；保留源纵横比（A=源高/源宽）下能放进
-            // 框的最大宽 fitW = min(boxW, boxH/A)；图标宽 = max(minIconSizePx,
-            // round(fitW×iconScale[level-1]))，图标高 = round(宽×A)。表值 = 每级"框填充比例"
-            //（0~1，<1 → 略小于框，紧贴框边缘不好看；当前默认 0.85）。
-            // 当前仅等级 1/2/4/6/9 出城，3/5/7/8 为占位（形状表扩展时直接生效）。
-            std::array<double, 9> iconScale = {0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85};
             // 预计算"贴图最大内接框宽"（世界单位，中心 = 基建地块几何中心，不平移）。
             // 键：tilingName -> 贴图等级(1..10) -> fitW。由交互工具人工调定并经
             // tools/apply_city_icon_fit_scales.py 取同级最小值后写入。
-            // 渲染时 fitW = iconFitScale[tiling][texLevel] × cellPx，再 × iconScale[texLevel-1]。
+            // 渲染时 fitW = iconFitScale[tiling][texLevel] × cellPx；方形也使用此表，
+            // 缺失时按 1 倍缩放兜底（不再乘以 iconScale）。
             std::unordered_map<std::string, std::unordered_map<int, double>> iconFitScale;
             // 贴图竖直平移（世界单位，正=向上；由交互工具逐条目人工调定）。
             // 每项 = 某贴图等级 + 某同级形状变体 + 某**锚基础格类**（baseGroups 一个数组）的偏移，
@@ -444,15 +436,19 @@ struct Config {
 
     // 从 JSON 文本解析（覆盖默认值，缺键保持默认）。
     static Config loadFromJson(const std::string& jsonText);
-    // 从文件解析；文件缺失/解析失败时回退默认并记警告。
+    // 从文件解析；核心文件同目录的 render.json/techs.json/factions.json/units.json
+    // 按对应顶层段覆盖核心配置。文件缺失/解析失败时回退默认并记警告。
     static Config loadFromFile(const std::string& path);
     // 从外置 data/city_icon_fits.json 加载 render.city.iconFitScale/iconFitOffsetY（2026-08-26）。
-    // 该两块不再读 config.json；缺省空（方/六/三用 iconScale；表驱动无 fit 则回退 CityIconFitter）。
+    // 该两块不再读 config.json；缺省空（任何密铺缺 fit 时按 1 倍缩放兜底，P1.2/P1.3）。
     static void loadCityIconFits(Config& c);
 
     // 序列化完整配置为 JSON（存档/回放用，Phase 6）。
     // 与 loadFromJson 键一一对称，保证 loadFromJson(toJson(cfg)) == cfg（往返无损）。
     std::string toJson() const;
+
+    // 校验已解析配置的类型派生值、数值域和跨字段约束。
+    bool validate(std::string* err = nullptr) const;
 };
 
 // 单位实际山地进入概率 = 基础 × 兵种乘数（封顶 1.0）。细节改进：开拓兵更高（阻挡概率降低）。

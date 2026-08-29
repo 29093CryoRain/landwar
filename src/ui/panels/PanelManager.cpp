@@ -65,7 +65,6 @@ void PanelManager::draw(PanelCtx& ctx) {
             }
             ImGui::EndChild();
         }
-        ImGui::End();
         // 回写位置/大小（本帧点击"隐藏"后不再回写，保留隐藏前位置供再显示）。
         if (p->state.visible) {
             p->state.x = ImGui::GetWindowPos().x;
@@ -73,6 +72,7 @@ void PanelManager::draw(PanelCtx& ctx) {
             p->state.w = ImGui::GetWindowSize().x;
             p->state.h = ImGui::GetWindowSize().y;
         }
+        ImGui::End();
     }
 }
 

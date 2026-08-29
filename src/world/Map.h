@@ -92,10 +92,6 @@ public:
     // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册 1 级城。
     bool placeCapitals(Rng& rng);
 
-    // P13：finalize 重写——城市数 = 注册表大小（城市实体数，非格子数）。基建格全在陆地
-    // （放置时校验），无海上城市；原清理步骤随之消失。旧经济公式 totalCities 语义变为
-    // "城市实体数比"（P14 整体替换经济公式）。
-    void finalize();
 
     MapCell& at(int x, int y);
     const MapCell& at(int x, int y) const;
@@ -119,8 +115,6 @@ public:
     // 表驱动密铺的首都基础格 b（每周期域内基础格序号；方/六/三恒 0）。
     int capitalB(int index) const { return capitalB_[static_cast<size_t>(index)]; }
     int capitalCount() const { return static_cast<int>(capitalX_.size()); }
-    int blockSize() const { return blockSize_; }
-    int panelWidth() const { return panelWidth_; }
 
     // ---- 城市注册表（P13/P12）----
     // 等级采样（幂律，思路 9.1）：s = alpha + beta，P(L=1)=1-2^-s; P(L=2)=2^-s-4^-s; ...
@@ -162,6 +156,7 @@ public:
     }
 
 private:
+    void updateCityGeometry(City& city);
     // canPlaceCity 的实现；requireAllowed=false 时跳过"锚点可成城"校验（首都回退到任意陆地）。
     bool canPlaceCityImpl(double level, int index, bool requireAllowed) const;
     // 返回 index 处放置 level 级城时第一个能放下的变体下标（-1 = 无变体可放）。
@@ -170,6 +165,9 @@ private:
     // 返回全部能放下的变体下标（2026-08-17：addCity 用它 + rng 随机选，保证同级不同
     // 形状都能出现；placeableVariant = 本列表首元素或 -1）。
     std::vector<int> placeableVariants(double level, int index, bool requireAllowed) const;
+    // P1.2：将形状表 cells（世界偏移）解析为格下标；方/六/三/半正/Laves 统一。
+    // 三角反锚镜像 dy；界外格返回 -1。shapeCells 与 placeableVariants 共用。
+    std::vector<int> resolveShapeCells(const Config::City::Shape& shape, int anchorIndex) const;
     // 每格概率通道（地形基图：海/陆确定性 + 山 R / 城 G 概率通道）。方/六/三共用。
     struct CellChannels {
         bool sea;
@@ -182,8 +180,6 @@ private:
 
     int width_ = 105;
     int height_ = 95;
-    int blockSize_ = 15;
-    int panelWidth_ = 600;
     int capitalMinDistance_ = 28;
     Config::Terrain terrain_;   // 地形基图参数（P5 改版）
     Config::City cityConfig_;   // 城市等级形状表（P13/P12；setCityConfig 设置）

@@ -1,0 +1,75 @@
+{
+  "factions": [
+    {
+      "_comment": "id 0 = 中立灰占位（双色系统⑫）：主色=深灰、副色=浅灰。",
+      "id": 0,
+      "color": [96, 96, 96],
+      "secondary": [191, 191, 191]
+    },
+    {
+      "id": 1,
+      "name": "红",
+      "color": [255, 0, 0],
+      "secondary": [191, 191, 191],
+      "unitPreference": {"normal": 2.0}
+    },
+    {
+      "id": 2,
+      "name": "黄",
+      "color": [255, 255, 0],
+      "secondary": [191, 191, 191],
+      "unitPreference": {"laser": 1.5, "bomb": 1.5, "mine": 1.5}
+    },
+    {
+      "id": 3,
+      "name": "青",
+      "color": [0, 255, 255],
+      "secondary": [191, 191, 191],
+      "unitPreference": {"vanguard": 3.0},
+      "speedMultAll": 1.5,
+      "seaMult": 0.666
+    },
+    {
+      "id": 4,
+      "name": "蓝",
+      "color": [0, 85, 255],
+      "secondary": [191, 191, 191],
+      "unitPreference": {"pioneer": 3.0, "vanguard": 1.5},
+      "bounceMultAll": 0.6,
+      "pioneerSpeedMult": 2.0
+    },
+    {
+      "id": 5,
+      "name": "绿",
+      "color": [0, 255, 0],
+      "secondary": [191, 191, 191],
+      "unitPreference": {"laser": 3.0},
+      "extraLaserBeams": 2,
+      "laserDurationMult": 1.5,
+      "laserLengthMult": 1.5
+    },
+    {
+      "id": 6,
+      "name": "橙",
+      "color": [255, 127, 0],
+      "secondary": [191, 191, 191],
+      "unitPreference": {"bomb": 3.0},
+      "bombRadius": 4.08
+    },
+    {
+      "id": 7,
+      "name": "紫",
+      "color": [127, 0, 255],
+      "secondary": [191, 191, 191],
+      "unitPreference": {"mine": 3.0},
+      "mineTriggerRadius": 1.43
+    },
+    {
+      "id": 8,
+      "name": "品红",
+      "color": [255, 0, 255],
+      "secondary": [191, 191, 191],
+      "freeArmyChance": 0.6
+    }
+  ]
+}

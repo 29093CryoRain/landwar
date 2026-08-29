@@ -226,7 +226,7 @@ void DebugPanel::drawPlayerSection(const Simulation& sim, UiRequests& req, UiCon
     if (ImGui::Button("##none", ImVec2(iconSize, iconSize))) req.selectNone = true;
     if (noneSelected) ImGui::PopStyleColor();
     for (int t = 0; t < kArmyTypeCount; ++t) {
-        // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png（army_special 停用），
+        // 双色渲染（视觉工程改进 ⑫）：统一 army_base.png，
         // 势力版 = 该势力 (主色, 副色) 合成纹理。
         ImGui::SetCursorPos(ImVec2(x0 + static_cast<float>(t + 1) * (iconSize + gap), y0));
         const ImTextureID tid = reinterpret_cast<ImTextureID>(sheet.texture(playerFid - 1));
@@ -384,7 +384,11 @@ void DebugPanel::drawSelection(const Simulation& sim, const app::Selection& sel)
             break;
         }
         case app::Selection::Kind::Cell: {
-            const MapCell& cell = sim.map().at(sel.cellX, sel.cellY);
+            if (sel.cellIndex < 0 || sel.cellIndex >= sim.map().cellCount()) {
+                ImGui::TextUnformatted("格已失效");
+                break;
+            }
+            const MapCell& cell = sim.map().atIndex(sel.cellIndex);
             // 归属显示势力名（单字颜色名；0 = 中立）。
             const char* owner = cell.belongi == 0 ? "中立" : factionShortName(cell.belongi);
             std::snprintf(buf, sizeof(buf), "格 (%d, %d)  %s%s · 归属 %s", sel.cellX, sel.cellY,

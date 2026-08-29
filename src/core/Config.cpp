@@ -4,9 +4,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <map>
+#include <stdexcept>
 #include <sstream>
+#include <utility>
 
 #include <nlohmann/json.hpp>
 
@@ -21,20 +24,52 @@ using Json = nlohmann::json;
 
 // 数值读取辅助：缺键/类型不符时返回默认值。
 double getNum(const Json& j, const char* key, double def) {
-    if (j.contains(key) && j[key].is_number()) return j[key].get<double>();
+    if (j.contains(key)) {
+        if (!j[key].is_number()) throw std::runtime_error(std::string(key) + " must be a number");
+        return j[key].get<double>();
+    }
     return def;
 }
 int getInt(const Json& j, const char* key, int def) {
-    if (j.contains(key) && j[key].is_number()) return j[key].get<int>();
+    if (j.contains(key)) {
+        if (!j[key].is_number_integer())
+            throw std::runtime_error(std::string(key) + " must be an integer");
+        return j[key].get<int>();
+    }
     return def;
 }
 std::string getStr(const Json& j, const char* key, const std::string& def) {
-    if (j.contains(key) && j[key].is_string()) return j[key].get<std::string>();
+    if (j.contains(key)) {
+        if (!j[key].is_string()) throw std::runtime_error(std::string(key) + " must be a string");
+        return j[key].get<std::string>();
+    }
     return def;
 }
 bool getBool(const Json& j, const char* key, bool def) {
-    if (j.contains(key) && j[key].is_boolean()) return j[key].get<bool>();
+    if (j.contains(key)) {
+        if (!j[key].is_boolean()) throw std::runtime_error(std::string(key) + " must be boolean");
+        return j[key].get<bool>();
+    }
     return def;
+}
+
+bool readJsonFile(const std::string& path, Json& out, const char* kind) {
+    std::ifstream ifs(path);
+    if (!ifs.is_open()) {
+        spdlog::warn("{} file '{}' not found", kind, path);
+        return false;
+    }
+    try {
+        ifs >> out;
+    } catch (const std::exception& e) {
+        spdlog::warn("{} file '{}' parse failed: {}", kind, path, e.what());
+        return false;
+    }
+    if (!out.is_object()) {
+        spdlog::warn("{} file '{}' must contain a JSON object", kind, path);
+        return false;
+    }
+    return true;
 }
 
 int unitIndex(const std::string& name) {
@@ -133,17 +168,6 @@ BuffType buffTypeFromName(const std::string& s) {
     return BuffType::UnitSpeedMult;
 }
 
-// anchorBaseMask 掩码解析：JSON 首选 "anchorBases": [允许的基础格编号数组]；
-// 兼容旧写法（数字位掩码 / '0'/'1' 串，MSB 在左）。
-std::uint32_t anchorMaskFromString(const std::string& s) {
-    std::uint32_t v = 0;
-    for (const char ch : s) {
-        if (ch != '0' && ch != '1') return 0;  // 非法字符 → 视为不限制
-        v = (v << 1) | static_cast<std::uint32_t>(ch - '0');
-    }
-    return v;
-}
-
 // 掩码 → 允许的基础格编号（升序），供 toJson 输出 anchorBases 数组。
 std::vector<int> anchorMaskToBases(std::uint32_t v) {
     std::vector<int> bases;
@@ -201,13 +225,6 @@ void parseTilingSetJson(const Json& sub, Config::City::TilingSet& set) {
                         if (b >= 0 && b < 32) sh.anchorBaseMask |= (1u << b);
                     }
                 }
-            } else if (s.contains("anchorBaseMask")) {  // 旧写法兼容
-                if (s["anchorBaseMask"].is_string())
-                    sh.anchorBaseMask =
-                        anchorMaskFromString(s["anchorBaseMask"].get<std::string>());
-                else if (s["anchorBaseMask"].is_number())
-                    sh.anchorBaseMask = static_cast<std::uint32_t>(
-                        std::max(0, s["anchorBaseMask"].get<int>()));
             }
             for (const auto& cl : s["cells"]) {
                 if (!cl.is_array() || cl.size() < 2) continue;
@@ -225,12 +242,13 @@ void parseTilingSetJson(const Json& sub, Config::City::TilingSet& set) {
     }
 }
 
-// 加载 data/city_shapes.json：半正/Laves 完整城市形状表（键 = tilingName，
-// 如 "arch_3464"）。文件缺失/损坏时保留单格兜底，仅记警告不阻断。
+// 加载 data/city_shapes.json：全部密铺（square/hex/tri + 半正/Laves）的城市形状表
+//（键 = tilingName，如 "square"、"hex"、"arch_3464"）。文件缺失/损坏时保留代码内置兜底，
+// 仅记警告不阻断。
 void loadCityShapesFile(Config::City& c) {
     std::ifstream ifs(kCityShapesPath);
     if (!ifs.is_open()) {
-        spdlog::warn("city shapes file '{}' not found; keeping single-cell fallback",
+        spdlog::warn("city shapes file '{}' not found; keeping built-in fallback",
                      kCityShapesPath);
         return;
     }
@@ -248,15 +266,27 @@ void loadCityShapesFile(Config::City& c) {
         const TilingType tt = tilingFromName(it.key());
         const int idx = static_cast<int>(tt);
         if (idx < 0 || idx >= kTilingTypeCount) continue;
-        if (tt == TilingType::Square || tt == TilingType::Hex || tt == TilingType::Tri)
-            continue;  // 三密铺保留代码内置表
         if (!it.value().is_object()) continue;
-        parseTilingSetJson(it.value(), c.sets[static_cast<size_t>(idx)]);
+        switch (tt) {
+            case TilingType::Square:
+                parseTilingSetJson(it.value(), c.square);
+                break;
+            case TilingType::Hex:
+                parseTilingSetJson(it.value(), c.hex);
+                break;
+            case TilingType::Tri:
+                parseTilingSetJson(it.value(), c.tri);
+                break;
+            default:
+                parseTilingSetJson(it.value(), c.sets[static_cast<size_t>(idx)]);
+                break;
+        }
     }
 }
 
 // 内置默认城市表（P13 + P12）：等级/形状按密铺。
-// ShapeCell 偏移语义（Config.h 注）：方 = 格 (dx,dy)；六 = 轴向 (dq,dr)；三 = (b,h) 单位。
+// ShapeCell 偏移语义（Config.h 注）：全部为相对锚格中心的**世界单位偏移**
+// （方/六/三/半正/Laves 统一；三角正锚模式，反锚由 Map 解析端镜像 dy）。
 void initDefaultCity(Config::City& c) {
     using Shape = Config::City::Shape;
     using ShapeCell = Config::City::ShapeCell;
@@ -267,33 +297,39 @@ void initDefaultCity(Config::City& c) {
                 sh.cells.push_back(ShapeCell{static_cast<double>(dx), static_cast<double>(dy)});
         return sh;
     };
-    const auto hx = [](const std::vector<std::pair<int, int>>& ax) {
+    const auto hx = [](std::initializer_list<ShapeCell> list) {
         Shape sh;
-        for (const auto& p : ax)
-            sh.cells.push_back(ShapeCell{static_cast<double>(p.first),
-                                         static_cast<double>(p.second)});
+        sh.cells.assign(list.begin(), list.end());
         return sh;
     };
-    const auto tr = [](const std::vector<std::array<double, 2>>& cells) {
+    const auto tr = [](std::initializer_list<ShapeCell> list) {
         Shape sh;
-        for (const auto& c0 : cells)
-            sh.cells.push_back(ShapeCell{c0[0], c0[1]});
+        sh.cells.assign(list.begin(), list.end());
         return sh;
     };
     // 正方形：1/2/4/6/9（旧 w×h：1×1 / 1×2 / 2×2 / 2×3 / 3×3）。
     c.square.levels = {1, 2, 4, 6, 9};
     c.square.shapes = {sq(1, 1), sq(1, 2), sq(2, 2), sq(2, 3), sq(3, 3)};
-    // 六边形：1/3/4/6/7/9（轴向偏移表，P12 §3.2 定稿；锚 = (0,0)）。
+    // 六边形：1/3/4/6/7/9（世界偏移已由旧轴向表换算，P12 §3.2 定稿；锚 = (0,0)）。
     c.hex.levels = {1, 3, 4, 6, 7, 9};
     c.hex.shapes = {
-        hx({{0, 0}}),
-        hx({{0, 0}, {0, -1}, {1, -1}}),
-        hx({{0, 0}, {0, -1}, {1, -1}, {1, -2}}),
-        hx({{0, 0}, {0, -1}, {1, -1}, {1, -2}, {0, -2}, {2, -2}}),
-        hx({{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}}),
-        hx({{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}, {-1, 2}, {1, -2}}),
+        hx({{0.0, 0.0}}),
+        hx({{0.0, 0.0}, {-0.5372849659117709, -0.9306048591020997},
+            {0.5372849659117709, -0.9306048591020997}}),
+        hx({{0.0, 0.0}, {-0.5372849659117709, -0.9306048591020997},
+            {0.5372849659117709, -0.9306048591020997}, {0.0, -1.8612097182041993}}),
+        hx({{0.0, 0.0}, {-0.5372849659117709, -0.9306048591020997},
+            {0.5372849659117709, -0.9306048591020997}, {0.0, -1.8612097182041993},
+            {-1.0745699318235418, -1.8612097182041993}, {1.0745699318235418, -1.8612097182041993}}),
+        hx({{0.0, 0.0}, {1.0745699318235418, 0.0}, {-1.0745699318235418, 0.0},
+            {0.5372849659117709, 0.9306048591020997}, {-0.5372849659117709, -0.9306048591020997},
+            {0.5372849659117709, -0.9306048591020997}, {-0.5372849659117709, 0.9306048591020997}}),
+        hx({{0.0, 0.0}, {1.0745699318235418, 0.0}, {-1.0745699318235418, 0.0},
+            {0.5372849659117709, 0.9306048591020997}, {-0.5372849659117709, -0.9306048591020997},
+            {0.5372849659117709, -0.9306048591020997}, {-0.5372849659117709, 0.9306048591020997},
+            {0.0, 1.8612097182041993}, {0.0, -1.8612097182041993}}),
     };
-    // 三角形：1/2/4/6/8（世界偏移以 b/h 计；**正锚模式**——表按"锚 =
+    // 三角形：1/2/4/6/8（世界偏移以 kTriSide/kTriAlt 换算；**正锚模式**——表按"锚 =
     // 正三角"定义；锚为反三角时解析端对 dy 垂直镜像，即该等级的朝向变体）。
     // 语义（用户 2026-08 定稿）：
     //   L1 = 1 格（锚正→正、锚反→反，2 种模式）
@@ -302,6 +338,23 @@ void initDefaultCity(Config::City& c) {
     //   L6 = 6 格正六边形（左右顶点、上下平边；3 正 3 反；锚镜像同形，1 种模式）
     //   L8 = L6 + 顶上正 + 底下反（≡ 两个 4 级城拼接；锚镜像旋转 180° 同构，1 种模式）
     c.tri.levels = {1, 2, 4, 6, 8};
+    c.tri.shapes = {
+        tr({{0.0, 0.0}}),  // L1
+        // L2：正格 + 同列下方反格（共水平底边 y = r·h；偏移 (0, −2h/3)）
+        tr({{0.0, 0.0}, {0.0, -0.8773826753016616}}),
+        // L4：正大三角 [0,2b]×[0,2h] = 正(i,r) + 正(i+1,r) + 反(i,r) + 正(i,r+1)
+        tr({{0.0, 0.0}, {1.5196713713031924, 0.0}, {0.7598356856515962, 0.4386913376508308},
+               {0.7598356856515962, 1.3160740129524924}}),
+        // L6：6 格正六边形（中心 = 锚上尖顶点；左右顶点、上下平边）
+        tr({{0.0, 0.0}, {0.0, 1.7547653506033232}, {0.7598356856515962, 1.3160740129524924},
+               {-0.7598356856515962, 1.3160740129524924}, {-0.7598356856515962, 0.4386913376508308},
+               {0.7598356856515962, 0.4386913376508308}}),
+        // L8：L6 + 顶上正 (0, 2h) + 底下反 (0, −2h/3)（紧贴六边形下平边的同列下方反格）
+        tr({{0.0, 0.0}, {0.0, 1.7547653506033232}, {0.7598356856515962, 1.3160740129524924},
+               {-0.7598356856515962, 1.3160740129524924}, {-0.7598356856515962, 0.4386913376508308},
+               {0.7598356856515962, 0.4386913376508308}, {0.0, 2.6321480259049848},
+               {0.0, -0.8773826753016616}}),
+    };
     // 2026-08-16：先给 1 级城（单格）兜底占位；下面每个已接入几何的密铺都会
     // 用完整等级形状表整体覆盖（开发思路.txt 没提 1 级城的密铺不会被覆盖成 1 级）。
     {
@@ -321,23 +374,10 @@ void initDefaultCity(Config::City& c) {
             set.shapes = {single()};
         }
         // 完整城市形状表已外置到 data/city_shapes.json（2026-08-26；由
-        // tools/gen_city_shapes_json.py 自旧内置表生成，改表可重跑该工具或直接编辑 JSON）。
-        // 文件缺失/损坏时保留上面的单格兜底（仅记警告，不阻断）。
+        // tools/gen_city_shapes_json.py 生成，改表可重跑该工具或直接编辑 JSON）。
+        // 文件缺失/损坏时保留上面的兜底（仅记警告，不阻断）。
         loadCityShapesFile(c);
     }
-    c.tri.shapes = {
-        tr({{0, 0}}),  // L1
-        // L2：正格 + 同列下方反格（共水平底边 y = r·h；偏移 (0, −2h/3)）
-        tr({{0, 0}, {0, -2.0 / 3.0}}),
-        // L4：正大三角 [0,2b]×[0,2h] = 正(i,r) + 正(i+1,r) + 反(i,r) + 正(i,r+1)
-        tr({{0, 0}, {1, 0}, {0.5, 1.0 / 3.0}, {0.5, 1}}),
-        // L6：6 格正六边形（中心 = 锚上尖顶点；左右顶点、上下平边）
-        tr({{0, 0}, {0, 4.0 / 3.0}, {0.5, 1}, {-0.5, 1}, {-0.5, 1.0 / 3.0},
-            {0.5, 1.0 / 3.0}}),
-        // L8：L6 + 顶上正 (0, 2h) + 底下反 (0, −2h/3)（紧贴六边形下平边的同列下方反格）
-        tr({{0, 0}, {0, 4.0 / 3.0}, {0.5, 1}, {-0.5, 1}, {-0.5, 1.0 / 3.0},
-            {0.5, 1.0 / 3.0}, {0, 2}, {0, -2.0 / 3.0}}),
-    };
     // 同步 shapeLevelIndex（默认每个 level 一个形状；未来同级多变体时手动调整）。
     const auto syncShapeLevels = [](Config::City::TilingSet& s) {
         s.shapeLevelIndex.clear();
@@ -453,13 +493,13 @@ void validateConfigKeys(const Json& root) {
         return (parent.contains(name) && parent[name].is_object()) ? parent[name] : kEmpty;
     };
     // 纯键值段。
+    // P1.1（2026-08）：map.file/width/height 已移除（地图在菜单选择）；键表不再列出，
+    // 出现即视为未知键告警。
     warnUnknownKeys(obj("map"),
-                    {"file", "width", "height", "blockSize", "panelWidth", "capitalMinDistance",
+                    {"blockSize", "panelWidth", "capitalMinDistance",
                      "cityMountainWeight", "tiling"},
                     "map");
-    warnUnknownKeys(obj("army"),
-                    {"baseSpeed", "baseSize", "bounceJitterHalfRange", "bounceJitterDenominator"},
-                    "army");
+    warnUnknownKeys(obj("army"), {"baseSpeed", "baseSize", "bounceJitterRangeRad"}, "army");
     warnUnknownKeys(obj("sea"),
                     {"initialGoSeaProbability", "goSeaIncrease", "goSeaChanceConst",
                      "goSeaChanceDenominator", "seaSpeedMult"},
@@ -498,7 +538,7 @@ void validateConfigKeys(const Json& root) {
                      "capital", "tile"},
                     "render");
     warnUnknownKeys(child(ren, "city"),
-                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "iconScale", "mix"},
+                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "mix"},
                     "render.city");
     warnUnknownKeys(child(child(ren, "city"), "mix"),
                     {"primary", "secondary", "black"},
@@ -514,8 +554,9 @@ void validateConfigKeys(const Json& root) {
     warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri",
                             "tilings"},
                     "city");
-    const V kShapeKeys = {"level", "w", "h"};
-    const V kHexTriShapeKeys = {"level", "anchorBaseMask", "anchorBases", "cells", "disabled"};
+    // P1.2：city.shapes 已改为泛化 cells 格式，旧 w/h / anchorBaseMask 不再兼容。
+    const V kShapeKeys = {"level", "anchorBases", "cells", "disabled"};
+    const V kHexTriShapeKeys = {"level", "anchorBases", "cells", "disabled"};
     // 数组段（units / factions 在根；city.shapes 在 city 下）。unitPreference 键为动态
     // 兵种名（normal/vanguard/…）→ 列在已知集合里自然跳过动态校验。
     const V kUnitKeys = {"type",          "cost",              "speedMult",
@@ -547,7 +588,7 @@ void validateConfigKeys(const Json& root) {
     }
     idx = 0;
     if (cityJ.contains("hex") && cityJ["hex"].is_object()) {
-        warnUnknownKeys(cityJ["hex"], {"levels", "shapes", "baseGroups"}, "city.hex");
+        warnUnknownKeys(cityJ["hex"], {"levels", "shapes", "baseGroups", "iconLevels"}, "city.hex");
         if (cityJ["hex"].contains("shapes") && cityJ["hex"]["shapes"].is_array()) {
             for (const auto& s : cityJ["hex"]["shapes"])
                 warnUnknownKeys(s, kHexTriShapeKeys, "city.hex.shapes[" + std::to_string(idx++) + "]");
@@ -555,7 +596,7 @@ void validateConfigKeys(const Json& root) {
     }
     idx = 0;
     if (cityJ.contains("tri") && cityJ["tri"].is_object()) {
-        warnUnknownKeys(cityJ["tri"], {"levels", "shapes", "baseGroups"}, "city.tri");
+        warnUnknownKeys(cityJ["tri"], {"levels", "shapes", "baseGroups", "iconLevels"}, "city.tri");
         if (cityJ["tri"].contains("shapes") && cityJ["tri"]["shapes"].is_array()) {
             for (const auto& s : cityJ["tri"]["shapes"])
                 warnUnknownKeys(s, kHexTriShapeKeys, "city.tri.shapes[" + std::to_string(idx++) + "]");
@@ -566,7 +607,7 @@ void validateConfigKeys(const Json& root) {
         for (auto it = cityJ["tilings"].begin(); it != cityJ["tilings"].end(); ++it) {
             const std::string path = "city.tilings." + it.key();
             if (!it.value().is_object()) continue;
-            warnUnknownKeys(it.value(), {"levels", "shapes", "baseGroups"}, path);
+            warnUnknownKeys(it.value(), {"levels", "shapes", "baseGroups", "iconLevels"}, path);
             if (it.value().contains("shapes") && it.value()["shapes"].is_array()) {
                 int si = 0;
                 for (const auto& s : it.value()["shapes"])
@@ -598,8 +639,8 @@ void validateConfigKeys(const Json& root) {
 
 }  // namespace
 
-// 默认构造：内置城市等级/形状表（P12 三密铺），保证裸 City{} 即可用
-//（Map::cityConfig_、单测直接构造等；Config 自身成员亦由本构造填充）。
+// 默认构造：内置全部密铺等级/形状表（P1.2 起 square/hex/tri/半正/Laves 统一），
+// 保证裸 City{} 即可用（Map::cityConfig_、单测直接构造等；Config 自身成员亦由本构造填充）。
 Config::City::City() { initDefaultCity(*this); }
 
 Config Config::loadFromJson(const std::string& jsonText) {
@@ -614,12 +655,12 @@ Config Config::loadFromJson(const std::string& jsonText) {
         return cfg;
     }
 
+    try {
     // ---- map ----
+    // P1.1（2026-08）：map.file/width/height 已从 config 移除——地图在菜单界面手动选择，
+    // 运行时由 Options/Application/Headless 注入；config 不再读取这三个键（缺键回退默认）。
     if (root.contains("map") && root["map"].is_object()) {
         const auto& mapJson = root["map"];
-        cfg.map.file = getStr(mapJson, "file", cfg.map.file);
-        cfg.map.width = getInt(mapJson, "width", cfg.map.width);
-        cfg.map.height = getInt(mapJson, "height", cfg.map.height);
         cfg.map.blockSize = getInt(mapJson, "blockSize", cfg.map.blockSize);
         cfg.map.panelWidth = getInt(mapJson, "panelWidth", cfg.map.panelWidth);
         cfg.map.capitalMinDistance =
@@ -635,10 +676,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
         const auto& armyJson = root["army"];
         cfg.army.baseSpeed = getNum(armyJson, "baseSpeed", cfg.army.baseSpeed);
         cfg.army.baseSize = getNum(armyJson, "baseSize", cfg.army.baseSize);
-        cfg.army.bounceJitterHalfRange = getNum(armyJson, "bounceJitterHalfRange",
-                                                cfg.army.bounceJitterHalfRange);
-        cfg.army.bounceJitterDenominator = getNum(armyJson, "bounceJitterDenominator",
-                                                  cfg.army.bounceJitterDenominator);
+        cfg.army.bounceJitterRangeRad = getNum(armyJson, "bounceJitterRangeRad",
+                                               cfg.army.bounceJitterRangeRad);
     }
 
     // ---- sea ----
@@ -817,28 +856,16 @@ Config Config::loadFromJson(const std::string& jsonText) {
             getNum(cityJson, "levelIncomeExponent", cfg.city.levelIncomeExponent);
         cfg.city.levelRankExponent =
             getNum(cityJson, "levelRankExponent", cfg.city.levelRankExponent);
-        // 正方形 shapes 覆盖（可选）：[{level, w, h}, ...]（旧格式）；缺省保持内置表。
+        // 正方形 shapes 覆盖（可选）：P1.2 起仅支持泛化 [{level, cells:[dx,dy], ...}]，
+        // 不再兼容旧 [{level, w, h}]。缺省保持内置表/data/city_shapes.json。
         if (cityJson.contains("shapes") && cityJson["shapes"].is_array()) {
-            for (const auto& s : cityJson["shapes"]) {
-                if (!s.is_object()) continue;
-                const double lv = getNum(s, "level", -1.0);
-                const int idx = cfg.city.square.levelIndex(lv);
-                if (idx < 0) continue;
-                const int w = getInt(s, "w", 1);
-                const int h = getInt(s, "h", 1);
-                Config::City::Shape sh;
-                for (int dy = 0; dy < h; ++dy)
-                    for (int dx = 0; dx < w; ++dx)
-                        sh.cells.push_back({static_cast<double>(dx), static_cast<double>(dy)});
-                cfg.city.square.shapes[static_cast<size_t>(idx)] = std::move(sh);
-            }
+            Json squareObj;
+            squareObj["levels"] = cfg.city.square.levels;
+            squareObj["shapes"] = cityJson["shapes"];
+            parseTilingSetJson(squareObj, cfg.city.square);
         }
-        // P12：六/三角形状表（可选）。hex cells = [dq, dr] 轴向偏移；tri cells = [x, y, o]
-        // （x 以 b 计、y 以 h 计、o 朝向 0 正/1 反）。均为**配置空间**值（toJson 原样回吐，
-        // 往返无损）；世界转换在 Map 放置时经 TilingGeom 完成。
-        // 2026-08-16：新密铺 cells 也统一为 [dx, dy]（相对锚格中心的偏移）。
-        // 解析逻辑 = parseTilingSetJson（匿名命名空间，与 data/city_shapes.json 共用；
-        // anchorBaseMask 支持 01 串与数字两种写法）。
+        // P12：六/三角形状表（可选）。P1.2 起 cells 统一为 [dx, dy] 世界偏移；
+        // 解析逻辑 = parseTilingSetJson（匿名命名空间，与 data/city_shapes.json 共用）。
         if (cityJson.contains("hex") && cityJson["hex"].is_object())
             parseTilingSetJson(cityJson["hex"], cfg.city.hex);
         if (cityJson.contains("tri") && cityJson["tri"].is_object())
@@ -878,7 +905,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.render.windowHeight = getInt(renderJson, "windowHeight", cfg.render.windowHeight);
         cfg.render.spriteSize = getInt(renderJson, "spriteSize", cfg.render.spriteSize);
         cfg.render.armyDrawSize = getInt(renderJson, "armyDrawSize", cfg.render.armyDrawSize);
-        // P13 城市渲染常数（lineMinCellPx/minIconSizePx/lineThickness/iconScale[]）。
+        // P13 城市渲染常数（lineMinCellPx/lineThickness/lineDarken/iconDarken/mix；P1.2 删 iconScale）。
         if (renderJson.contains("city") && renderJson["city"].is_object()) {
             const auto& rc = renderJson["city"];
             cfg.render.city.lineMinCellPx =
@@ -895,12 +922,6 @@ Config Config::loadFromJson(const std::string& jsonText) {
                     getNum(mix, "secondary", cfg.render.city.mix.secondary);
                 cfg.render.city.mix.black = getNum(mix, "black", cfg.render.city.mix.black);
             }
-            // iconScale[]：9 项（下标 = 等级-1，与 data/tower/tower<N>.png 对应）。
-            if (rc.contains("iconScale") && rc["iconScale"].is_array())
-                for (std::size_t i = 0; i < cfg.render.city.iconScale.size() && i < rc["iconScale"].size();
-                     ++i)
-                    if (rc["iconScale"][i].is_number())
-                        cfg.render.city.iconScale[i] = rc["iconScale"][i].get<double>();
             // iconFitScale / iconFitOffsetY：已外置到 data/city_icon_fits.json（2026-08-26），
             // 由 loadCityIconFits 加载，不再读 config.json。
         }
@@ -986,27 +1007,67 @@ Config Config::loadFromJson(const std::string& jsonText) {
     }
 
     validateConfigKeys(root);  // 键名校验（2026-08）：未知键记警告，不阻断
+    std::string validationError;
+    if (!cfg.validate(&validationError)) {
+        spdlog::error("config validation failed: {}; using built-in defaults", validationError);
+        Config fallback;
+        initDefaultFactions(fallback.factions);
+        return fallback;
+    }
     return cfg;
+    } catch (const std::exception& e) {
+        spdlog::error("config load failed: {}; using built-in defaults", e.what());
+        Config fallback;
+        initDefaultFactions(fallback.factions);
+        return fallback;
+    }
 }
 
 Config Config::loadFromFile(const std::string& path) {
-    std::ifstream ifs(path);
-    // 注意：MinGW 下文件不存在时 operator bool 仍为 true，须用 is_open() 判断。
-    if (!ifs.is_open()) {
-        spdlog::warn("config file '{}' not found, using built-in defaults", path);
+    Json merged;
+    if (!readJsonFile(path, merged, "config")) {
+        spdlog::warn("config file '{}' unavailable, using built-in defaults", path);
         Config cfg;
         initDefaultFactions(cfg.factions);
         return cfg;
     }
-    std::ostringstream oss;
-    oss << ifs.rdbuf();
-    Config cfg = loadFromJson(oss.str());
+
+    // config.json 只保留核心/模拟配置；同目录的四个片段按固定顺序覆盖对应顶层段。
+    // 片段使用 {"render": {...}} 这类带段名的对象，便于单独校验和人工编辑。
+    const std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    const auto fragmentPath = [&parent](const char* name) {
+        return (parent / name).string();
+    };
+    const std::array<std::pair<const char*, const char*>, 4> fragments = {{
+        {"render", "render.json"},
+        {"tech", "techs.json"},
+        {"factions", "factions.json"},
+        {"units", "units.json"},
+    }};
+    for (const auto& [section, file] : fragments) {
+        Json fragment;
+        const std::string fragmentName = fragmentPath(file);
+        if (!readJsonFile(fragmentName, fragment, "config fragment")) continue;
+        if (!fragment.contains(section)) {
+            spdlog::warn("config fragment '{}' has no '{}' section; ignored", fragmentName, section);
+            continue;
+        }
+        for (auto it = fragment.begin(); it != fragment.end(); ++it) {
+            if (!it.key().empty() && it.key()[0] == '_') continue;
+            if (it.key() != section)
+                spdlog::warn("config fragment '{}' has unexpected top-level key '{}' (ignored)",
+                             fragmentName, it.key());
+        }
+        merged[section] = fragment[section];
+    }
+
+    Config cfg = loadFromJson(merged.dump());
     loadCityIconFits(cfg);  // 城市贴图缩放/平移表外置于 data/city_icon_fits.json（2026-08-26）
     return cfg;
 }
 
 // 加载外置城市贴图预计算表 data/city_icon_fits.json（render.city.iconFitScale + iconFitOffsetY）。
-// 文件缺失/损坏 → 保留空表（方/六/三回退 iconScale；表驱动若无 fit 则回退 CityIconFitter）。
+// 文件缺失/损坏 → 保留空表（任何密铺缺 fit 时按 1 倍缩放兜底，P1.2/P1.3）。
 // 注意：config.json 不再含这两块；本函数仅经 loadFromFile 与交互工具调用。
 void Config::loadCityIconFits(Config& c) {
     std::ifstream ifs(kCityIconFitsPath);
@@ -1061,21 +1122,182 @@ void Config::loadCityIconFits(Config& c) {
     }
 }
 
+bool Config::validate(std::string* err) const {
+    const auto fail = [err](const std::string& message) {
+        if (err) *err = message;
+        return false;
+    };
+    const auto finite = [](double value) { return std::isfinite(value); };
+    const auto positive = [&](double value) { return finite(value) && value > 0.0; };
+    const auto nonNegative = [&](double value) { return finite(value) && value >= 0.0; };
+    const auto unitInterval = [&](double value) {
+        return finite(value) && value >= 0.0 && value <= 1.0;
+    };
+
+    if (map.width <= 0 || map.height <= 0 || map.blockSize <= 0 || map.panelWidth < 0
+        || map.capitalMinDistance < 0 || !nonNegative(map.cityMountainWeight))
+        return fail("map dimensions or numeric range invalid");
+    bool validTiling = false;
+    for (int i = 0; i < kTilingTypeCount; ++i)
+        if (map.tiling == tilingName(static_cast<TilingType>(i))) validTiling = true;
+    if (!validTiling) return fail("map.tiling is unknown");
+
+    if (!positive(army.baseSpeed) || !positive(army.baseSize)
+        || !nonNegative(army.bounceJitterRangeRad))
+        return fail("army numeric range invalid");
+    if (!unitInterval(sea.initialGoSeaProbability) || !nonNegative(sea.goSeaIncrease)
+        || !nonNegative(sea.goSeaChanceConst) || !positive(sea.goSeaChanceDenominator)
+        || !positive(sea.seaSpeedMult))
+        return fail("sea numeric range invalid");
+    if (terrain.seaChannelMin < 0 || terrain.seaChannelMin > 255 || terrain.probFloor < 0
+        || terrain.probFloor > 255 || terrain.probScale <= 0
+        || !unitInterval(terrain.mountainEnterChance) || !positive(terrain.mountainSpeedMult))
+        return fail("terrain numeric range invalid");
+
+    for (const auto& u : units) {
+        if (!positive(u.cost) || !positive(u.speedMult) || !positive(u.sizeMult)
+            || !nonNegative(u.bounceMult) || !positive(u.visualRadius)
+            || !nonNegative(u.mountainEnterMult) || u.periodTicks < 0
+            || !nonNegative(u.bulletSpeed) || !nonNegative(u.bulletSpeedJitter)
+            || u.bulletCount <= 0 || u.bulletLifespanTicks < 0 || !positive(u.bulletSize)
+            || !nonNegative(u.bulletSpreadPIFrac) || !nonNegative(u.bulletSpreadJitterFrac))
+            return fail("unit numeric range invalid");
+        if (u.periodic != PeriodicAction::none && u.periodTicks <= 0)
+            return fail("periodic unit must have positive periodTicks");
+        if (u.periodic != PeriodicAction::none && u.bulletLifespanTicks <= 0)
+            return fail("periodic unit must have positive bullet lifespan");
+    }
+
+    if (factions.size() != static_cast<size_t>(kFactionTotal))
+        return fail("factions size mismatch");
+    for (int i = 0; i < kFactionTotal; ++i) {
+        const auto& f = factions[static_cast<size_t>(i)];
+        if (f.id != i) return fail("faction ids must match their indexes");
+        for (int channel : f.color)
+            if (channel < 0 || channel > 255) return fail("faction color out of range");
+        for (int channel : f.secondary)
+            if (channel < 0 || channel > 255) return fail("faction secondary color out of range");
+        for (double preference : f.unitPreference)
+            if (!positive(preference)) return fail("unit preference must be positive");
+        if (!positive(f.speedMultAll) || !positive(f.seaMult) || !nonNegative(f.bounceMultAll)
+            || !positive(f.pioneerSpeedMult) || f.extraLaserBeams < 0
+            || !positive(f.laserDurationMult) || !positive(f.laserLengthMult)
+            || !positive(f.bombRadius) || !positive(f.mineTriggerRadius)
+            || !unitInterval(f.freeArmyChance))
+            return fail("faction numeric range invalid");
+    }
+
+    if (effect.bomb.lifetimeTicks <= 0 || effect.bomb.conquerEveryTicks <= 0
+        || !positive(effect.bomb.baseRadius) || !positive(effect.mine.radius)
+        || effect.mine.armTicks < 0 || effect.mine.checkEveryTicks <= 0
+        || effect.mine.timeoutTicks <= 0 || !positive(effect.mine.triggerRadiusMult)
+        || !positive(effect.mine.triggerBombRadius) || effect.laser.durationTicks <= 0
+        || !positive(effect.laser.length) || effect.laser.extendPerTick < 0
+        || !nonNegative(effect.laser.killExtraRadius) || !nonNegative(effect.laser.beamSpreadPIFrac))
+        return fail("effect numeric range invalid");
+    if (projectile.drawSize <= 0 || projectile.mountainLifespanPenalty < 0)
+        return fail("projectile numeric range invalid");
+    if (!nonNegative(economy.initialEconomy) || !nonNegative(economy.perLandIncome)
+        || !nonNegative(economy.cityBaseMult) || !finite(economy.capitalBase))
+        return fail("economy numeric range invalid");
+    if (!nonNegative(capital.relocationDelayTicks) || !positive(sim.tickRate)
+        || sim.maxArmyGuard <= 0)
+        return fail("capital or simulation numeric range invalid");
+    if (render.windowWidth <= 0 || render.windowHeight <= 0 || render.spriteSize <= 0
+        || render.armyDrawSize <= 0 || !finite(render.tileMix.primary)
+        || !finite(render.tileMix.secondary) || !finite(render.tileMix.white)
+        || !nonNegative(render.tileMix.variation) || render.tileMix.primary < 0.0
+        || render.tileMix.secondary < 0.0 || render.tileMix.white < 0.0
+        || !positive(render.city.lineMinCellPx) || !positive(render.city.lineThickness)
+        || !unitInterval(render.city.lineDarken) || !unitInterval(render.city.iconDarken)
+        || !unitInterval(render.city.mix.primary) || !unitInterval(render.city.mix.secondary)
+        || !unitInterval(render.city.mix.black) || render.capital.minIconSizePx <= 0
+        || !positive(render.capital.lineThickness) || !unitInterval(render.capital.designatedAlpha))
+        return fail("render numeric range invalid");
+    if (!positive(player.hoverCityRadius) || !unitInterval(player.markerAlpha)
+        || !finite(player.markerRotateSpeed) || !nonNegative(player.markerRingMargin)
+        || !nonNegative(player.markerArrowGap) || ui.messageMaxShown <= 0)
+        return fail("player or ui numeric range invalid");
+
+    const auto validateSet = [&](const City::TilingSet& set, const char* name) {
+        if (set.levels.empty() || set.shapeLevelIndex.size() != set.shapes.size())
+            return fail(std::string(name) + " shape table is incomplete");
+        for (double level : set.levels)
+            if (!positive(level)) return fail(std::string(name) + " level is invalid");
+        for (size_t i = 0; i < set.shapes.size(); ++i) {
+            const int li = set.shapeLevelIndex[i];
+            if (li < 0 || li >= static_cast<int>(set.levels.size()) || set.shapes[i].cells.empty())
+                return fail(std::string(name) + " shape index is invalid");
+            for (const auto& cell : set.shapes[i].cells)
+                if (!finite(cell.dx) || !finite(cell.dy))
+                    return fail(std::string(name) + " shape cell is invalid");
+        }
+        if (!set.iconLevels.empty() && set.iconLevels.size() != set.levels.size())
+            return fail(std::string(name) + " iconLevels size mismatch");
+        for (int level : set.iconLevels)
+            if (level < 1 || level > 10) return fail(std::string(name) + " icon level invalid");
+        return true;
+    };
+    if (!validateSet(city.square, "city.square") || !validateSet(city.hex, "city.hex")
+        || !validateSet(city.tri, "city.tri"))
+        return false;
+    for (int i = static_cast<int>(TilingType::Arch33336); i < kTilingTypeCount; ++i)
+        if (!validateSet(city.sets[static_cast<size_t>(i)], tilingName(static_cast<TilingType>(i))))
+            return false;
+    if (!nonNegative(city.levelIncomeExponent) || !positive(city.levelRankExponent))
+        return fail("city exponent invalid");
+    if (!positive(tech.thresholdBase) || !positive(tech.thresholdStep)
+        || !nonNegative(tech.pointsPerCityLevel) || !nonNegative(tech.preferencePerLevel)
+        || tech.playerCandidateCount <= 0)
+        return fail("tech numeric range invalid");
+    std::vector<std::string> techIds;
+    for (const auto& def : tech.techs) {
+        if (def.id.empty() || def.levels.empty()
+            || std::find(techIds.begin(), techIds.end(), def.id) != techIds.end())
+            return fail("tech ids must be non-empty and unique");
+        techIds.push_back(def.id);
+        for (const auto& level : def.levels)
+            if (!finite(level.magnitude) || level.param < -1 || level.param >= kArmyTypeCount)
+                return fail("tech level is invalid");
+        for (int unit : def.preferenceUnits)
+            if (unit < 0 || unit >= kArmyTypeCount) return fail("tech preference unit invalid");
+    }
+
+    for (const auto& [tiling, levels] : render.city.iconFitScale) {
+        bool known = false;
+        for (int i = 0; i < kTilingTypeCount; ++i)
+            if (tiling == tilingName(static_cast<TilingType>(i))) known = true;
+        if (!known) return fail("unknown city icon fit tiling");
+        for (const auto& [level, value] : levels)
+            if (level < 1 || level > 10 || !positive(value)) return fail("city icon fit is invalid");
+    }
+    for (const auto& [tiling, offsets] : render.city.iconFitOffsetY) {
+        bool known = false;
+        for (int i = 0; i < kTilingTypeCount; ++i)
+            if (tiling == tilingName(static_cast<TilingType>(i))) known = true;
+        if (!known) return fail("unknown city icon offset tiling");
+        for (const auto& offset : offsets) {
+            if (offset.iconLevel < 1 || offset.iconLevel > 10 || offset.variant < 0
+                || !finite(offset.value))
+                return fail("city icon offset is invalid");
+            for (int base : offset.bases)
+                if (base < 0 || base >= 32) return fail("city icon offset base is invalid");
+        }
+    }
+    return true;
+}
+
 std::string Config::toJson() const {
     Json j;
-    j["map"] = {{"file", map.file},
-                {"width", map.width},
-                {"height", map.height},
-                {"blockSize", map.blockSize},
+    j["map"] = {{"blockSize", map.blockSize},
                 {"panelWidth", map.panelWidth},
                 {"capitalMinDistance", map.capitalMinDistance},
                 {"cityMountainWeight", map.cityMountainWeight},
                 {"tiling", map.tiling}};
 
     j["army"] = {{"baseSpeed", army.baseSpeed},
-                 {"baseSize", army.baseSize},
-                 {"bounceJitterHalfRange", army.bounceJitterHalfRange},
-                 {"bounceJitterDenominator", army.bounceJitterDenominator}};
+                  {"baseSize", army.baseSize},
+                  {"bounceJitterRangeRad", army.bounceJitterRangeRad}};
 
     j["sea"] = {{"initialGoSeaProbability", sea.initialGoSeaProbability},
                 {"goSeaIncrease", sea.goSeaIncrease},
@@ -1157,19 +1379,8 @@ std::string Config::toJson() const {
                     {"cityBaseMult", economy.cityBaseMult},
                     {"capitalBase", economy.capitalBase}};
 
-    Json shapesJ = Json::array();
-    for (int i = 0; i < static_cast<int>(city.square.levels.size()); ++i) {
-        // 正方形：{level, w, h}（旧格式；w/h = 形状 AABB）。
-        int w = 0, h = 0;
-        for (const auto& c : city.square.shapes[static_cast<size_t>(i)].cells) {
-            w = std::max(w, static_cast<int>(c.dx) + 1);
-            h = std::max(h, static_cast<int>(c.dy) + 1);
-        }
-        shapesJ.push_back({{"level", city.square.levels[static_cast<size_t>(i)]}, {"w", w},
-                           {"h", h}});
-    }
-    // P12：六/三角形状表（cells 原样回吐配置空间值 → 往返无损）。
-    const auto tilingSetJ = [](const Config::City::TilingSet& set) {
+    // P1.2：所有密铺形状统一以 cells=[dx,dy] 世界偏移序列化（square 不再输出旧 w/h）。
+    const auto shapeArrayJ = [](const Config::City::TilingSet& set) {
         Json shapes = Json::array();
         for (int s = 0; s < static_cast<int>(set.shapes.size()); ++s) {
             Json cells = Json::array();
@@ -1185,12 +1396,16 @@ std::string Config::toJson() const {
                     set.shapes[static_cast<size_t>(s)].anchorBaseMask);
             shapes.push_back(std::move(shapeJ));
         }
-        Json result = Json{{"levels", set.levels}, {"shapes", std::move(shapes)}};
+        return shapes;
+    };
+    const auto tilingSetJ = [&shapeArrayJ](const Config::City::TilingSet& set) {
+        Json result = Json{{"levels", set.levels}, {"shapes", shapeArrayJ(set)}};
         // 2026-08-17：贴图等级显式映射（缺省推导时不输出；与 levels 等长才输出）。
         if (!set.iconLevels.empty() && set.iconLevels.size() == set.levels.size())
             result["iconLevels"] = set.iconLevels;
         return result;
     };
+    Json shapesJ = shapeArrayJ(city.square);
     // 2026-08-16：半正/Laves 形状表统一放 city.tilings.<tilingName>；缺省为空集。
     Json tilingsJ = Json::object();
     for (int i = 0; i < kTilingTypeCount; ++i) {
@@ -1209,7 +1424,7 @@ std::string Config::toJson() const {
 
     j["sim"] = {{"tickRate", sim.tickRate}, {"maxArmyGuard", sim.maxArmyGuard}};
 
-    // P13 城市渲染常数：iconScale[]（9 项，下标 = 等级-1，与 data/tower/tower<N>.png 对应）。
+    // P13 城市渲染常数：不再输出 iconScale（P1.2 已删除；square 也走 iconFitScale）。
     {
         Json renderJ;
         renderJ["windowWidth"] = render.windowWidth;
@@ -1231,8 +1446,6 @@ std::string Config::toJson() const {
         cityJ["mix"] = {{"primary", render.city.mix.primary},
                         {"secondary", render.city.mix.secondary},
                         {"black", render.city.mix.black}};
-        cityJ["iconScale"] =
-            std::vector<double>(render.city.iconScale.begin(), render.city.iconScale.end());
         // iconFitScale / iconFitOffsetY 已外置（2026-08-26）：不写回 config.json。
         renderJ["city"] = std::move(cityJ);
 

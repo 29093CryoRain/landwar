@@ -56,7 +56,6 @@ bool Simulation::init() {
                            : map_.loadFromLwmap(config_.map.file, *mapRng_);
     if (!mapOk) return false;  // 每陆地格 2 次 chance
     if (!map_.placeCapitals(*rng_)) return false;                     // 每 attempt get(w-1)+get(h-1)
-    map_.finalize();                                               // 清理海上城市 + 统计
     initFactions();  // 征服 8 个首都（势力8 无开局免费兵，见 §1.4）
     // 中立势力0 landCount 初始 = 无主领地数（2026-08 用户定夺）：随征服递减，全图被占完恰好归 0
     // （原版从 0 起一路减负）。仅 1..8 参与排行榜，不影响模拟逻辑。

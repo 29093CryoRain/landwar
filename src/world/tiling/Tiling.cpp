@@ -324,16 +324,7 @@ int TilingGeom::tileColorIndex(int index) const {
 }
 
 int TilingGeom::cellCount() const {
-    switch (type) {
-        case TilingType::Square: return cols * rows;
-        case TilingType::Hex: return cols * rows;
-        case TilingType::Tri: return 2 * cols * rows;
-        default: {
-            ensureTable();
-            if (!table_) return 0;
-            return static_cast<int>(table_->cells.size()) * cols * rows;
-        }
-    }
+    return baseCount() * cols * rows;
 }
 
 double TilingGeom::worldWidth() const {
@@ -448,45 +439,24 @@ int TilingGeom::baseCount() const {
 }
 
 int TilingGeom::cellIndexAt(int r, int c, int b) const {
-    switch (type) {
-        case TilingType::Square:
-        case TilingType::Hex: return r * cols + c;
-        case TilingType::Tri: return 2 * (r * cols + c) + (b & 1);
-        default: {
-            ensureTable();
-            if (!table_) return -1;
-            const int B = static_cast<int>(table_->cells.size());
-            if (r < 0 || r >= rows || c < 0 || c >= cols || b < 0 || b >= B) return -1;
-            return (r * cols + c) * B + b;
-        }
-    }
+    const int B = baseCount();
+    if (B <= 0 || r < 0 || r >= rows || c < 0 || c >= cols) return -1;
+    if (B == 1) return (r * cols + c) * B;
+    const int base = (type == TilingType::Tri) ? (b & 1) : b;
+    if (base < 0 || base >= B) return -1;
+    return (r * cols + c) * B + base;
 }
 
 void TilingGeom::indexToRowCol(int index, int& r, int& c, int& b) const {
-    switch (type) {
-        case TilingType::Square:
-        case TilingType::Hex:
-            r = index / cols;
-            c = index % cols;
-            b = 0;
-            return;
-        case TilingType::Tri:
-            r = (index >> 1) / cols;
-            c = (index >> 1) % cols;
-            b = index & 1;
-            return;
-        default:
-            ensureTable();
-            if (!table_) {
-                r = c = b = -1;
-                return;
-            }
-            b = index % static_cast<int>(table_->cells.size());
-            const int rc = index / static_cast<int>(table_->cells.size());
-            r = rc / cols;
-            c = rc % cols;
-            return;
+    const int B = baseCount();
+    if (B <= 0 || cols <= 0) {
+        r = c = b = -1;
+        return;
     }
+    b = index % B;
+    const int rc = index / B;
+    r = rc / cols;
+    c = rc % cols;
 }
 
 void TilingGeom::cellCenter(int index, double& wx, double& wy) const {
@@ -539,6 +509,14 @@ int TilingGeom::cellPolygon(int index, double* wx, double* wy, int maxVerts) con
     double cx, cy;
     cellCenter(index, cx, cy);
     switch (type) {
+        case TilingType::Square: {
+            if (maxVerts < 4) return 0;
+            wx[0] = cx - 0.5; wy[0] = cy - 0.5;
+            wx[1] = cx + 0.5; wy[1] = cy - 0.5;
+            wx[2] = cx + 0.5; wy[2] = cy + 0.5;
+            wx[3] = cx - 0.5; wy[3] = cy + 0.5;
+            return 4;
+        }
         case TilingType::Hex: {
             if (maxVerts < 6) return 0;
             static const double kA[6] = {90.0, 30.0, -30.0, -90.0, -150.0, 150.0};
@@ -648,6 +626,17 @@ bool TilingGeom::cellEdge(int index, int k, double& x0, double& y0, double& x1, 
     double vx[12], vy[12];
     const int n = cellPolygon(index, vx, vy, 12);
     if (n < 3 || k < 0 || k >= n) return false;
+    if (type == TilingType::Square) {
+        // 邻接顺序保持历史语义：0 下、1 上、2 左、3 右；几何顶点仍按逆时针存储。
+        static const int kE0[4] = {0, 3, 0, 1};
+        static const int kE1[4] = {1, 2, 3, 2};
+        if (k >= 0 && k < 4) {
+            x0 = vx[kE0[k]]; y0 = vy[kE0[k]];
+            x1 = vx[kE1[k]]; y1 = vy[kE1[k]];
+            return true;
+        }
+        return false;
+    }
     if (type == TilingType::Hex) {
         static const int kE0[6] = {1, 0, 5, 4, 3, 2};
         static const int kE1[6] = {2, 1, 0, 5, 4, 3};
@@ -1020,6 +1009,13 @@ int TilingGeom::crossEdge(int index, double& x, double& y, double angle, double&
     };
 
     switch (type) {
+        case TilingType::Square: {
+            for (int k = 0; k < 4; ++k) {
+                double ax, ay, bx, by;
+                if (cellEdge(index, k, ax, ay, bx, by)) testEdge(ax, ay, bx, by, k);
+            }
+            break;
+        }
         case TilingType::Hex: {
             double hx, hy;
             cellCenter(index, hx, hy);
@@ -1095,44 +1091,63 @@ int TilingGeom::crossEdge(int index, double& x, double& y, double angle, double&
 // 由 tools/gen_table_domain_params.py 生成；改 tiling_specs_*.json 后须重跑该工具）。
 // 每种密铺：s,t = 一块（周期域）的格行列数（s*t=B），u=wx/s、v=hy/t 为每格世界宽/高比例；
 // p,q = 互质比例因子（p/q ≈ √(v/u)，使 (c*u)/(d*v) ≈ a/b）；Ra,Rb = 输入 a,b 须为的倍数
-//（保证 c 为 s 倍数、d 为 t 倍数且 c,d 为整数；限制倍数尽量小，≤16 保证菜单步进可用）。
+//（保证 c 为 s 倍数、d 为 t 倍数且 c,d 为整数；限制倍数尽量小，≤16 保证菜单步进可用；hex/tri
+// 还会按需要扩大 Rb，使输出 rows 保持偶数）。
 // 算法二（在线映射）：a'=ceil(a/Ra)*Ra、b'=ceil(b/Rb)*Rb；c=p·a'/q、d=q·b'/p；cols=c/s、rows=d/t。
 // 关键：c ∝ a、d ∝ b（正比例）⇒ 调"长"只改 cols、调"宽"只改 rows（完全单调、方向一致）。
 struct TableDomainParams {
     int s, t, p, q, Ra, Rb;
+    bool forceEvenRows = false;
 };
 const TableDomainParams* tableDomainParams(TilingType t) {
     static const TableDomainParams kTable[static_cast<int>(kTilingTypeCount)] = {
-        /* Square */ {}, {},
-        /* Tri */ {},
-        /* Arch33336 */ {6, 3, 2, 1, 3, 6},
-        /* Arch33434 */ {2, 6, 5, 8, 16, 15},
-        /* Arch3464 */ {3, 4, 9, 8, 8, 9},
-        /* Arch3636 */ {3, 2, 8, 5, 15, 16},
-        /* Arch31212 */ {3, 2, 8, 5, 15, 16},
-        /* Arch4612 */ {3, 4, 2, 3, 9, 8},
-        /* Arch488 */ {1, 2, 5, 7, 7, 10},
-        /* Laves3636 */ {3, 2, 8, 5, 15, 16},
-        /* Laves31212 */ {3, 4, 9, 8, 8, 9},
-        /* Laves4612 */ {2, 12, 1, 2, 4, 6},
-        /* Laves488 */ {2, 2, 1, 1, 2, 2},
-        /* Laves33434 */ {2, 4, 3, 4, 8, 3},
-        /* Laves33336 */ {3, 4, 9, 8, 8, 9},
-        /* Laves3464 */ {3, 4, 9, 8, 8, 9},
+        /* Square */ {1, 1, 1, 1, 1, 1, false},
+        /* Hex */ {1, 1, 13, 14, 14, 13, true},
+        /* Tri */ {2, 1, 4, 3, 3, 4, true},
+        /* Arch33336 */ {6, 3, 2, 1, 3, 6, false},
+        /* Arch33434 */ {2, 6, 5, 8, 16, 15, false},
+        /* Arch3464 */ {3, 4, 9, 8, 8, 9, false},
+        /* Arch3636 */ {3, 2, 8, 5, 15, 16, false},
+        /* Arch31212 */ {3, 2, 8, 5, 15, 16, false},
+        /* Arch4612 */ {3, 4, 2, 3, 9, 8, false},
+        /* Arch488 */ {1, 2, 5, 7, 7, 10, false},
+        /* Laves3636 */ {3, 2, 8, 5, 15, 16, false},
+        /* Laves31212 */ {3, 4, 9, 8, 8, 9, false},
+        /* Laves4612 */ {2, 12, 1, 2, 4, 6, false},
+        /* Laves488 */ {2, 2, 1, 1, 2, 2, false},
+        /* Laves33434 */ {2, 4, 3, 4, 8, 3, false},
+        /* Laves33336 */ {3, 4, 9, 8, 8, 9, false},
+        /* Laves3464 */ {3, 4, 9, 8, 8, 9, false},
     };
     const int i = static_cast<int>(t);
-    return (i > static_cast<int>(TilingType::Tri) && i < static_cast<int>(kTilingTypeCount))
+    return (i >= static_cast<int>(TilingType::Square) && i < static_cast<int>(kTilingTypeCount))
                ? &kTable[i]
                : nullptr;
 }
 
+int gcdInt(int a, int b) {
+    while (b != 0) {
+        const int r = a % b;
+        a = b;
+        b = r;
+    }
+    return std::abs(a);
+}
+
+int effectiveInputRowsMultiple(const TableDomainParams& prm) {
+    if (!prm.forceEvenRows) return prm.Rb;
+    // rows = (q / gcd(t,q)) * (inputHeight / Rb). If this factor is odd,
+    // double the input multiple so the resulting periodic map has even rows.
+    const int rowFactor = prm.q / gcdInt(prm.t, prm.q);
+    return (rowFactor & 1) ? prm.Rb * 2 : prm.Rb;
+}
+
 bool tableInputRestriction(int tilingType, int& ra, int& rb) {
     const TilingType t = static_cast<TilingType>(tilingType);
-    if (static_cast<int>(t) <= static_cast<int>(TilingType::Tri)) return false;
     const TableDomainParams* prm = tableDomainParams(t);
-    if (prm == nullptr) return false;
+    if (prm == nullptr || t == TilingType::Square) return false;
     ra = prm->Ra;
-    rb = prm->Rb;
+    rb = effectiveInputRowsMultiple(*prm);
     return true;
 }
 
@@ -1140,14 +1155,15 @@ void chooseTableDomain(int tilingType, int userLength, int userWidth, int& cols,
     cols = std::max(1, userLength);
     rows = std::max(1, userWidth);
     const TilingType t = static_cast<TilingType>(tilingType);
-    if (static_cast<int>(t) <= static_cast<int>(TilingType::Tri)) return;  // 方/六/三原语义
     const TableDomainParams* prm = tableDomainParams(t);
     if (prm == nullptr) return;
-    // 算法二：输入合规化（向上取整到 Ra/Rb 倍数；若菜单已限制则原样）。
-    const int Ra = prm->Ra, Rb = prm->Rb, p = prm->p, q = prm->q, s = prm->s, tt = prm->t;
+    if (t == TilingType::Square) return;  // square 的用户尺寸就是周期域尺寸。
+    // 算法二：输入合规化（四舍五入到最近的 Ra/Rb 倍数；若菜单已限制则原样）。
+    const int Ra = prm->Ra, Rb = effectiveInputRowsMultiple(*prm);
+    const int p = prm->p, q = prm->q, s = prm->s, tt = prm->t;
     auto snap = [](int v, int m, int cap) {
         const int base = std::max(1, m);
-        int r = ((v + base - 1) / base) * base;
+        int r = ((v + base / 2) / base) * base;
         if (r > cap) r = (cap / base) * base;
         return std::max(base, r);
     };

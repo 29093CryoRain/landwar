@@ -13,9 +13,13 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <vector>
 
 #include "core/Paths.h"
+#include "world/Bmp24.h"
+#include "world/TerrainCodec.h"
 #include "core/Random.h"
 #include "world/tiling/Tiling.h"
 
@@ -92,44 +96,35 @@ private:
     std::array<unsigned char, 256> perm_{};
 };
 
-// 写 BMP 的最小头部（与 Map::loadFromBmp 的 54 字节头一致）。
-void writeHeader(std::vector<unsigned char>& data, int w, int h) {
-    data[0] = 'B';
-    data[1] = 'M';
-    const unsigned size = static_cast<unsigned>(data.size());
-    std::memcpy(&data[2], &size, 4);
-    const unsigned off = 54;
-    std::memcpy(&data[10], &off, 4);
-    const unsigned ih = 40;
-    std::memcpy(&data[14], &ih, 4);
-    const int iw = w;
-    std::memcpy(&data[18], &iw, 4);
-    const int ihh = h;
-    std::memcpy(&data[22], &ihh, 4);
-    const unsigned short planes = 1;
-    std::memcpy(&data[26], &planes, 2);
-    const unsigned short bpp = 24;
-    std::memcpy(&data[28], &bpp, 2);
-}
-
 }  // namespace
 
 // 前向声明（generate 分派用；实现见文件后部）。
 static bool generateSquare(const std::string& path, std::uint32_t seed, const MapGenParams& p);
 static bool generateTiled(const std::string& path, std::uint32_t seed, const MapGenParams& p);
 
+MapGenParams normalizedParams(const MapGenParams& raw) {
+    MapGenParams p = raw;
+    p.width = std::clamp(p.width, 32, 200);
+    p.height = std::clamp(p.height, 32, 200);
+    p.seaRatio = std::clamp(p.seaRatio, 0.0, 0.90);
+    p.mountainDensity = std::clamp(p.mountainDensity, 0.0, 0.9);
+    p.cityDensity = std::clamp(p.cityDensity, 0.0, 0.9);
+    int cols = p.width, rows = p.height;
+    chooseTableDomain(static_cast<int>(p.tiling), p.width, p.height, cols, rows);
+    p.width = cols;
+    p.height = rows;
+    return p;
+}
+
 std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p) {
-    char buf[192];
-    // 2026-08 工程改进：生成物入 userdata/maps/（运行期产物，不进版本库）。
-    if (p.tiling == TilingType::Square) {
-        std::snprintf(buf, sizeof(buf), "%s/gen_%u_%dx%d_%.2f_%.2f_%.2f.bmp", kGeneratedMapDir, seed,
-                      p.width, p.height, p.seaRatio, p.mountainDensity, p.cityDensity);
-    } else {
-        std::snprintf(buf, sizeof(buf), "%s/gen_%u_%s_%dx%d_%.2f_%.2f_%.2f.lwmap",
-                      kGeneratedMapDir, seed, tilingName(p.tiling), p.width, p.height, p.seaRatio,
-                      p.mountainDensity, p.cityDensity);
-    }
-    return buf;
+    const MapGenParams n = normalizedParams(p);
+    std::ostringstream key;
+    key << kGeneratedMapDir << "/gen_" << seed << "_" << tilingName(n.tiling) << "_"
+        << n.width << "x" << n.height << "_sea" << std::fixed << std::setprecision(9)
+        << n.seaRatio << "_mtn" << n.mountainDensity << "_city" << n.cityDensity
+        << "_coast" << (n.forceCoast ? 1 : 0)
+        << (n.tiling == TilingType::Square ? ".bmp" : ".lwmap");
+    return key.str();
 }
 
 bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const MapGenParams& raw) {
@@ -141,29 +136,7 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
         spdlog::error("map generate: cannot create dir '{}'", dir);
         return false;
     }
-    MapGenParams p = raw;
-    p.width = std::clamp(p.width, 32, 200);
-    p.height = std::clamp(p.height, 32, 200);
-    p.seaRatio = std::clamp(p.seaRatio, 0.0, 0.90);  // 0 = 全陆地；0.9 = 陆地占比下界 0.1（2026-08-06）
-    p.mountainDensity = std::clamp(p.mountainDensity, 0.0, 0.9);
-    p.cityDensity = std::clamp(p.cityDensity, 0.0, 0.9);
-    // P12：六/三角行数 clamp 到偶数（垂直环绕闭合必需，见开发计划 P12 §2.3）。
-    // 半正/Laves 表驱动用矩形周期域，任意行数均可。
-    if ((p.tiling == TilingType::Hex || p.tiling == TilingType::Tri) && (p.height & 1))
-        --p.height;
-    // P12（2026-08 用户拍板）：三角**列数减半**——width 语义 = 视觉列数（每行三角数），
-    // 生成时列对数 = width/2 → cellCount = width×height 与方形一致；并强制列数为偶数
-    // （(x/2)&~1：105→52、106→52、108→54）。与 Map::configure 同一公式（lwmap 尺寸匹配）。
-    if (p.tiling == TilingType::Tri) {
-        p.width = (p.width / 2) & ~1;
-    } else if (static_cast<int>(p.tiling) > static_cast<int>(TilingType::Tri)) {
-        // 半正/Laves：用户长*宽 = 总格数。周期域列/行按“实际视觉宽高比尽量接近
-        // 用户长/宽比”选择（与 Map::configure 同一函数，lwmap 头尺寸匹配）。
-        int dc = p.width, dr = p.height;
-        chooseTableDomain(static_cast<int>(p.tiling), p.width, p.height, dc, dr);
-        p.width = dc;
-        p.height = dr;
-    }
+    MapGenParams p = normalizedParams(raw);
 
     if (p.tiling == TilingType::Square) return generateSquare(path, seed, p);
     return generateTiled(path, seed, p);
@@ -306,15 +279,9 @@ static bool generateSquare(const std::string& path, std::uint32_t seed, const Ma
     }
 
     // ⑤ 编码像素 → 写 BMP（文件行 j = 世界行 j，与 Map::loadFromBmp 逐行对齐）。
-    const int rowsize = w * 3 + 1;
-    std::vector<unsigned char> data(54 + static_cast<size_t>(h) * rowsize, 0);
-    writeHeader(data, w, h);
-    const auto enc = [](double p) -> unsigned char {
-        int v = 128 + static_cast<int>(std::lround(127.0 * p));
-        return static_cast<unsigned char>(std::clamp(v, 128, 255));
-    };
+    std::vector<std::array<unsigned char, 3>> pixels(static_cast<size_t>(w) * h);
+    const Config::Terrain terrainConfig{};
     for (int y = 0; y < h; ++y) {
-        size_t rowStart = 54 + static_cast<size_t>(y) * rowsize;
         for (int x = 0; x < w; ++x) {
             const size_t idx = static_cast<size_t>(y) * w + x;
             unsigned char R, G, B;
@@ -327,25 +294,16 @@ static bool generateSquare(const std::string& path, std::uint32_t seed, const Ma
                     pCity = p.cityDensity * static_cast<double>(landCount) *
                             cityWeight[idx] / cityWeightSum;
                 }
-                G = enc(std::min(pCity, 1.0));
-                B = 32;  // 闲置通道；须 ≥ seaChannelMin(32) 才不判海
+                G = terrain::encodeProbability(pCity, terrainConfig);
+                B = static_cast<unsigned char>(terrainConfig.seaChannelMin);
             }
-            data[rowStart + static_cast<size_t>(x) * 3 + 0] = B;
-            data[rowStart + static_cast<size_t>(x) * 3 + 1] = G;
-            data[rowStart + static_cast<size_t>(x) * 3 + 2] = R;
+            pixels[static_cast<size_t>(y) * w + x] = {R, G, B};
         }
-        // 行尾 1 字节填充保持 0（与读取器 width*3+1 对齐）。
     }
 
-    std::ofstream ofs(path, std::ios::binary);
-    if (!ofs.is_open()) {
-        spdlog::error("MapGenerator: cannot open '{}' for write", path);
-        return false;
-    }
-    ofs.write(reinterpret_cast<const char*>(data.data()),
-              static_cast<std::streamsize>(data.size()));
-    if (!ofs) {
-        spdlog::error("MapGenerator: write to '{}' failed", path);
+    std::string error;
+    if (!writeBmp24(path, w, h, pixels, &error)) {
+        spdlog::error("MapGenerator: '{}' write failed: {}", path, error);
         return false;
     }
     spdlog::info("MapGenerator: '{}' written ({}x{}, sea {:.2f}, mtn {:.2f}, city {:.2f})", path, w,
@@ -523,10 +481,7 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     };
     push32(g.cols);
     push32(g.rows);
-    const auto enc = [](double pp) -> unsigned char {
-        int v = 128 + static_cast<int>(std::lround(127.0 * pp));
-        return static_cast<unsigned char>(std::clamp(v, 128, 255));
-    };
+    const Config::Terrain terrainConfig{};
     for (int idx = 0; idx < cellCount; ++idx) {
         unsigned char R, G, B;
         if (!land[static_cast<size_t>(idx)]) {
@@ -537,8 +492,8 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
             if (cityWeightSum > 0.0)
                 pCity = p.cityDensity * static_cast<double>(landCount)
                         * cityWeight[static_cast<size_t>(idx)] / cityWeightSum;
-            G = enc(std::min(pCity, 1.0));
-            B = 32;  // 闲置通道；须 ≥ seaChannelMin(32) 才不判海
+            G = terrain::encodeProbability(pCity, terrainConfig);
+            B = static_cast<unsigned char>(terrainConfig.seaChannelMin);
         }
         data.push_back(B);
         data.push_back(G);

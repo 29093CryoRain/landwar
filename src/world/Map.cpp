@@ -9,6 +9,8 @@
 #include <map>
 
 #include "core/MathUtil.h"
+#include "world/Bmp24.h"
+#include "world/TerrainCodec.h"
 
 namespace lw {
 
@@ -18,12 +20,6 @@ constexpr int kCapitalMaxAttempts = 1000000;
 
 // 概率 ramp：p = clamp((channel - probFloor) / probScale, 0, 1)。
 // channel <= floor → 0；channel == floor+scale → 1（线性）。山用 R、城用 G 通道。
-double rampProb(int channel, const Config::Terrain& t) {
-    if (channel <= t.probFloor) return 0.0;
-    const double p = static_cast<double>(channel - t.probFloor) / t.probScale;
-    return std::min(p, 1.0);
-}
-
 }  // namespace
 
 double Map::sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set, Rng& rng) {
@@ -93,48 +89,30 @@ void Map::clear() {
 }
 
 void Map::configure(const Config::Map& cfg) {
-    // P12：密铺几何。六/三角行数 clamp 到偶数（垂直环绕闭合必需，见 P12 §2.3）；
-    // 三角列数减半（width 语义 = 视觉列数，列对数 = width/2）并强制偶，与
-    // MapGenerator::generate 同一公式（否则 lwmap 头尺寸不匹配）；width_/height_ 统一为
-    // clamp 后值（width() == geom_.cols、height() == geom_.rows，首都采样等使用点一致）。
+    // P12/Phase 2：所有密铺统一先把用户长宽映射到周期域列/行；square 为恒等映射。
+    // hex/tri 的映射参数同时保证垂直周期闭合所需的偶数行。
     int cols = cfg.width;
     int rows = cfg.height;
-    if (cfg.tilingType() == TilingType::Tri) {
-        cols = (cols / 2) & ~1;
-    } else if (static_cast<int>(cfg.tilingType()) > static_cast<int>(TilingType::Tri)) {
-        // 半正/Laves 表驱动：用户长*宽 = 总格数。周期域列/行按“实际视觉宽高比
-        // 尽量接近用户长/宽比”选择（chooseTableDomain），避免旧方案（列=长/B）出现
-        // “设 200×32 实际却宽>高”，也避免简单“列=长”把图拉成过宽的条带。
-        chooseTableDomain(static_cast<int>(cfg.tilingType()), cfg.width, cfg.height, cols, rows);
-    }
-    // 六/三角行数须为偶数（垂直环绕闭合）；半正/Laves 表驱动用矩形周期域，任意行数均可。
-    if ((cfg.tilingType() == TilingType::Hex || cfg.tilingType() == TilingType::Tri)
-        && (rows & 1))
-        --rows;
+    chooseTableDomain(static_cast<int>(cfg.tilingType()), cfg.width, cfg.height, cols, rows);
     cols = std::max(1, cols);
     rows = std::max(1, rows);
     width_ = cols;
     height_ = rows;
-    blockSize_ = cfg.blockSize;
-    panelWidth_ = cfg.panelWidth;
     capitalMinDistance_ = cfg.capitalMinDistance;
     geom_ = TilingGeom{cfg.tilingType(), cols, rows};
     clear();
 }
 
 bool Map::loadFromBmp(const std::string& path, Rng& rng) {
-    std::ifstream ifs(path, std::ios::binary);
-    // MinGW：文件不存在须用 is_open() 判断（Phase 1 已踩坑）。
-    if (!ifs.is_open()) {
-        spdlog::error("map file '{}' not found", path);
+    Bmp24Image image;
+    std::string error;
+    if (!readBmp24(path, image, &error)) {
+        spdlog::error("map file '{}': {}", path, error);
         return false;
     }
-
-    // 54 字节 BMP 头（BITMAPFILEHEADER + BITMAPINFOHEADER，已核实 offBits=54）。
-    char header[54];
-    ifs.read(header, 54);
-    if (ifs.gcount() != 54) {
-        spdlog::error("map file '{}': header truncated", path);
+    if (image.width != width_ || image.height != height_) {
+        spdlog::error("map file '{}': size mismatch ({}x{} vs {}x{})", path, image.width,
+                      image.height, width_, height_);
         return false;
     }
 
@@ -143,24 +121,13 @@ bool Map::loadFromBmp(const std::string& path, Rng& rng) {
     std::vector<CellChannels> ch(static_cast<size_t>(cellCount()));
     for (int j = 0; j < height_; ++j) {
         for (int i = 0; i < width_; ++i) {
-            unsigned char bgr[3];
-            ifs.read(reinterpret_cast<char*>(bgr), 3);
-            if (ifs.gcount() != 3) {
-                spdlog::error("map file '{}': pixel data truncated at ({},{})", path, i, j);
-                return false;
-            }
-            const bool sea = std::min({bgr[2], bgr[1], bgr[0]}) < terrain_.seaChannelMin;
+            const auto& rgb = image.pixels[static_cast<size_t>(j) * width_ + i];
+            const bool sea = terrain::isSea(rgb[0], rgb[1], rgb[2], terrain_);
             // P13 关键：第一遍即确定全图海陆（置 cell.land）。否则第二遍逐格时才设 land，
             // 多格形状要检查的"未来格"（同行右侧/下方行）land 仍是 clear 默认 false，
             // 放置恒失败回退 1 级（2026-08-07 修：测试暴露多格城市全部塌缩为 1 级）。
             at(i, j).land = !sea;
-            ch[static_cast<size_t>(j) * width_ + i] = {sea, bgr[1], bgr[2]};
-        }
-        char pad;
-        ifs.read(&pad, 1);
-        if (ifs.gcount() != 1) {
-            spdlog::error("map file '{}': row padding truncated at row {}", path, j);
-            return false;
+            ch[static_cast<size_t>(j) * width_ + i] = {sea, rgb[1], rgb[0]};
         }
     }
 
@@ -225,7 +192,7 @@ bool Map::loadFromLwmap(const std::string& path, Rng& rng) {
             spdlog::error("lwmap file '{}': data truncated at cell {}", path, idx);
             return false;
         }
-        const bool sea = std::min({bgr[2], bgr[1], bgr[0]}) < terrain_.seaChannelMin;
+        const bool sea = terrain::isSea(bgr[2], bgr[1], bgr[0], terrain_);
         atIndex(idx).land = !sea;
         ch[static_cast<size_t>(idx)] = {sea, bgr[1], bgr[2]};
     }
@@ -255,8 +222,8 @@ void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
         cell.mountain = false;
         cell.cityId = -1;
         if (cc.sea) continue;
-        cell.cityAllowed = rampProb(cc.g, terrain_) > 0.0;
-        cell.mountain = rng.chance(rampProb(cc.r, terrain_));
+        cell.cityAllowed = terrain::ramp(cc.g, terrain_) > 0.0;
+        cell.mountain = rng.chance(terrain::ramp(cc.r, terrain_));
     }
     correctMountainCoast();  // 邻海修正：山只出现在不与海相邻的陆地上
 
@@ -268,7 +235,7 @@ void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
     landCells.reserve(static_cast<size_t>(n));
     for (int idx = 0; idx < n; ++idx) {
         if (ch[static_cast<size_t>(idx)].sea) continue;
-        totalP += rampProb(ch[static_cast<size_t>(idx)].g, terrain_);
+        totalP += terrain::ramp(ch[static_cast<size_t>(idx)].g, terrain_);
         if (atIndex(idx).cityAllowed) landCells.push_back(idx);
     }
     const int totalAttempts = static_cast<int>(std::lround(totalP));
@@ -609,25 +576,13 @@ bool Map::placeCapitals(Rng& rng) {
     return true;
 }
 
-// 格坐标 (c, r) → 格下标（P12；方 = r*width+c；六 = r*cols+c；三 = 正三角锚 2*(r*cols+c)；
-// 半正/Laves = (r*cols+c)*B（基础格 0））。
+// 格坐标 (c, r) → 格下标（统一委托 TilingGeom；b=0 为正方/六边形唯一格或三角正格）。
 int Map::cellIndexAt(int c, int r) const {
-    if (geom_.type == TilingType::Tri) return 2 * (r * geom_.cols + c);
-    if (static_cast<int>(geom_.type) > static_cast<int>(TilingType::Tri))
-        return (r * geom_.cols + c) * geom_.baseCount();
-    return r * geom_.cols + c;
+    return geom_.cellIndexAt(r, c, 0);
 }
 
 int Map::cellIndexAt(int c, int r, int b) const {
-    if (geom_.type == TilingType::Tri) return 2 * (r * geom_.cols + c) + (b & 1);
-    if (static_cast<int>(geom_.type) > static_cast<int>(TilingType::Tri))
-        return geom_.cellIndexAt(r, c, b);
-    return r * geom_.cols + c;
-}
-
-void Map::finalize() {
-    // P13：城市数 = 注册表大小（城市实体数，非格子数）。基建格全在陆地（放置时校验），
-    // 无海上城市 → 原清理步骤消失。旧经济公式 totalCities 语义随之变为"城市实体数比"。
+    return geom_.cellIndexAt(r, c, b);
 }
 
 // 形状 → 基建格下标（level 查密铺形状表；锚点 index 为形状原点；variant < 0 时按锚点
@@ -642,48 +597,22 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex, int variant) con
     const Config::City::Shape* sh = set.shapeFor(level, v);
     if (!sh || anchorIndex < 0 || anchorIndex >= cellCount()) return out;
     out.reserve(sh->cells.size());
-    if (geom_.type == TilingType::Square) {
-        int ax, ay;
-        if (geom_.cols > 0) {
-            ax = anchorIndex % geom_.cols;
-            ay = anchorIndex / geom_.cols;
-        } else {
-            ax = ay = 0;
-        }
-        for (const auto& sc : sh->cells) {
-            // 界内校验（旧 canPlaceCity 的 baseX+w>width 语义）：越界格 → -1。
-            const int x = ax + static_cast<int>(sc.dx);
-            const int y = ay + static_cast<int>(sc.dy);
-            if (x < 0 || x >= geom_.cols || y < 0 || y >= geom_.rows) {
-                out.push_back(-1);
-                continue;
-            }
-            out.push_back(y * geom_.cols + x);
-        }
-    } else {
-        double ax, ay;
-        cellCenter(anchorIndex, ax, ay);
-        // 三角：锚朝向决定形状变体（用户 2026-08 定稿：L1/L4 有正/反两种模式，其余同形）。
-        // 形状表按"正锚模式"定义；锚为反三角（奇下标）时对 dy 垂直镜像（orient 随之翻转），
-        // 偏移点即目标格中心 → worldToCell 稳定解析。六边形（轴向偏移）与锚朝向无关。
-        // 半正/Laves：形状表按"目标格中心 − 锚格中心"的世界偏移存储（平移不变，方案A 已烘焙
-        // 世界帧）；锚格朝向已由数据（baseGroups/anchorBases）保证，运行时不需再旋转/镜像。
-        const bool anchorUp = (geom_.type == TilingType::Tri) ? ((anchorIndex & 1) == 0) : true;
-        for (const auto& sc : sh->cells) {
-            double wx, wy;
-            if (geom_.type == TilingType::Hex) {
-                wx = ax + TilingGeom::kHexColSpacing * (sc.dx + 0.5 * sc.dy);
-                wy = ay + TilingGeom::kHexRowSpacing * sc.dy;
-            } else if (geom_.type == TilingType::Tri) {
-                wx = ax + sc.dx * TilingGeom::kTriSide;
-                wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
-            } else {  // 半正/Laves：cells 已是世界坐标（2026-08-26 方案A 烘入，数据已覆盖
-                       // 锚格朝向；不再 applyAnchorOrientation）。
-                wx = ax + sc.dx;
-                wy = ay + sc.dy;
-            }
-            out.push_back(geom_.worldToCell(wx, wy));
-        }
+    return resolveShapeCells(*sh, anchorIndex);
+}
+
+// P1.2：统一形状解析。所有密铺 cells 都是相对锚格中心的世界偏移；
+// 三角反锚时镜像 dy（形状表按正锚模式定义）。
+std::vector<int> Map::resolveShapeCells(const Config::City::Shape& sh, int anchorIndex) const {
+    std::vector<int> out;
+    if (anchorIndex < 0 || anchorIndex >= cellCount()) return out;
+    out.reserve(sh.cells.size());
+    double ax, ay;
+    cellCenter(anchorIndex, ax, ay);
+    const bool anchorUp = (geom_.type == TilingType::Tri) ? ((anchorIndex & 1) == 0) : true;
+    for (const auto& sc : sh.cells) {
+        const double wx = ax + sc.dx;
+        const double wy = ay + (anchorUp ? sc.dy : -sc.dy);
+        out.push_back(geom_.worldToCell(wx, wy));
     }
     return out;
 }
@@ -712,8 +641,7 @@ void Map::cityCenter(const City& c, double& wx, double& wy) const {
 }
 
 // P12：重算全部城市的 baseIndex/几何中心（快照读档后调用；方 = baseX+w/2 同旧式）。
-void Map::recomputeCityGeometry() {
-    for (City& c : cities_) {
+void Map::updateCityGeometry(City& c) {
         if (geom_.type == TilingType::Square) {
             c.baseIndex = c.baseY * geom_.cols + c.baseX;
             c.w = 1;
@@ -751,7 +679,10 @@ void Map::recomputeCityGeometry() {
             c.w = std::max(1, static_cast<int>(std::lround((maxX - minX) + 1.0)));
             c.h = std::max(1, static_cast<int>(std::lround((maxY - minY) + 1.0)));
         }
-    }
+}
+
+void Map::recomputeCityGeometry() {
+    for (City& c : cities_) updateCityGeometry(c);
 }
 
 int Map::addCity(double level, int index, Rng* rng) {
@@ -790,34 +721,9 @@ int Map::addCity(double level, int index, Rng* rng) {
     const std::vector<int> cells = shapeCells(level, index, variant);
     for (int idx : cells)
         if (idx >= 0) atIndex(idx).cityId = id;
-    // 几何中心 + AABB（显示用：方 = w×h 形状；六/三 = 形状格中心世界包围盒折算列/行）。
+    // 几何中心/AABB 由新城与读档共用同一套规则。
     City& city = cities_.emplace_back(std::move(c));
-    double cx0, cy0;
-    cityCenter(city, cx0, cy0);
-    city.centerX_ = cx0;
-    city.centerY_ = cy0;
-    if (geom_.type == TilingType::Square) {
-        int w = 1, h = 1;
-        for (const auto& sc : sh->cells) {
-            w = std::max(w, static_cast<int>(sc.dx) + 1);
-            h = std::max(h, static_cast<int>(sc.dy) + 1);
-        }
-        city.w = w;
-        city.h = h;
-    } else {
-        double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
-        for (int idx : cells) {
-            if (idx < 0) continue;
-            double ccx, ccy;
-            cellCenter(idx, ccx, ccy);
-            minX = std::min(minX, ccx);
-            maxX = std::max(maxX, ccx);
-            minY = std::min(minY, ccy);
-            maxY = std::max(maxY, ccy);
-        }
-        city.w = std::max(1, static_cast<int>(std::lround(maxX - minX + 1.0)));
-        city.h = std::max(1, static_cast<int>(std::lround(maxY - minY + 1.0)));
-    }
+    updateCityGeometry(city);
     return id;
 }
 
@@ -850,41 +756,8 @@ std::vector<int> Map::placeableVariants(double level, int index, bool requireAll
             const int b = index % std::max(1, geom_.baseCount());
             if (b < 0 || b >= 31 || (sh->anchorBaseMask & (1u << b)) == 0) continue;
         }
-        // 用该变体解析形状格（shapeCells 按锚点取第一变体，这里需逐变体直接解析）。
-        std::vector<int> cells;
-        cells.reserve(sh->cells.size());
-        if (geom_.type == TilingType::Square) {
-            const int ax = index % geom_.cols, ay = index / geom_.cols;
-            for (const auto& sc : sh->cells) {
-                const int x = ax + static_cast<int>(sc.dx);
-                const int y = ay + static_cast<int>(sc.dy);
-                if (x < 0 || x >= geom_.cols || y < 0 || y >= geom_.rows) {
-                    cells.push_back(-1);
-                } else {
-                    cells.push_back(y * geom_.cols + x);
-                }
-            }
-        } else {
-            double ax, ay;
-            cellCenter(index, ax, ay);
-            const bool anchorUp = (geom_.type == TilingType::Tri) ? ((index & 1) == 0) : true;
-            for (const auto& sc : sh->cells) {
-                double wx, wy;
-                if (geom_.type == TilingType::Hex) {
-                    wx = ax + TilingGeom::kHexColSpacing * (sc.dx + 0.5 * sc.dy);
-                    wy = ay + TilingGeom::kHexRowSpacing * sc.dy;
-                } else if (geom_.type == TilingType::Tri) {
-                    wx = ax + sc.dx * TilingGeom::kTriSide;
-                    wy = ay + (anchorUp ? sc.dy : -sc.dy) * TilingGeom::kTriAlt;
-                } else {
-                    // 半正/Laves：cells 已是世界坐标（2026-08-26 方案A 烘入，数据已覆盖
-                    // 锚格朝向；不再 applyAnchorOrientation）。
-                    wx = ax + sc.dx;
-                    wy = ay + sc.dy;
-                }
-                cells.push_back(geom_.worldToCell(wx, wy));
-            }
-        }
+        // 用统一解析器逐变体解析形状格（shapeCells 也走同一 helper）。
+        const std::vector<int> cells = resolveShapeCells(*sh, index);
         bool ok = true;
         for (int idx : cells) {
             if (idx < 0) { ok = false; break; }  // 界内（含环绕图不跨接缝）

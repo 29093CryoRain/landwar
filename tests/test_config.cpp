@@ -12,6 +12,7 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.map.blockSize, 15);
     EXPECT_EQ(cfg.map.panelWidth, 600);
     EXPECT_NEAR(cfg.army.baseSpeed, 0.3, 1e-12);
+    EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 1.7 / 20000.0, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);
     EXPECT_EQ(cfg.units[1].cost, 3.97);
@@ -78,8 +79,8 @@ TEST(Config, Defaults) {
 
 TEST(Config, JsonOverrides) {
     const char* json = R"({
-        "map": { "width": 200, "height": 150, "blockSize": 20 },
-        "army": { "baseSpeed": 0.5 },
+        "map": { "blockSize": 20 },
+        "army": { "baseSpeed": 0.5, "bounceJitterRangeRad": 0.07 },
         "units": [ { "type": "laser", "cost": 99.0 } ],
         "factions": [ { "id": 1, "color": [1,2,3], "secondary": [4,5,6],
                         "unitPreference": { "normal": 2.5 } } ],
@@ -88,10 +89,9 @@ TEST(Config, JsonOverrides) {
         "economy": { "initialEconomy": 5.0, "perLandIncome": 0.5, "cityBaseMult": 3.0 }
     })";
     const lw::Config cfg = lw::Config::loadFromJson(json);
-    EXPECT_EQ(cfg.map.width, 200);
-    EXPECT_EQ(cfg.map.height, 150);
     EXPECT_EQ(cfg.map.blockSize, 20);
     EXPECT_NEAR(cfg.army.baseSpeed, 0.5, 1e-12);
+    EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.07, 1e-12);
     EXPECT_NEAR(cfg.units[3].cost, 99.0, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);  // 未覆盖的保持默认
     EXPECT_EQ(cfg.factions[1].color[0], 1);
@@ -148,9 +148,11 @@ TEST(Config, LoadsDataFile) {
     // 从项目根运行（ctest 的 WORKING_DIRECTORY 已设为源码根）。
     const lw::Config cfg = lw::Config::loadFromFile("data/config.json");
     EXPECT_EQ(cfg.map.width, 105);
+    EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 0.000085, 1e-9);
     EXPECT_NEAR(cfg.sea.goSeaChanceDenominator, 17700.0, 1e-9);
     EXPECT_EQ(cfg.factions.size(), 9u);
+    EXPECT_EQ(cfg.tech.techs.size(), 21u);  // techs.json 已合并
     EXPECT_EQ(cfg.factions[1].unitPreference[0], 2.0);  // 数据文件红 normal 偏好 2
     EXPECT_NEAR(cfg.factions[3].seaMult, 0.666, 1e-9);
     // 双色系统（⑫）：数据文件 id0 = 深灰主色 + 浅灰副色；id1 副色 = 浅灰。
@@ -166,6 +168,32 @@ TEST(Config, MissingFileFallsBackToDefaults) {
     const lw::Config cfg = lw::Config::loadFromFile("data/no_such_config.json");
     EXPECT_EQ(cfg.map.width, 105);
     EXPECT_EQ(cfg.factions.size(), 9u);
+}
+
+TEST(Config, InvalidNumericValuesFallBackToDefaults) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "effect": { "bomb": { "conquerEveryTicks": 0 } },
+        "sim": { "tickRate": 0 }
+    })");
+    EXPECT_EQ(cfg.effect.bomb.conquerEveryTicks, 2);
+    EXPECT_DOUBLE_EQ(cfg.sim.tickRate, 60.0);
+}
+
+TEST(Config, InvalidTypesFallBackToDefaults) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "units": [{ "type": "normal", "cost": "not-a-number" }],
+        "factions": [{ "id": 1, "color": [1, "bad", 3] }]
+    })");
+    EXPECT_DOUBLE_EQ(cfg.units[0].cost, 1.0);
+    EXPECT_EQ(cfg.factions[1].color, (std::array<int, 3>{255, 0, 0}));
+}
+
+TEST(Config, ValidateReportsInvalidRuntimeState) {
+    lw::Config cfg = lw::Config::loadFromJson("{}");
+    cfg.sim.tickRate = 0.0;
+    std::string err;
+    EXPECT_FALSE(cfg.validate(&err));
+    EXPECT_NE(err.find("simulation"), std::string::npos);
 }
 
 TEST(Config, NewTilingCitySetsRoundTrip) {
@@ -195,5 +223,28 @@ TEST(Config, NewTilingCitySetsRoundTrip) {
     EXPECT_NEAR(backSet.shapes[2].cells[2].dy, 1.5, 1e-12);
     EXPECT_EQ(backSet.shapes[2].anchorBaseMask, (1u << 3) | (1u << 7));
 }
+
+TEST(Config, CityShapesFileProvidesSquareHexTri) {
+    // P1.2：square/hex/tri 形状表从 data/city_shapes.json 加载，cells 为世界偏移。
+    const lw::Config cfg = lw::Config::loadFromJson("{}");
+    ASSERT_EQ(cfg.city.square.levels.size(), 5u);
+    ASSERT_EQ(cfg.city.square.shapes.size(), 5u);
+    ASSERT_GE(cfg.city.square.shapes[1].cells.size(), 2u);
+    EXPECT_NEAR(cfg.city.square.shapes[1].cells[1].dx, 0.0, 1e-12);
+    EXPECT_NEAR(cfg.city.square.shapes[1].cells[1].dy, 1.0, 1e-12);  // 1×2：第二格在下方
+
+    ASSERT_EQ(cfg.city.hex.levels.size(), 6u);
+    ASSERT_EQ(cfg.city.hex.shapes.size(), 6u);
+    ASSERT_GE(cfg.city.hex.shapes[1].cells.size(), 3u);
+    EXPECT_NEAR(cfg.city.hex.shapes[1].cells[1].dx, -0.5372849659117709, 1e-12);
+    EXPECT_NEAR(cfg.city.hex.shapes[1].cells[1].dy, -0.9306048591020997, 1e-12);
+
+    ASSERT_EQ(cfg.city.tri.levels.size(), 5u);
+    ASSERT_EQ(cfg.city.tri.shapes.size(), 5u);
+    ASSERT_GE(cfg.city.tri.shapes[1].cells.size(), 2u);
+    EXPECT_NEAR(cfg.city.tri.shapes[1].cells[1].dx, 0.0, 1e-12);
+    EXPECT_NEAR(cfg.city.tri.shapes[1].cells[1].dy, -0.8773826753016616, 1e-12);
+}
+
 
 }  // namespace

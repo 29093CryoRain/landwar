@@ -15,7 +15,7 @@ struct CliOptions {
     bool seedSet = false;     // 是否显式指定 --seed（未指定 → 用 Rng::randomSeed() 随机）
     std::uint32_t mapSeed = 0;  // P6：--map-seed 地图种子（mapSeedSet=true 时生效；默认 = 主种子）
     bool mapSeedSet = false;    // 是否显式指定 --map-seed
-    int ticks = 20000;        // 步进逻辑帧数（默认 20000，Phase 9 回归基线）
+    int ticks = 1000;         // 步进逻辑帧数（默认烟测长度）
     double speed = 1.0;       // 倍速（窗口模式渲染节奏用；无头直接步进、忽略）
     std::string configPath;   // 空 = data/config.json
     std::string mapPath;      // 覆盖 config.map.file

@@ -19,7 +19,10 @@ class MockRng final : public lw::Rng {
 public:
     std::vector<bool> results;
     std::size_t next = 0;
+    std::vector<double> units;
+    std::size_t nextUnit = 0;
     bool chance(double) override { return next < results.size() ? results[next++] : false; }
+    double unit() override { return nextUnit < units.size() ? units[nextUnit++] : 0.5; }
 };
 
 inline lw::Config loadCfg() {
@@ -29,13 +32,13 @@ inline lw::Config loadCfg() {
 // 写一张 105×95 地形基图测试 BMP（P5 改版编码）：
 //   默认普通陆 (128,128,128)；mountains 涂 (255,32,32)（r=255 → 确定性山）；
 //   cityZones 涂 (32,200,32)（g=200 → 城概率≈0.57）；seas 涂 (0,0,0)。
-// 与 C++ 读取器一致：54 头 + 每行 316 字节（1 字节行填充）+ BGR + 自底向上。
+// 与 C++ 读取器一致：54 头 + 标准 4 字节对齐行 + BGR + 自底向上。
 // 用途：让地图相关测试不依赖 data/ 下随时可能被删除/改动的具体地图文件。
 inline void writeTestMapBmp(const std::string& path,
                             const std::vector<std::pair<int, int>>& mountains,
                             const std::vector<std::pair<int, int>>& cityZones,
                             const std::vector<std::pair<int, int>>& seas = {}) {
-    constexpr int W = 105, H = 95, ROWSIZE = W * 3 + 1;
+    constexpr int W = 105, H = 95, ROWSIZE = (W * 3 + 3) & ~3;
     std::vector<unsigned char> data(static_cast<std::size_t>(54 + H * ROWSIZE), 0);
     data[0] = 'B';
     data[1] = 'M';

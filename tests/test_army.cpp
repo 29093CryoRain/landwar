@@ -173,6 +173,21 @@ TEST(Movement, GoToSeaBouncesWhenChanceFails) {
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);  // 反弹角 + 随机小偏置
 }
 
+TEST(Movement, BounceJitterUsesConfiguredUnitRange) {
+    TestWorld w(5, 5);
+    for (int y = 0; y < 5; ++y)
+        for (int x = 0; x < 5; ++x) {
+            w.map.at(x, y).land = true;
+            w.map.at(x, y).belongi = 1;
+        }
+    auto e = addArmy(w, 0.2, 2.5, 1, ArmyType::normal, kPi, 0.3, true);
+    w.rng.units = {0.0};  // 反弹偏置取下界 -rangeRad。
+    moveOnce(w, e);
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle,
+                -w.cfg.army.bounceJitterRangeRad, 1e-12);
+    EXPECT_EQ(w.rng.nextUnit, 1u);
+}
+
 TEST(Movement, LandingFromSeaRestoresSpeed) {
     TestWorld w(5, 5);
     w.map.at(2, 1).land = true;

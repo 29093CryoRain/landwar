@@ -24,7 +24,8 @@ struct Selection {
     enum class Kind { None, Army, Cell };
     Kind kind = Kind::None;
     entt::entity army = entt::null;  // Kind::Army：选中的兵实体
-    int cellX = 0, cellY = 0;        // Kind::Cell：选中的世界网格坐标
+    int cellIndex = -1;              // Kind::Cell：选中的密铺格下标（唯一身份）
+    int cellX = 0, cellY = 0;        // Kind::Cell：选中的世界网格坐标（展示用）
 };
 
 // 一帧内的输入动作意图（Application 消费并应用）。

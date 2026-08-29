@@ -37,6 +37,7 @@
 #include "core/Config.h"
 #include "core/GameDefs.h"
 #include "ui/ImGuiSetup.h"
+#include "world/Map.h"
 #include "world/tiling/CityIconFitter.h"
 #include "world/tiling/Tiling.h"
 
@@ -179,42 +180,21 @@ std::string itemKey(const Item& it) {
            + std::to_string(it.shapeIndex) + "|" + std::to_string(it.anchorB);
 }
 
-// 按 Map::shapeCells 的非方形规则解析出实际格下标。失败返回 false。
-bool resolveCityCells(const lw::TilingGeom& geom, const lw::Config::City::Shape& sh,
-                      const Item& it, std::vector<int>& cells) {
-    const int anchorIndex = geom.cellIndexAt(kAnchorR, kAnchorC, it.anchorB);
+// 直接复用游戏 Map 的形状解析，保证工具与运行时共享 cells 的世界偏移协议。
+bool resolveCityCells(const lw::Map& map, const Item& it, std::vector<int>& cells) {
+    const int anchorIndex = map.cellIndexAt(kAnchorC, kAnchorR, it.anchorB);
     if (anchorIndex < 0) return false;
-    double ax = 0.0, ay = 0.0;
-    geom.cellCenter(anchorIndex, ax, ay);
-    cells.clear();
-    cells.reserve(sh.cells.size());
-    for (const auto& sc : sh.cells) {
-        double wx = 0.0, wy = 0.0;
-        if (geom.type == lw::TilingType::Hex) {
-            wx = ax + lw::TilingGeom::kHexColSpacing * (sc.dx + 0.5 * sc.dy);
-            wy = ay + lw::TilingGeom::kHexRowSpacing * sc.dy;
-        } else if (geom.type == lw::TilingType::Tri) {
-            const bool anchorUp = (anchorIndex & 1) == 0;
-            wx = ax + sc.dx * lw::TilingGeom::kTriSide;
-            wy = ay + (anchorUp ? sc.dy : -sc.dy) * lw::TilingGeom::kTriAlt;
-        } else {
-            // cells 已是世界坐标（2026-08-26 方案A 烘入），锚格朝向由数据保证，不再旋转。
-            wx = ax + sc.dx;
-            wy = ay + sc.dy;
-        }
-        const int idx = geom.worldToCell(wx, wy);
-        if (idx < 0) return false;
-        cells.push_back(idx);
-    }
-    return true;
+    cells = map.shapeCells(it.level, anchorIndex, it.variantIndex);
+    return !cells.empty()
+           && std::all_of(cells.begin(), cells.end(), [](int index) { return index >= 0; });
 }
 
-bool buildCurrentView(const Item& it, const lw::TilingGeom& geom,
-                      const lw::Config::City::Shape& sh, CurrentView& v) {
+bool buildCurrentView(const Item& it, const lw::Map& map, CurrentView& v) {
+    const auto& geom = map.geom();
     v.cells.clear();
     v.polys.clear();
     v.boundaryEdges.clear();
-    if (!resolveCityCells(geom, sh, it, v.cells)) return false;
+    if (!resolveCityCells(map, it, v.cells)) return false;
 
     std::unordered_set<int> inShape(v.cells.begin(), v.cells.end());
     double sx = 0.0, sy = 0.0;
@@ -457,13 +437,17 @@ int main(int, char**) {
     loadAnchorClasses();  // 生条目需 baseGroups 组名（Config 只留掩码）
 
     // 构建批次（密铺地图）与条目（城市等级/形状变体/锚朝向）。
-    std::vector<lw::TilingGeom> geoms;
+    std::vector<lw::Map> maps;
     std::vector<std::vector<Item>> itemsByBatch;
     for (const lw::TilingType tt : kToolTilings) {
-        lw::TilingGeom geom;
-        geom.type = tt;
-        geom.cols = kMapCols;
-        geom.rows = kMapRows;
+        lw::Config::Map mapConfig = cfg.map;
+        mapConfig.tiling = lw::tilingName(tt);
+        mapConfig.width = kMapCols;
+        mapConfig.height = kMapRows;
+        lw::Map map;
+        map.configure(mapConfig);
+        map.setCityConfig(cfg.city);
+        const auto& geom = map.geom();
         if (tt > lw::TilingType::Tri && geom.baseCount() <= 0) continue;
 
         const auto& set = cfg.city.setFor(tt);
@@ -510,7 +494,7 @@ int main(int, char**) {
                 const auto itCls = g_anchorClasses.find(lw::tilingName(tt));
                 if (itCls != g_anchorClasses.end() && itCls->second.size() > si) {
                     for (const AnchorClass& c : itCls->second[si]) {
-                        const int idx = geom.cellIndexAt(kAnchorR, kAnchorC, c.anchorB);
+                        const int idx = map.cellIndexAt(kAnchorC, kAnchorR, c.anchorB);
                         push(c.anchorB, c.name + " (锚 " + std::to_string(c.anchorB) + ", " +
                                              std::to_string(idx >= 0 ? geom.neighborCount(idx) : 0) +
                                              "边)");
@@ -521,11 +505,11 @@ int main(int, char**) {
             }
         }
         if (!items.empty()) {
-            geoms.push_back(geom);
+            maps.push_back(std::move(map));
             itemsByBatch.push_back(std::move(items));
         }
     }
-    if (geoms.empty()) {
+    if (maps.empty()) {
         spdlog::error("city_icon_fit_tool: 没有可用的密铺地图");
         return 1;
     }
@@ -621,10 +605,7 @@ int main(int, char**) {
     auto loadItem = [&]() {
         const Item& it = itemsByBatch[static_cast<std::size_t>(batchIndex)]
                             [static_cast<std::size_t>(itemIndex)];
-        const auto& set = cfg.city.setFor(it.tiling);
-        const auto* sh = set.shapeFor(it.level, it.variantIndex);
-        if (!sh) return;
-        if (!buildCurrentView(it, geoms[static_cast<std::size_t>(batchIndex)], *sh, view)) return;
+        if (!buildCurrentView(it, maps[static_cast<std::size_t>(batchIndex)], view)) return;
 
         const double aspect = aspects[static_cast<std::size_t>(it.iconLevel)] > 0.0
                                   ? aspects[static_cast<std::size_t>(it.iconLevel)]
@@ -727,7 +708,7 @@ int main(int, char**) {
 
         const Item& it = itemsByBatch[static_cast<std::size_t>(batchIndex)]
                             [static_cast<std::size_t>(itemIndex)];
-        drawScene(ren, geoms[static_cast<std::size_t>(batchIndex)], view, view.cells,
+        drawScene(ren, maps[static_cast<std::size_t>(batchIndex)].geom(), view, view.cells,
                   texs[static_cast<std::size_t>(it.iconLevel)],
                   aspects[static_cast<std::size_t>(it.iconLevel)] > 0.0
                       ? aspects[static_cast<std::size_t>(it.iconLevel)]
