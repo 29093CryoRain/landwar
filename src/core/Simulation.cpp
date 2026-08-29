@@ -17,6 +17,7 @@
 #include "sim/systems/SpawnSystem.h"
 #include "sim/systems/TechSystem.h"
 #include "sim/systems/UnitActionSystem.h"
+#include "core/MathUtil.h"
 
 namespace lw {
 
@@ -57,6 +58,7 @@ bool Simulation::init() {
     if (!mapOk) return false;  // 每陆地格 2 次 chance
     if (!map_.placeCapitals(*rng_)) return false;                     // 每 attempt get(w-1)+get(h-1)
     initFactions();  // 征服 8 个首都（势力8 无开局免费兵，见 §1.4）
+    initializeSpawnAngles();  // 开局即确定各势力的首个产兵方向，供 UI 立即显示
     // 中立势力0 landCount 初始 = 无主领地数（2026-08 用户定夺）：随征服递减，全图被占完恰好归 0
     // （原版从 0 起一路减负）。仅 1..8 参与排行榜，不影响模拟逻辑。
     factions_[0].landCount = 0;
@@ -66,6 +68,14 @@ bool Simulation::init() {
     }
     processPendingSpawns();  // init 阶段无势力8 免费兵 → 本阶段恒为空
     return true;
+}
+
+void Simulation::initializeSpawnAngles() {
+    for (int fid = 1; fid <= kPlayerFactionCount; ++fid) {
+        Faction& faction = factions_[static_cast<size_t>(fid)];
+        faction.spawnAngle = math::getRandomAngle(*rng_);
+        faction.spawnAngleSet = true;
+    }
 }
 
 void Simulation::initFactions() {

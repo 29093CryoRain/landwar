@@ -88,6 +88,9 @@ public:
     // 经济 = **留存值（库存）**（Phase 9 用户定夺）：每 tick 累加收益，产兵扣该兵成本（≥0）。
     double economy = 0.0;
     double freeArmyChance = 0.0;  // 势力8 免费产兵概率（来自定义）
+    // 产兵方向：spawnAngle 是下一次产兵使用的角度；首次产兵前由 spawnAngleSet 区分未初始化。
+    double spawnAngle = 0.0;
+    bool spawnAngleSet = false;
 
     // 增益（P7）：初始 buff 来自定义（source="faction"）；mods 为聚合缓存（系统读取面）。
     std::vector<Buff> buffs;

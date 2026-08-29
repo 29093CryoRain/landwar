@@ -1,7 +1,7 @@
 // CityMarkerRenderer.h — 玩家城市指示（开发计划 P2 + 2026-08-07 修正；贴图走统一 tint 管线）。
 // 两类指示（都按"城市显示亮度" = mix_color(势力色, 黑, 0.8) 着色，用户反馈太亮→调暗）：
 //   悬停/待选（按下鼠标会选中的城市）：四箭头指向该城（data/arrow.png 拆分，不旋转）；
-//   产兵城（已选）：旋转虚线环（data/ring.png）。
+//   产兵城（已选）：旋转虚线环（data/ring.png）；产兵方向（arrow2.png）显示在城市图标中心。
 // 贴图由 tools/gen_markers.py 生成的白底透明美术图，TintCache 按势力色烘焙多版本存内存。
 // 悬停目标每帧由 Application::updatePlayerIntent 计算（范围内有可选城即命中，无需鼠标移动）。
 // 旋转角来自 sim.tickCount()（世界时钟），**绝不触碰 sim RNG**。
@@ -36,12 +36,18 @@ public:
     struct CityTarget {
         double cx = 0.0, cy = 0.0;  // 城市几何中心（世界坐标；baseX+w/2, baseY+h/2）
         int w = 1, h = 1;           // 基建地块尺寸（格）
+        double area = 1.0;          // 基建地块总面积（世界坐标平方单位）
     };
 
     // 单箭头屏幕绘制矩形（纯几何；src 方向由 draw 按下标选择）。
     struct ArrowRect {
         double cx = 0.0, cy = 0.0;  // 绘制中心（屏幕 px；已按"尖端对齐"回退 lenPx/2）
         int dstW = 0, dstH = 0;     // 绘制尺寸（px）
+    };
+    struct SpawnDirection {
+        CityTarget target;
+        double angleRad = 0.0;
+        int factionId = 0;
     };
 
     // 源贴图比例常数（tools/gen_markers.py）：
@@ -52,6 +58,8 @@ public:
 
     // 环纹理边长（px）：外圆直径 = max(w,h)+margin 格（除以 kRingOuterFrac 换算回贴图边长）。
     static int ringSizePx(int w, int h, double cellPx, double margin);
+    // 箭头中心相对城市中心的前移距离：sqrt(城市基建总面积 / 配置分母) + 贴图长度/2。
+    static double spawnArrowDistance(double area, double areaDivisor, double renderedLength);
     // 四箭头屏幕布局（顺序：左/右/上/下）：固定尺寸 + 随城市框移动（见文件头注）。
     // **输入/输出均为屏幕像素坐标**（CityTarget.cx/cy 传屏幕坐标；draw 前须先经 Camera 转换）。
     static std::array<ArrowRect, 4> arrowRects(const CityTarget& t, double cellPx, double gap);
@@ -66,10 +74,11 @@ public:
     // 绘制指示。playerFactionId 为玩家势力；hover/sel 为待选城（四箭头）与产兵城（旋转环），
     // 含中心 + 基建尺寸（nullptr = 无）。
     void draw(const Simulation& sim, int playerFactionId, const CityTarget* hover,
-              const CityTarget* sel);
+              const CityTarget* sel, const std::vector<SpawnDirection>& spawnDirections = {});
 
     // F5 重载配置：势力色可能变 → 重新烘焙。
     void reloadColors(const std::vector<std::array<int, 3>>& factionColors);
+    void reloadSpawnArrowColors(const std::vector<std::array<int, 3>>& factionColors);
 
 private:
     // 旋转纹理绘制（产兵城虚线环用；箭头不走此路径——四方向子图见 draw）。
@@ -77,11 +86,14 @@ private:
                  int alpha) const;
     // 用 dimCityColor(势力色) 烘焙。
     void bake(const std::vector<std::array<int, 3>>& factionColors);
+    void drawSpawnDirections(const std::vector<SpawnDirection>& arrows,
+                             double areaDivisor) const;
 
     SDL_Renderer* ren_;
     const Camera& cam_;
     TintCache ringTint_;   // 128×128 虚线环（按势力色烘焙）
     TintCache arrowTint_;  // 128×128 四箭头（按势力色烘焙；绘制时取四方向子图）
+    TintCache spawnArrowTint_;  // arrow2.png（按 render.city.spawnArrow 颜色烘焙）
 };
 
 }  // namespace lw::render

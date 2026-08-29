@@ -1,6 +1,7 @@
 #include "sim/systems/SpawnSystem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 
 #include "core/MathUtil.h"
@@ -20,8 +21,16 @@ entt::entity SpawnSystem::spawnArmy(Simulation& sim, double x, double y, int fac
 
     entt::entity e = sim.createEntity();  // 单调 id（快照读档后 id 分配确定）
 
-    // 出生方向：0~2π 纯随机（Phase 9 修正，对齐思路.txt「随机方向」，去掉原轴向吸附）。
-    const double angle = math::getRandomAngle(sim.rng());
+    // 产兵方向：每个势力首次产兵随机一次，之后沿逆时针方向固定步长递增。
+    // spawnAngle 始终保存下一次产兵角；同一入口也覆盖势力8免费兵。
+    Faction& faction = sim.faction(factionId);
+    double angle = faction.spawnAngle;
+    if (!faction.spawnAngleSet) {
+        angle = math::getRandomAngle(sim.rng());
+        faction.spawnAngleSet = true;
+    }
+    faction.spawnAngle = std::fmod(angle + cfg.army.spawnAngleStep, 2.0 * kPi);
+    if (faction.spawnAngle < 0.0) faction.spawnAngle += 2.0 * kPi;
 
     // 速度链（§2.2）：base × 势力速度增益（P7 改读 mods，含原 speedMultAll/pioneerSpeedMult）
     // × 类型乘数。基线 mods.speedMult=1.0 → ×1.0 恒等，行为不变。

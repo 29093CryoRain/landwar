@@ -50,6 +50,8 @@ struct Config {
         double baseSize = 1.1;
         // 反弹角偏置的弧度半区间；每次反弹取一次 unit()，范围为 [-range, range)。
         double bounceJitterRangeRad = 0.03;
+        // 首次产兵方向随机，之后每次按此弧度逆时针递增。
+        double spawnAngleStep = 1.0;
     } army;
 
     struct Sea {
@@ -150,6 +152,7 @@ struct Config {
     // 1=主色侧、0.5=中点 = factionTileColor(id)）。arch/laves 密铺按格类型/朝向分档取不同 t。
     std::array<int, 3> factionTileColor(int id, double t) const;
     std::array<int, 3> factionCityColor(int id) const;
+    std::array<int, 3> factionSpawnArrowColor(int id) const;
 
     struct Effect {
         struct Bomb {
@@ -366,6 +369,13 @@ struct Config {
                 double secondary = 0.20;
                 double black = 0.20;
             } mix;
+            // 产兵方向箭头颜色 = 主色:副色:黑加权平均（arrow2.png）。
+            struct SpawnArrow {
+                double primary = 0.60;
+                double secondary = 0.10;
+                double black = 0.30;
+                double areaDivisor = 3.0;
+            } spawnArrow;
             // 图标中心 = 基建地块几何中心（2026-08-07：移除 offsetY 错开偏移，见 P13 后续修订）。
         } city;
 

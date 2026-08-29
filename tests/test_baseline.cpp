@@ -38,6 +38,9 @@
 // tri 0x8e8ab02d4e1f7113。
 // 2026-08-29 P2.2：比例映射扩展到 square/hex/tri；hex 120×120 输入改为 117×126 周期域。
 // P3.1：反弹抖动改为一次 unit() 采样，P3.2：输入尺寸改为四舍五入到最近倍数；更新语义基线。
+// P3.3：产兵方向改为势力级首随机、后续按 spawnAngleStep 递增；更新语义基线。
+// 2026-08-29 细节调整：开局立即初始化各势力角度；箭头中心按 sqrt(城市面积/areaDivisor) 前移；更新基线。
+// 2026-08-29 用户调参：spawnAngleStep=2.0；areaDivisor=2.0（后者为渲染参数）；更新基线。
 #include <gtest/gtest.h>
 
 #include <sstream>
@@ -95,15 +98,15 @@ std::uint64_t runRandomBaseline(lw::TilingType t, int ticks = 2500) {
 }
 
 TEST(Determinism, BaselineSeed42_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0x59826e3aecdb51b1ull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0x916d779e4f5179b4ull)
         << "square 随机图基线漂移";
 }
 
 // P12：六/三角各自基线（密铺几何 + 移动/特效路径独立于方形）。同随机图参数（种子 42）。
 TEST(Determinism, BaselineHexTri_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0x8b595f2591f03127ull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0x9fb4582c4bb19c2eull)
         << "hex 随机图基线漂移";
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0x374b0972e2a4ed25ull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0xe17b042487944370ull)
         << "tri 随机图基线漂移";
 }
 

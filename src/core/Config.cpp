@@ -499,7 +499,8 @@ void validateConfigKeys(const Json& root) {
                     {"blockSize", "panelWidth", "capitalMinDistance",
                      "cityMountainWeight", "tiling"},
                     "map");
-    warnUnknownKeys(obj("army"), {"baseSpeed", "baseSize", "bounceJitterRangeRad"}, "army");
+    warnUnknownKeys(obj("army"), {"baseSpeed", "baseSize", "bounceJitterRangeRad", "spawnAngleStep"},
+                    "army");
     warnUnknownKeys(obj("sea"),
                     {"initialGoSeaProbability", "goSeaIncrease", "goSeaChanceConst",
                      "goSeaChanceDenominator", "seaSpeedMult"},
@@ -538,11 +539,14 @@ void validateConfigKeys(const Json& root) {
                      "capital", "tile"},
                     "render");
     warnUnknownKeys(child(ren, "city"),
-                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "mix"},
+                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "mix", "spawnArrow"},
                     "render.city");
     warnUnknownKeys(child(child(ren, "city"), "mix"),
                     {"primary", "secondary", "black"},
                     "render.city.mix");
+    warnUnknownKeys(child(child(ren, "city"), "spawnArrow"),
+                    {"primary", "secondary", "black", "areaDivisor"},
+                    "render.city.spawnArrow");
     warnUnknownKeys(child(ren, "tile"),
                     {"primary", "secondary", "white", "variation"},
                     "render.tile");
@@ -678,6 +682,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.army.baseSize = getNum(armyJson, "baseSize", cfg.army.baseSize);
         cfg.army.bounceJitterRangeRad = getNum(armyJson, "bounceJitterRangeRad",
                                                cfg.army.bounceJitterRangeRad);
+        cfg.army.spawnAngleStep = getNum(armyJson, "spawnAngleStep", cfg.army.spawnAngleStep);
     }
 
     // ---- sea ----
@@ -922,6 +927,17 @@ Config Config::loadFromJson(const std::string& jsonText) {
                     getNum(mix, "secondary", cfg.render.city.mix.secondary);
                 cfg.render.city.mix.black = getNum(mix, "black", cfg.render.city.mix.black);
             }
+            if (rc.contains("spawnArrow") && rc["spawnArrow"].is_object()) {
+                const auto& arrow = rc["spawnArrow"];
+                cfg.render.city.spawnArrow.primary =
+                    getNum(arrow, "primary", cfg.render.city.spawnArrow.primary);
+                cfg.render.city.spawnArrow.secondary =
+                    getNum(arrow, "secondary", cfg.render.city.spawnArrow.secondary);
+                cfg.render.city.spawnArrow.black =
+                    getNum(arrow, "black", cfg.render.city.spawnArrow.black);
+                cfg.render.city.spawnArrow.areaDivisor =
+                    getNum(arrow, "areaDivisor", cfg.render.city.spawnArrow.areaDivisor);
+            }
             // iconFitScale / iconFitOffsetY：已外置到 data/city_icon_fits.json（2026-08-26），
             // 由 loadCityIconFits 加载，不再读 config.json。
         }
@@ -1143,7 +1159,7 @@ bool Config::validate(std::string* err) const {
     if (!validTiling) return fail("map.tiling is unknown");
 
     if (!positive(army.baseSpeed) || !positive(army.baseSize)
-        || !nonNegative(army.bounceJitterRangeRad))
+        || !nonNegative(army.bounceJitterRangeRad) || !finite(army.spawnAngleStep))
         return fail("army numeric range invalid");
     if (!unitInterval(sea.initialGoSeaProbability) || !nonNegative(sea.goSeaIncrease)
         || !nonNegative(sea.goSeaChanceConst) || !positive(sea.goSeaChanceDenominator)
@@ -1211,7 +1227,11 @@ bool Config::validate(std::string* err) const {
         || !positive(render.city.lineMinCellPx) || !positive(render.city.lineThickness)
         || !unitInterval(render.city.lineDarken) || !unitInterval(render.city.iconDarken)
         || !unitInterval(render.city.mix.primary) || !unitInterval(render.city.mix.secondary)
-        || !unitInterval(render.city.mix.black) || render.capital.minIconSizePx <= 0
+        || !unitInterval(render.city.mix.black)
+        || !unitInterval(render.city.spawnArrow.primary)
+        || !unitInterval(render.city.spawnArrow.secondary)
+        || !unitInterval(render.city.spawnArrow.black)
+        || !positive(render.city.spawnArrow.areaDivisor) || render.capital.minIconSizePx <= 0
         || !positive(render.capital.lineThickness) || !unitInterval(render.capital.designatedAlpha))
         return fail("render numeric range invalid");
     if (!positive(player.hoverCityRadius) || !unitInterval(player.markerAlpha)
@@ -1297,7 +1317,8 @@ std::string Config::toJson() const {
 
     j["army"] = {{"baseSpeed", army.baseSpeed},
                   {"baseSize", army.baseSize},
-                  {"bounceJitterRangeRad", army.bounceJitterRangeRad}};
+                  {"bounceJitterRangeRad", army.bounceJitterRangeRad},
+                  {"spawnAngleStep", army.spawnAngleStep}};
 
     j["sea"] = {{"initialGoSeaProbability", sea.initialGoSeaProbability},
                 {"goSeaIncrease", sea.goSeaIncrease},
@@ -1446,6 +1467,10 @@ std::string Config::toJson() const {
         cityJ["mix"] = {{"primary", render.city.mix.primary},
                         {"secondary", render.city.mix.secondary},
                         {"black", render.city.mix.black}};
+        cityJ["spawnArrow"] = {{"primary", render.city.spawnArrow.primary},
+                                {"secondary", render.city.spawnArrow.secondary},
+                                {"black", render.city.spawnArrow.black},
+                                {"areaDivisor", render.city.spawnArrow.areaDivisor}};
         // iconFitScale / iconFitOffsetY 已外置（2026-08-26）：不写回 config.json。
         renderJ["city"] = std::move(cityJ);
 
@@ -1533,6 +1558,17 @@ std::array<int, 3> Config::factionCityColor(int id) const {
     const auto& f = factions[static_cast<size_t>(id)];
     return weightedMix3(f.color, f.secondary, {0, 0, 0}, render.city.mix.primary,
                         render.city.mix.secondary, render.city.mix.black);
+}
+
+std::array<int, 3> Config::factionSpawnArrowColor(int id) const {
+    // 产兵方向箭头 = 主色:副色:黑加权平均；id 越界沿用中性灰占位。
+    if (id < 0 || id >= static_cast<int>(factions.size()))
+        return weightedMix3({96, 96, 96}, {191, 191, 191}, {0, 0, 0},
+                            render.city.spawnArrow.primary, render.city.spawnArrow.secondary,
+                            render.city.spawnArrow.black);
+    const auto& f = factions[static_cast<size_t>(id)];
+    return weightedMix3(f.color, f.secondary, {0, 0, 0}, render.city.spawnArrow.primary,
+                        render.city.spawnArrow.secondary, render.city.spawnArrow.black);
 }
 
 }  // namespace lw

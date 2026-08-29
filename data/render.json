@@ -21,6 +21,12 @@
         "primary": 0.7,
         "secondary": 0.1,
         "black": 0.2
+      },
+      "spawnArrow": {
+        "primary": 0.6,
+        "secondary": 0.1,
+        "black": 0.3,
+        "areaDivisor": 2
       }
     },
     "capital": {

@@ -200,6 +200,7 @@ public:
 
 private:
     void initFactions();
+    void initializeSpawnAngles();
     void processPendingSpawns();
 
     Config config_;

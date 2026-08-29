@@ -121,6 +121,7 @@ TEST(City, ShapeCoverageMatchesLevel) {
         EXPECT_EQ(c.h, wh[static_cast<size_t>(k)][1]) << "level " << levels[k];
         EXPECT_EQ(c.baseX, 0);
         EXPECT_EQ(c.baseY, baseY);
+        EXPECT_DOUBLE_EQ(c.area, static_cast<double>(levels[k]));
         // 基建格集合 = 锚点 + (0..w-1, 0..h-1)。
         for (int dy = 0; dy < c.h; ++dy)
             for (int dx = 0; dx < c.w; ++dx)

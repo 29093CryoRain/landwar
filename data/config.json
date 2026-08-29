@@ -10,7 +10,8 @@
   "army": {
     "baseSpeed": 0.3,
     "baseSize": 1,
-    "bounceJitterRangeRad": 0.03
+    "bounceJitterRangeRad": 0.03,
+    "spawnAngleStep": 2.0
   },
   "sea": {
     "_comment": "goSeaIncrease 为独立常量；势力下海倍率在 factions.json。",

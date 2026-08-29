@@ -13,6 +13,7 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.map.panelWidth, 600);
     EXPECT_NEAR(cfg.army.baseSpeed, 0.3, 1e-12);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
+    EXPECT_NEAR(cfg.army.spawnAngleStep, 1.0, 1e-12);
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 1.7 / 20000.0, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);
     EXPECT_EQ(cfg.units[1].cost, 3.97);
@@ -43,6 +44,10 @@ TEST(Config, Defaults) {
     EXPECT_NEAR(cfg.render.city.mix.primary, 0.60, 1e-12);
     EXPECT_NEAR(cfg.render.city.mix.secondary, 0.20, 1e-12);
     EXPECT_NEAR(cfg.render.city.mix.black, 0.20, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.primary, 0.60, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.secondary, 0.10, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.black, 0.30, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 3.0, 1e-12);
     // 旧死键 cyanSeaMult 已删除（势力3 下海概率 ×0.666 由 factions[3].seaMult 承担）。
     EXPECT_NEAR(cfg.factions[3].seaMult, 0.666, 1e-9);
     // P9 新兵种（手枪/霰弹）与 projectile 段。
@@ -80,18 +85,21 @@ TEST(Config, Defaults) {
 TEST(Config, JsonOverrides) {
     const char* json = R"({
         "map": { "blockSize": 20 },
-        "army": { "baseSpeed": 0.5, "bounceJitterRangeRad": 0.07 },
+        "army": { "baseSpeed": 0.5, "bounceJitterRangeRad": 0.07, "spawnAngleStep": 0.25 },
         "units": [ { "type": "laser", "cost": 99.0 } ],
         "factions": [ { "id": 1, "color": [1,2,3], "secondary": [4,5,6],
                         "unitPreference": { "normal": 2.5 } } ],
         "render": { "tile": { "primary": 0.4, "secondary": 0.3, "white": 0.3 },
-                    "city": { "mix": { "primary": 0.7, "secondary": 0.1, "black": 0.2 } } },
+                    "city": { "mix": { "primary": 0.7, "secondary": 0.1, "black": 0.2 },
+                               "spawnArrow": { "primary": 0.5, "secondary": 0.2, "black": 0.3,
+                                                "areaDivisor": 4.0 } } },
         "economy": { "initialEconomy": 5.0, "perLandIncome": 0.5, "cityBaseMult": 3.0 }
     })";
     const lw::Config cfg = lw::Config::loadFromJson(json);
     EXPECT_EQ(cfg.map.blockSize, 20);
     EXPECT_NEAR(cfg.army.baseSpeed, 0.5, 1e-12);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.07, 1e-12);
+    EXPECT_NEAR(cfg.army.spawnAngleStep, 0.25, 1e-12);
     EXPECT_NEAR(cfg.units[3].cost, 99.0, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);  // 未覆盖的保持默认
     EXPECT_EQ(cfg.factions[1].color[0], 1);
@@ -102,6 +110,9 @@ TEST(Config, JsonOverrides) {
     EXPECT_EQ(cfg.factions[1].unitPreference[1], 1.0);  // 未覆盖的保持默认
     EXPECT_NEAR(cfg.render.tileMix.primary, 0.4, 1e-12);
     EXPECT_NEAR(cfg.render.city.mix.primary, 0.7, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.primary, 0.5, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.secondary, 0.2, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 4.0, 1e-12);
     EXPECT_NEAR(cfg.economy.initialEconomy, 5.0, 1e-12);
     EXPECT_NEAR(cfg.economy.perLandIncome, 0.5, 1e-12);
     EXPECT_NEAR(cfg.economy.cityBaseMult, 3.0, 1e-12);
@@ -149,6 +160,8 @@ TEST(Config, LoadsDataFile) {
     const lw::Config cfg = lw::Config::loadFromFile("data/config.json");
     EXPECT_EQ(cfg.map.width, 105);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
+    EXPECT_NEAR(cfg.army.spawnAngleStep, 2.0, 1e-12);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 2.0, 1e-12);
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 0.000085, 1e-9);
     EXPECT_NEAR(cfg.sea.goSeaChanceDenominator, 17700.0, 1e-9);
     EXPECT_EQ(cfg.factions.size(), 9u);
@@ -161,6 +174,9 @@ TEST(Config, LoadsDataFile) {
     EXPECT_EQ(cfg.factions[1].secondary, (std::array<int, 3>{191, 191, 191}));
     EXPECT_NEAR(cfg.render.tileMix.primary, 0.5, 1e-9);   // 数据文件（用户 2026-08 调值：主0.5/副0.3/白0.2）
     EXPECT_NEAR(cfg.render.city.mix.primary, 0.7, 1e-9);  // 数据文件（用户调值：主0.7/副0.1/黑0.2）
+    EXPECT_NEAR(cfg.render.city.spawnArrow.primary, 0.6, 1e-9);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.secondary, 0.1, 1e-9);
+    EXPECT_NEAR(cfg.render.city.spawnArrow.black, 0.3, 1e-9);
     EXPECT_NEAR(cfg.units[7].bulletSpreadPIFrac, 2.0 / 9.0, 1e-5);  // 数据文件 0.222222 ≈ 2/9
 }
 

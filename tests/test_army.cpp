@@ -118,31 +118,25 @@ TEST(Spawn, SpeedAndSizeChains) {
     }
 }
 
-TEST(Spawn, AngleIsUniformRandom) {
-    // Phase 9 修正：出生方向 0~2π 纯随机（去掉轴向吸附，对齐思路.txt「随机方向」）。
-    // 验证：角度铺开、且落在原本会被吸附的轴向 ±0.14π 带内的兵确实存在（纯随机期望 ~56%）。
+TEST(Spawn, AngleUsesFactionSequence) {
+    // Phase 3.3：每个势力首次产兵随机，之后使用上一角度 + spawnAngleStep，且不再消耗 RNG。
     Simulation sim(lwtest::loadCfg(), 99);
     ASSERT_TRUE(sim.init());
-    const double snap = 0.14 * kPi;
-    double minA = 2 * kPi, maxA = 0.0;
-    int inBands = 0;  // 距任一轴向（0/π/2/π/3π/2）≤ snap 的兵数
-    for (int i = 0; i < 500; ++i) {
-        auto e = SpawnSystem::spawnArmy(sim, 20.0, 20.0, 1, ArmyType::normal);
-        double a = sim.registry().get<comp::Velocity>(e).angle;
-        while (a < 0) a += 2 * kPi;
-        while (a >= 2 * kPi) a -= 2 * kPi;
-        EXPECT_GE(a, 0.0);
-        EXPECT_LT(a, 2 * kPi);
-        minA = std::min(minA, a);
-        maxA = std::max(maxA, a);
-        for (int axis = 0; axis < 4; ++axis) {
-            double d = std::fabs(a - axis * kPi / 2);
-            if (d > kPi) d = 2 * kPi - d;  // 环形距离
-            if (d <= snap) { ++inBands; break; }
-        }
-    }
-    EXPECT_GE(maxA - minA, kPi);  // 角度铺开（非聚集）
-    EXPECT_GT(inBands, 20);       // 轴向带内有兵 → 不再被吸附推开
+    ASSERT_TRUE(sim.faction(1).spawnAngleSet);  // 开局已确定，UI 无需等待首次产兵。
+    const double initialAngle = sim.faction(1).spawnAngle;
+    auto first = SpawnSystem::spawnArmy(sim, 20.0, 20.0, 1, ArmyType::normal);
+    ASSERT_TRUE(first != entt::null);
+    const double firstAngle = sim.registry().get<comp::Velocity>(first).angle;
+    EXPECT_DOUBLE_EQ(firstAngle, initialAngle);
+    const auto rngAfterFirst = sim.rng().state();
+    auto second = SpawnSystem::spawnArmy(sim, 20.0, 20.0, 1, ArmyType::normal);
+    ASSERT_TRUE(second != entt::null);
+    const double expected = std::fmod(firstAngle + sim.config().army.spawnAngleStep, 2 * kPi);
+    EXPECT_DOUBLE_EQ(sim.registry().get<comp::Velocity>(second).angle, expected);
+    EXPECT_EQ(sim.rng().state(), rngAfterFirst);
+    EXPECT_DOUBLE_EQ(sim.faction(1).spawnAngle,
+                     std::fmod(expected + sim.config().army.spawnAngleStep, 2 * kPi));
+    EXPECT_TRUE(sim.faction(1).spawnAngleSet);
 }
 
 // ---- Movement 分支（用精确位置 1.9 保证单 tick 恰好跨格）----

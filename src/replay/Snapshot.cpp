@@ -25,7 +25,7 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 7;  // v7：保存统一事件去重状态；v6 为 P12 异种地图
+constexpr int kSnapshotVersion = 8;  // v8：保存势力级产兵方向状态；v7 为统一事件去重状态
 
 void setErr(std::string* err, const std::string& msg) {
     if (err) *err = msg;
@@ -196,8 +196,8 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
             return fail("bad map cell");
     }
     for (const auto& city : map["cities"]) {
-        if (!city.is_array() || city.size() != 11) return fail("bad city record");
-        for (int i = 0; i < 11; ++i)
+        if (!city.is_array() || city.size() != 12) return fail("bad city record");
+        for (int i = 0; i < 12; ++i)
             if (!city[static_cast<size_t>(i)].is_number()) return fail("bad city record value");
     }
 
@@ -211,12 +211,14 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
     for (const auto& faction : root["factions"]) {
         if (!faction.is_object()) return fail("bad faction record");
         for (const auto& key : {"id", "alive", "aiId", "color", "cityCount", "landCount",
-                                "numArmyProduced", "economy", "freeArmyChance", "capital",
-                                "armyCost", "producedCost", "unitPreference", "cityIds", "tech"}) {
+                                "numArmyProduced", "economy", "freeArmyChance", "spawnAngle",
+                                "spawnAngleSet", "capital", "armyCost", "producedCost",
+                                "unitPreference", "cityIds", "tech"}) {
             if (!faction.contains(key)) return fail(std::string("missing faction.") + key);
         }
         if (!faction["id"].is_number_integer() || !faction["alive"].is_boolean()
             || !faction["aiId"].is_number_integer() || !faction["color"].is_array()
+            || !faction["spawnAngle"].is_number() || !faction["spawnAngleSet"].is_boolean()
             || faction["color"].size() != 3 || !faction["capital"].is_object()
             || !faction["armyCost"].is_array() || faction["armyCost"].size() != kArmyTypeCount
             || !faction["producedCost"].is_array()
@@ -376,7 +378,7 @@ std::string Snapshot::serialize(const Simulation& sim) {
     for (const auto& c : map.cities())
         root["map"]["cities"].push_back(
             {c.id, c.ownerId, c.level, c.baseX, c.baseY, c.w, c.h, c.lastProduceArmyN,
-             c.lastCapturedTick, c.baseIndex, c.shapeVariant});
+             c.lastCapturedTick, c.baseIndex, c.shapeVariant, c.area});
     root["map"]["cells"] = Json::array();
     for (int idx = 0; idx < map.cellCount(); ++idx) {
         const MapCell& c = map.atIndex(idx);
@@ -396,6 +398,8 @@ std::string Snapshot::serialize(const Simulation& sim) {
         fj["numArmyProduced"] = f.numArmyProduced;
         fj["economy"] = f.economy;  // 留存值（库存）
         fj["freeArmyChance"] = f.freeArmyChance;
+        fj["spawnAngle"] = f.spawnAngle;
+        fj["spawnAngleSet"] = f.spawnAngleSet;
         // P15：首都迁都状态（CapitalState；v5）。capitalCityId 读档后沿用（初始首都由 init 设）。
         fj["capital"] = {{"capitalCityId", f.capitalState.capitalCityId},
                          {"designatedCityId", f.capitalState.designatedCityId},
@@ -543,6 +547,7 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
             c.lastCapturedTick = cj[8].get<std::uint64_t>();
             c.baseIndex = cj[9].get<int>();
             c.shapeVariant = cj[10].get<int>();
+            c.area = cj[11].get<double>();
             m.cities_.push_back(c);
     }
     m.recomputeCityGeometry();  // P12：baseIndex/几何中心/AABB（方 = 旧式同值）
@@ -593,6 +598,8 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
         f.numArmyProduced = fj.at("numArmyProduced").get<int>();
         f.economy = fj.at("economy").get<double>();
         f.freeArmyChance = fj.at("freeArmyChance").get<double>();
+        f.spawnAngle = fj.at("spawnAngle").get<double>();
+        f.spawnAngleSet = fj.at("spawnAngleSet").get<bool>();
         const auto& capital = fj.at("capital");
         f.capitalState.capitalCityId = capital.at("capitalCityId").get<int>();
         f.capitalState.designatedCityId = capital.at("designatedCityId").get<int>();

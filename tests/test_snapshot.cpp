@@ -168,6 +168,7 @@ TEST(Snapshot, RoundTripPreservesState) {
         EXPECT_EQ(ca.h, cb.h) << "city " << j;
         EXPECT_EQ(ca.lastProduceArmyN, cb.lastProduceArmyN) << "city " << j;
         EXPECT_EQ(ca.lastCapturedTick, cb.lastCapturedTick) << "city " << j;
+        EXPECT_DOUBLE_EQ(ca.area, cb.area) << "city " << j;
     }
     for (int y = 0; y < sim.map().height(); ++y) {
         for (int x = 0; x < sim.map().width(); ++x) {
@@ -193,6 +194,8 @@ TEST(Snapshot, RoundTripPreservesState) {
         EXPECT_EQ(a.numArmyProduced, b.numArmyProduced) << "fid " << i;
         EXPECT_DOUBLE_EQ(a.economy, b.economy) << "fid " << i;
         EXPECT_DOUBLE_EQ(a.freeArmyChance, b.freeArmyChance) << "fid " << i;
+        EXPECT_DOUBLE_EQ(a.spawnAngle, b.spawnAngle) << "fid " << i;
+        EXPECT_EQ(a.spawnAngleSet, b.spawnAngleSet) << "fid " << i;
         EXPECT_EQ(a.armyCost, b.armyCost) << "fid " << i;
         EXPECT_EQ(a.producedCost, b.producedCost) << "fid " << i;  // 公平调度堆累计花费
         ASSERT_EQ(a.cityIds.size(), b.cityIds.size()) << "fid " << i;
@@ -204,6 +207,23 @@ TEST(Snapshot, RoundTripPreservesState) {
     // registry + rng
     EXPECT_EQ(registryDump(r), registryDump(sim));
     EXPECT_EQ(r.rng().state(), sim.rng().state());
+}
+
+TEST(Snapshot, SpawnAngleStateRoundTrips) {
+    Simulation sim(lwtest::loadCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    sim.faction(1).spawnAngle = 2.75;
+    sim.faction(1).spawnAngleSet = true;
+    sim.faction(2).spawnAngle = 0.0;
+    sim.faction(2).spawnAngleSet = false;
+
+    Simulation restored;
+    std::string err;
+    ASSERT_TRUE(Snapshot::deserialize(restored, Snapshot::serialize(sim), &err)) << err;
+    EXPECT_DOUBLE_EQ(restored.faction(1).spawnAngle, 2.75);
+    EXPECT_TRUE(restored.faction(1).spawnAngleSet);
+    EXPECT_DOUBLE_EQ(restored.faction(2).spawnAngle, 0.0);
+    EXPECT_FALSE(restored.faction(2).spawnAngleSet);
 }
 
 TEST(Snapshot, MapSeedRoundTripsAndContinuationMatches) {

@@ -709,6 +709,7 @@ int Map::addCity(double level, int index, Rng* rng) {
     City c;
     c.id = id;
     c.level = level;
+    c.area = level;
     c.baseIndex = index;
     c.shapeVariant = variant;
     if (geom_.type == TilingType::Square) {

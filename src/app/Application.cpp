@@ -16,6 +16,7 @@
 #include "core/FixedTimestep.h"
 #include "core/Paths.h"
 #include "sim/Buff.h"  // buffValueText（科研弹窗数值文案）
+#include "sim/ai/ProductionAI.h"
 #include "sim/components.h"
 #include "ui/ImGuiSetup.h"
 #include "ui/Menu.h"
@@ -267,13 +268,41 @@ void Application::renderFrame() {
         auto makeTarget = [&](int cid) -> std::optional<render::CityMarkerRenderer::CityTarget> {
             if (cid < 0 || static_cast<std::size_t>(cid) >= nCity) return std::nullopt;
             const auto& c = sim_.map().city(cid);
-            return render::CityMarkerRenderer::CityTarget{c.centerX(), c.centerY(), c.w, c.h};
+            return render::CityMarkerRenderer::CityTarget{c.centerX(), c.centerY(), c.w, c.h,
+                                                          c.area};
         };
         const auto hoverTgt = (hoverCityId_ >= 0) ? makeTarget(hoverCityId_) : std::nullopt;
         const auto selTgt = (playerFid > 0 && selCityId_ >= 0) ? makeTarget(selCityId_)
                                                                : std::nullopt;
+        std::vector<render::CityMarkerRenderer::SpawnDirection> spawnDirections;
+        const auto addSpawnDirection = [&](int factionId, int cityId, double angle) {
+            const auto target = makeTarget(cityId);
+            if (target)
+                spawnDirections.push_back(render::CityMarkerRenderer::SpawnDirection{*target, angle,
+                                                                                       factionId});
+        };
+        // 玩家：选中产兵城始终显示；悬停另一座己方城市时同步显示该城的预览箭头。
+        if (playerFid > 0 && playerFid <= kPlayerFactionCount) {
+            const auto& player = sim_.faction(playerFid);
+            if (player.spawnAngleSet) {
+                if (selCityId_ >= 0) addSpawnDirection(playerFid, selCityId_, player.spawnAngle);
+                if (hoverCityId_ >= 0 && hoverCityId_ != selCityId_)
+                    addSpawnDirection(playerFid, hoverCityId_, player.spawnAngle);
+            }
+        }
+        // AI：显示默认/回退 AI 的 least-recent 城市；玩家 AI 由上面的选中/悬停路径处理。
+        for (int fid = 1; fid <= kPlayerFactionCount; ++fid) {
+            if (fid == playerFid) continue;
+            const auto& faction = sim_.faction(fid);
+            if (!faction.alive || faction.aiId == 1 || !faction.spawnAngleSet) continue;
+            const int cityIndex = leastRecentCityIndex(sim_, fid);
+            if (cityIndex >= 0 && cityIndex < faction.cityCount)
+                addSpawnDirection(fid, faction.cityIds[static_cast<size_t>(cityIndex)],
+                                 faction.spawnAngle);
+        }
         cityMarker_->draw(sim_, playerFid,
-                          hoverTgt ? &*hoverTgt : nullptr, selTgt ? &*selTgt : nullptr);
+                           hoverTgt ? &*hoverTgt : nullptr, selTgt ? &*selTgt : nullptr,
+                           spawnDirections);
     }
     ui::beginImGuiFrame();  // 坐标空间已由 imgui_impl_sdl2.cpp 补丁统一到逻辑尺寸
     drainEvents();  // P4：sim 事件 → 消息面板（每帧一次，渲染前）
@@ -550,6 +579,11 @@ bool Application::applyPaletteColors() {
     for (int id = 1; id <= kPlayerFactionCount; ++id)
         primaries8.push_back(uiConfig_.factions[static_cast<size_t>(id)].color);
     if (cityMarker_) cityMarker_->reloadColors(primaries8);
+    std::vector<std::array<int, 3>> spawnArrowColors;
+    spawnArrowColors.reserve(kPlayerFactionCount);
+    for (int id = 1; id <= kPlayerFactionCount; ++id)
+        spawnArrowColors.push_back(uiConfig_.factionSpawnArrowColor(id));
+    if (cityMarker_) cityMarker_->reloadSpawnArrowColors(spawnArrowColors);
     if (effectRenderer_) effectRenderer_->reloadColors(primaries8);
     // 地块填色缓存（MapRenderer::draw 用；主:副:白 加权平均）。
     rebuildTilePalette();

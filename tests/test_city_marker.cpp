@@ -121,6 +121,11 @@ TEST(CityMarker, ArrowSizesScaleWithZoom) {
     }
 }
 
+TEST(CityMarker, SpawnArrowOffsetUsesConfiguredAreaDivisor) {
+    EXPECT_DOUBLE_EQ(CityMarkerRenderer::spawnArrowDistance(12.0, 3.0, 2.0), 3.0);
+    EXPECT_DOUBLE_EQ(CityMarkerRenderer::spawnArrowDistance(12.0, 4.0, 2.0), std::sqrt(3.0) + 1.0);
+}
+
 TEST(CityMarker, ArrowRectsOrderAndAspect) {
     // 顺序 = 左/右/上/下；源箭头"长 20 × 宽 30"（尖端在短边）→ 水平箭头（左/右）宽>长、
     // 垂直箭头（上/下）长>宽；绘制尺寸 dstW/dstH 即按此纵横比（21×32）。

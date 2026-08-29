@@ -22,7 +22,8 @@ class Snapshot;  // replay/Snapshot.h：读档需重建网格/首都/城市（Ph
 struct City {
     int id = -1;               // cityId（Map 注册表下标）
     int ownerId = 0;           // 归属势力 id（0 = 中立/未占）
-    double level = 1.0;        // 等级（实数；半正=面积和，Laves/方/六/三=格数）
+    double level = 1.0;        // 等级（当前严格等于城市基建区域面积）
+    double area = 1.0;         // 城市基建区域面积（预留字段；当前 area == level）
     int baseX = 0, baseY = 0;  // 锚点坐标（方：(x,y)；六/三：(c,r)；快照序列化）
     int baseIndex = -1;        // 锚点格下标（P12；快照序列化）
     int shapeVariant = 0;      // 形状表变体下标（同级多形状时放置选定，快照序列化；

@@ -27,6 +27,9 @@ public:
     virtual std::optional<ProduceRequest> nextProduction(Simulation& sim, int factionId) = 0;
 };
 
+// 返回默认 AI 当前会选择的最久未产兵城市下标；纯查询，不检查库存、不消耗 RNG。
+int leastRecentCityIndex(const Simulation& sim, int factionId);
+
 // aiId=0 → DefaultFairAI（公平调度堆，行为与翻新 Phase 9 一致）；
 // aiId=1 → PlayerAI 占位（返回空，P2 实现）；
 // 未知 aiId → 记警告并回退 DefaultFairAI。

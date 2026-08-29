@@ -28,6 +28,8 @@ void Faction::initFromDef(const Config::Faction& def, const Config& cfg) {
     numArmyProduced = 0;
     economy = cfg.economy.initialEconomy;  // 留存值起点（库存）
     freeArmyChance = def.freeArmyChance;
+    spawnAngle = 0.0;
+    spawnAngleSet = false;
     for (int t = 0; t < kArmyTypeCount; ++t) {
         // P11 改版（用户定夺）：势力特色**不再影响兵种价格**——armyCost = 定义 baseCost（各势力
         // 同价，原 costDiv 折扣已移除）；势力特色改由 unitPreference 驱动默认 AI 产兵分配。

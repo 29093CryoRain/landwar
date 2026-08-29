@@ -189,7 +189,7 @@
   120×120 基线参数，若四舍五入前后仍得到相同尺寸，则该基线不变；否则更新语义基线。
 - **验收结果**：`test_tiling_table.cpp` 补充并通过"最近倍数"用例；比例工具同步使用相同公式。
 
-### 3.3 产兵方向改为"势力级：首随机 + 后续逆时针递增"（原文 44）
+### 3.3 产兵方向改为"势力级：首随机 + 后续逆时针递增"（原文 44）——✅ 已完成
 
 > 语义澄清：产兵角是**势力级单一状态**（不是每城独立），因此"切换产兵城不重置"是其自然结果。
 > 该势力**首个**兵随机取角；此后每产一兵，角度逆时针旋转 `army.spawnAngleStep`
@@ -199,6 +199,7 @@
   纯随机、无状态。
 - **做法**：
   - `Faction` 新增 `double spawnAngle` + `bool spawnAngleSet`（势力级角度状态；`initFromDef` 重置）。
+  - 新局初始化阶段立即为 8 个玩家势力各取一次随机角度并置位，开局渲染即可显示箭头；首次产兵复用该角度。
   - 产兵角获取放 `spawnArmy` 内统一（覆盖普通产兵与势力8 免费兵两条产兵路径）：
     `spawnAngleSet==false` → `angle = getRandomAngle(rng)` 并置位；否则 `angle = spawnAngle`；
     随后 `spawnAngle = fmod(angle + army.spawnAngleStep, 2π)`。
@@ -206,8 +207,9 @@
   - **RNG 影响**：仅首次产兵消耗 RNG，后续 0 消耗 → RNG 序列变；产兵方向和后续兵状态改变，
     → 语义基线更新。
 - **渲染更新**：在产兵城, 以及鼠标接近一个城市(渲染了上下左右四个指示箭头时)时,城市图标处画小箭头指示"下一个产兵方向"。**使用 `data/arrow2.png`**
-  可旋转箭头，旋转角 = 该势力当前 `spawnAngle`。颜色 = 势力主:副:黑 加权
-  `(primary:0.6, secondary:0.1, black:0.3)`（三数入 render.json 渲染模块新键，如
+  可旋转箭头，旋转角 = 该势力当前 `spawnAngle`；箭头中心沿该方向前移
+  `sqrt(城市基建地块总面积 / render.city.spawnArrow.areaDivisor) + 实际贴图长度/2`。颜色 = 势力主:副:黑 加权
+  `(primary:0.6, secondary:0.1, black:0.3)`，分母也放入 `render.json`，如
   `render.city.spawnArrow`）。玩家模式画在选定产兵城（`PlayerIntent`）；AI 画在该势力将产兵城
   （least-recent）图标。渲染层不消耗 sim RNG。
 - **涉及**：`src/world/Faction.h/cpp`、`src/sim/systems/SpawnSystem.cpp`、
@@ -216,7 +218,8 @@
   `src/replay/Snapshot.cpp`、`.docs/配置说明.md`。
 - **风险**：中高（产兵方向改变，且去掉每兵 RNG 会改变后续模拟序列 → **语义基线更新**；新增快照字段
   本身不构成基线变化）。
-- **验收**：`test_sim.cpp`/`test_snapshot.cpp` 补用例（角度序列 + 快照往返）。
+- **验收结果**：`test_army.cpp`/`test_snapshot.cpp` 已覆盖角度序列和快照往返；玩家选中/悬停城市与
+  AI least-recent 城市均接入 `arrow2.png` 方向提示，语义基线已更新。
 
 ### 3.4 科技升级界面空格暂停 bug（原文 41）
 

@@ -33,6 +33,12 @@ int CityMarkerRenderer::ringSizePx(int w, int h, double cellPx, double margin) {
     return static_cast<int>(std::lround(outerCells * cellPx / kRingOuterFrac));
 }
 
+double CityMarkerRenderer::spawnArrowDistance(double area, double areaDivisor,
+                                               double renderedLength) {
+    return std::sqrt(std::max(0.0, area) / std::max(areaDivisor, 1e-12))
+           + std::max(0.0, renderedLength) / 2.0;
+}
+
 std::array<CityMarkerRenderer::ArrowRect, 4> CityMarkerRenderer::arrowRects(
     const CityTarget& t, double cellPx, double gap) {
     // 固定箭头尺寸（只随 zoom/cellPx；不随城市大小——城市大小由位置吸收）。
@@ -70,6 +76,13 @@ void CityMarkerRenderer::reloadColors(const std::vector<std::array<int, 3>>& fac
     bake(factionColors);
 }
 
+void CityMarkerRenderer::reloadSpawnArrowColors(
+    const std::vector<std::array<int, 3>>& factionColors) {
+    // arrow2.png 已按主/副/黑权重在 Config 中合成，保留该颜色，不再额外调暗。
+    spawnArrowTint_.load(ren_, "data/arrow2.png", factionColors, TintMode::Multiply,
+                         /*grayscaleFirst=*/false, /*preserveWhite=*/0);
+}
+
 void CityMarkerRenderer::bake(const std::vector<std::array<int, 3>>& factionColors) {
     // 白底透明源图，整体 tint（grayscaleFirst=false, preserveWhite=0 → 白→目标色）。
     // 用"城市显示亮度"（×0.8）着色，保持 P2 用户反馈调暗后的观感。
@@ -94,9 +107,10 @@ void CityMarkerRenderer::drawTex(SDL_Texture* tex, double worldX, double worldY,
 }
 
 void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const CityTarget* hover,
-                              const CityTarget* sel) {
-    if (playerFactionId < 1 || playerFactionId > kPlayerFactionCount) return;
-    if (!hover && !sel) return;
+                              const CityTarget* sel,
+                              const std::vector<SpawnDirection>& spawnDirections) {
+    if ((hover || sel) && (playerFactionId < 1 || playerFactionId > kPlayerFactionCount)) return;
+    if (!hover && !sel && spawnDirections.empty()) return;
     const int idx = playerFactionId - 1;  // 烘焙的下标 = 势力 id - 1
     const std::uint64_t tick = sim.tickCount();
     const auto& pcfg = sim.config().player;
@@ -134,6 +148,33 @@ void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const 
         const int alpha = static_cast<int>(std::lround(255.0 * alphaScale));
         drawTex(ringTint_.texture(idx), sel->cx, sel->cy, size,
                 static_cast<double>(tick) * rotSpeed, alpha);
+    }
+    drawSpawnDirections(spawnDirections, sim.config().render.city.spawnArrow.areaDivisor);
+}
+
+void CityMarkerRenderer::drawSpawnDirections(const std::vector<SpawnDirection>& arrows,
+                                             double areaDivisor) const {
+    if (!ren_ || arrows.empty() || spawnArrowTint_.count() == 0) return;
+    const double sizeCells = 0.9;
+    const int size = std::max(8, static_cast<int>(std::lround(sizeCells * cam_.cellPx())));
+    const SDL_Rect src{0, 0, spawnArrowTint_.width(), spawnArrowTint_.height()};
+    Renderer r(ren_);
+    for (const auto& arrow : arrows) {
+        const int colorIndex = arrow.factionId - 1;
+        if (colorIndex < 0 || colorIndex >= spawnArrowTint_.count()) continue;
+        SDL_Texture* tex = spawnArrowTint_.texture(colorIndex);
+        if (!tex) continue;
+        const double renderedLengthWorld = static_cast<double>(size) / cam_.cellPx();
+        const double offset = spawnArrowDistance(arrow.target.area, areaDivisor,
+                                                 renderedLengthWorld);
+        const double worldX = arrow.target.cx + offset * std::cos(arrow.angleRad);
+        const double worldY = arrow.target.cy + offset * std::sin(arrow.angleRad);
+        const int arrowCx = cam_.toScreenXi(worldX);
+        const int arrowCy = cam_.toScreenYi(worldY);
+        // arrow2.png 默认尖端向屏幕上方；世界角 0 向右，屏幕 y 轴反向，故旋转角为 90°-worldAngle。
+        const double degrees = 90.0 - arrow.angleRad * 180.0 / kPi;
+        r.drawSpriteRotated(tex, src, arrowCx - size / 2, arrowCy - size / 2, size, size,
+                            degrees, size / 2, size / 2, 235);
     }
 }
 

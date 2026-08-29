@@ -56,17 +56,7 @@ public:
 
         if (heap.empty() || faction.economy < heap.top().price) return std::nullopt;
 
-        // 选 lastProduceArmyN 最小的城市（原版线性扫描；平局取先者）。
-        // P13：cityIds[j] → Map 注册表城市（产兵计数在 City 上）。
-        int leastRecentTicks = 1999999999, leastRecentIndex = -1;
-        for (int j = 0; j < faction.cityCount; ++j) {
-            const auto& city = sim.map().city(
-                static_cast<size_t>(faction.cityIds[static_cast<size_t>(j)]));
-            if (leastRecentTicks > city.lastProduceArmyN) {
-                leastRecentTicks = city.lastProduceArmyN;
-                leastRecentIndex = j;
-            }
-        }
+        const int leastRecentIndex = leastRecentCityIndex(sim, factionId);
         if (leastRecentIndex == -1) return std::nullopt;  // 无城市 → 停止该势力全部产兵
         return ProduceRequest{heap.top().type, leastRecentIndex};
     }
@@ -105,6 +95,21 @@ public:
 };
 
 }  // namespace
+
+int leastRecentCityIndex(const Simulation& sim, int factionId) {
+    const auto& faction = sim.faction(factionId);
+    int leastRecentTicks = 1999999999;
+    int leastRecentIndex = -1;
+    for (int j = 0; j < faction.cityCount; ++j) {
+        const auto& city = sim.map().city(
+            static_cast<size_t>(faction.cityIds[static_cast<size_t>(j)]));
+        if (leastRecentTicks > city.lastProduceArmyN) {
+            leastRecentTicks = city.lastProduceArmyN;
+            leastRecentIndex = j;
+        }
+    }
+    return leastRecentIndex;
+}
 
 std::unique_ptr<ProductionAI> makeAI(int aiId) {
     switch (aiId) {
