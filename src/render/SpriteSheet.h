@@ -34,7 +34,6 @@ public:
     // 势力版双色兵表纹理（factionIndex 0..7 = 势力 id 1..8）；未加载/越界 → nullptr。
     SDL_Texture* texture(int factionIndex) const { return baseTint_.texture(factionIndex); }
 
-    int spriteSize() const { return spriteSize_; }
     // 双色纹理都是单列 32×352（11 行）。
     int textureWidth() const { return baseTint_.width(); }
     int textureHeight() const { return baseTint_.height(); }
@@ -52,7 +51,7 @@ public:
 
 private:
     TwoToneTintCache baseTint_;  // army_base.png → 8 势力双色合成
-    int spriteSize_ = 32;
+    static constexpr int kSourceSpriteSize = 32;  // army_base.png 每格源图尺寸（源图像素）
 };
 
 }  // namespace lw::render

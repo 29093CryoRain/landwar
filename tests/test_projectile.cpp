@@ -152,7 +152,7 @@ TEST(Projectile, BulletKillsEnemyBothDie) {
 TEST(Projectile, BulletDoesNotConquerTerritory) {
     Simulation sim = makeCleanSim();  // 全中立陆地
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 260; ++t) sim.tick();  // 发射后子弹东移 ≥1 格（0.25 格/tick）
+    for (int t = 0; t < 260; ++t) sim.tick();  // 发射后子弹东移 ≥1 U（0.25 U/tick）
     EXPECT_EQ(sim.map().at(21, 20).belongi, 0) << "子弹不占领途经领地";
     EXPECT_GT(countBullets(sim), 0) << "子弹仍在飞";
 }
@@ -162,7 +162,7 @@ TEST(Projectile, BulletCrossesSeaWithoutSlow) {
     // 正东路径铺海格（belongi 保持 0；海格征服为 no-op）。
     for (int x = 21; x <= 30; ++x) sim.map().at(x, 20).land = false;
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
-    for (int t = 0; t < 300; ++t) sim.tick();  // 0.25 格/tick：跨到 >30 约需 40 tick，余量充足
+    for (int t = 0; t < 300; ++t) sim.tick();  // 0.25 U/tick：跨到 >30 U 约需 40 tick，余量充足
     EXPECT_EQ(countBullets(sim), 1) << "子弹穿海不沉、不减速（仍存活）";
     double bx = 0;
     for (auto e : sim.registry().view<comp::Projectile, comp::Position>())

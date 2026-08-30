@@ -1,7 +1,8 @@
 // Buff.h — 增益系统（开发计划 P7，思路 6.1）。
 // 增益 = 数据实例（可序列化），行为 = 系统经 FactionMods 聚合面读取（不 switch 具体 buff）。
 // 势力定义的分工（迁移原则）：
-//   - 【绝对基数】armyCost（= baseCost，P11 改版后各势力同价）/ bombRadius / mineTriggerRadius
+//   - 【定义与加成】armyCost（= baseCost，P11 改版后各势力同价）/
+//     bombRadiusBonus / mineTriggerBombRadiusBonus
 //     / freeArmyChance 保留为定义读取（它们是"数值定义"而非"增益"）；
 //   - 【修饰符】speedMultAll / pioneerSpeedMult / seaMult / bounceMultAll / extraLaserBeams
 //     / laserDurationMult / laserLengthMult 迁移为初始 buff（source="faction"）。

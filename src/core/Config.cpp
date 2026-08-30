@@ -310,7 +310,7 @@ void initDefaultCity(Config::City& c) {
     // 正方形：1/2/4/6/9（旧 w×h：1×1 / 1×2 / 2×2 / 2×3 / 3×3）。
     c.square.levels = {1, 2, 4, 6, 9};
     c.square.shapes = {sq(1, 1), sq(1, 2), sq(2, 2), sq(2, 3), sq(3, 3)};
-    // 六边形：1/3/4/6/7/9（世界偏移已由旧轴向表换算，P12 §3.2 定稿；锚 = (0,0)）。
+    // 六边形：1/3/4/6/7/9（U 偏移已由旧轴向表换算，P12 §3.2 定稿；锚 = (0,0)）。
     c.hex.levels = {1, 3, 4, 6, 7, 9};
     c.hex.shapes = {
         hx({{0.0, 0.0}}),
@@ -329,7 +329,7 @@ void initDefaultCity(Config::City& c) {
             {0.5372849659117709, -0.9306048591020997}, {-0.5372849659117709, 0.9306048591020997},
             {0.0, 1.8612097182041993}, {0.0, -1.8612097182041993}}),
     };
-    // 三角形：1/2/4/6/8（世界偏移以 kTriSide/kTriAlt 换算；**正锚模式**——表按"锚 =
+    // 三角形：1/2/4/6/8（U 偏移以 kTriSide/kTriAlt 换算；**正锚模式**——表按"锚 =
     // 正三角"定义；锚为反三角时解析端对 dy 垂直镜像，即该等级的朝向变体）。
     // 语义（用户 2026-08 定稿）：
     //   L1 = 1 格（锚正→正、锚反→反，2 种模式）
@@ -441,13 +441,13 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
     orange.id = 6;
     orange.color = {255, 127, 0};
     orange.unitPreference[4] = 3.0;  // 炸弹（特色）
-    orange.bombRadius = 4.08;
+    orange.bombRadiusBonus = 0.7;
 
     auto& purple = v[7];
     purple.id = 7;
     purple.color = {127, 0, 255};
     purple.unitPreference[5] = 3.0;  // 地雷（特色）
-    purple.mineTriggerRadius = 1.43;
+    purple.mineTriggerBombRadiusBonus = 0.3;
 
     auto& magenta = v[8];
     magenta.id = 8;
@@ -480,7 +480,7 @@ void validateConfigKeys(const Json& root) {
     // 顶层。
     warnUnknownKeys(root,
                     {"map", "army", "sea", "terrain", "units", "factions", "effect",
-                     "projectile", "economy", "city", "capital", "sim", "render", "player",
+                     "projectile", "economy", "city", "capital", "sim", "render",
                      "ui", "tech"},
                     "<root>");
     // 对象取值辅助（不存在/非对象 → 空对象，warnUnknownKeys 自动跳过）。
@@ -515,10 +515,6 @@ void validateConfigKeys(const Json& root) {
                     {"initialEconomy", "perLandIncome", "cityBaseMult", "capitalBase"}, "economy");
     warnUnknownKeys(obj("capital"), {"relocationDelayTicks"}, "capital");
     warnUnknownKeys(obj("sim"), {"tickRate", "maxArmyGuard"}, "sim");
-    warnUnknownKeys(obj("player"),
-                    {"hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin",
-                     "markerArrowGap"},
-                    "player");
     warnUnknownKeys(obj("ui"), {"messageMaxShown"}, "ui");
     // effect 嵌套。
     const Json& eff = obj("effect");
@@ -527,7 +523,7 @@ void validateConfigKeys(const Json& root) {
                     {"lifetimeTicks", "conquerEveryTicks", "expansionRate", "baseRadius"},
                     "effect.bomb");
     warnUnknownKeys(child(eff, "mine"),
-                    {"radius", "armTicks", "checkEveryTicks", "timeoutTicks", "triggerRadiusMult",
+                    {"radius", "armTicks", "checkEveryTicks", "timeoutTicks", "triggerRadius",
                      "triggerBombRadius"},
                     "effect.mine");
     warnUnknownKeys(child(eff, "laser"),
@@ -537,8 +533,8 @@ void validateConfigKeys(const Json& root) {
     // render 嵌套。
     const Json& ren = obj("render");
     warnUnknownKeys(ren,
-                    {"windowWidth", "windowHeight", "spriteSize", "armyDrawSize", "city",
-                     "capital", "tile", "mountain"},
+                     {"windowWidth", "windowHeight", "armyDrawSize", "city", "capital", "tile",
+                      "mountain", "player"},
                     "render");
     warnUnknownKeys(child(ren, "mountain"),
                     {"sourceWidth", "sourceHeight", "strokeWidthPx", "areaReference", "colorDarken",
@@ -559,6 +555,10 @@ void validateConfigKeys(const Json& root) {
     warnUnknownKeys(child(ren, "capital"),
                     {"minIconSizePx", "lineThickness", "designatedAlpha"},
                     "render.capital");
+    warnUnknownKeys(child(ren, "player"),
+                    {"hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin",
+                     "markerArrowGap"},
+                    "render.player");
     // city（顶层，P13 城市系统 + P12 按密铺形状表）。
     const Json& cityJ = obj("city");
     warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri",
@@ -577,8 +577,8 @@ void validateConfigKeys(const Json& root) {
                          "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac"};
     const V kFactionKeys = {"id", "name", "color", "secondary", "unitPreference", "speedMultAll",
                             "seaMult", "bounceMultAll", "pioneerSpeedMult", "extraLaserBeams",
-                            "laserDurationMult", "laserLengthMult", "bombRadius",
-                            "mineTriggerRadius", "freeArmyChance"};
+                            "laserDurationMult", "laserLengthMult", "bombRadiusBonus",
+                            "mineTriggerBombRadiusBonus", "freeArmyChance"};
     const V kTechKeys = {"id", "name", "desc", "levels", "preferenceUnits"};
     const V kLevelKeys = {"type", "param", "magnitude"};
     auto arrayOf = [&root](const char* name) -> const Json& {
@@ -799,9 +799,10 @@ Config Config::loadFromJson(const std::string& jsonText) {
             fdef.laserDurationMult =
                 getNum(factionJson, "laserDurationMult", fdef.laserDurationMult);
             fdef.laserLengthMult = getNum(factionJson, "laserLengthMult", fdef.laserLengthMult);
-            fdef.bombRadius = getNum(factionJson, "bombRadius", fdef.bombRadius);
-            fdef.mineTriggerRadius =
-                getNum(factionJson, "mineTriggerRadius", fdef.mineTriggerRadius);
+            fdef.bombRadiusBonus =
+                getNum(factionJson, "bombRadiusBonus", fdef.bombRadiusBonus);
+            fdef.mineTriggerBombRadiusBonus =
+                getNum(factionJson, "mineTriggerBombRadiusBonus", fdef.mineTriggerBombRadiusBonus);
             fdef.freeArmyChance = getNum(factionJson, "freeArmyChance", fdef.freeArmyChance);
         }
     }
@@ -827,8 +828,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 getInt(mineJson, "checkEveryTicks", cfg.effect.mine.checkEveryTicks);
             cfg.effect.mine.timeoutTicks =
                 getInt(mineJson, "timeoutTicks", cfg.effect.mine.timeoutTicks);
-            cfg.effect.mine.triggerRadiusMult =
-                getNum(mineJson, "triggerRadiusMult", cfg.effect.mine.triggerRadiusMult);
+            cfg.effect.mine.triggerRadius =
+                getNum(mineJson, "triggerRadius", cfg.effect.mine.triggerRadius);
             cfg.effect.mine.triggerBombRadius =
                 getNum(mineJson, "triggerBombRadius", cfg.effect.mine.triggerBombRadius);
         }
@@ -881,7 +882,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
             squareObj["shapes"] = cityJson["shapes"];
             parseTilingSetJson(squareObj, cfg.city.square);
         }
-        // P12：六/三角形状表（可选）。P1.2 起 cells 统一为 [dx, dy] 世界偏移；
+        // P12：六/三角形状表（可选）。P1.2 起 cells 统一为 [dx, dy] 世界单位 U 偏移；
         // 解析逻辑 = parseTilingSetJson（匿名命名空间，与 data/city_shapes.json 共用）。
         if (cityJson.contains("hex") && cityJson["hex"].is_object())
             parseTilingSetJson(cityJson["hex"], cfg.city.hex);
@@ -920,7 +921,6 @@ Config Config::loadFromJson(const std::string& jsonText) {
         const auto& renderJson = root["render"];
         cfg.render.windowWidth = getInt(renderJson, "windowWidth", cfg.render.windowWidth);
         cfg.render.windowHeight = getInt(renderJson, "windowHeight", cfg.render.windowHeight);
-        cfg.render.spriteSize = getInt(renderJson, "spriteSize", cfg.render.spriteSize);
         cfg.render.armyDrawSize = getInt(renderJson, "armyDrawSize", cfg.render.armyDrawSize);
         if (renderJson.contains("mountain") && renderJson["mountain"].is_object()) {
             const auto& rm = renderJson["mountain"];
@@ -994,20 +994,20 @@ Config Config::loadFromJson(const std::string& jsonText) {
             cfg.render.capital.designatedAlpha =
                 getNum(rcap, "designatedAlpha", cfg.render.capital.designatedAlpha);
         }
-    }
-
-    // ---- player ----
-    if (root.contains("player") && root["player"].is_object()) {
-        const auto& playerJson = root["player"];
-        cfg.player.hoverCityRadius =
-            getNum(playerJson, "hoverCityRadius", cfg.player.hoverCityRadius);
-        cfg.player.markerAlpha = getNum(playerJson, "markerAlpha", cfg.player.markerAlpha);
-        cfg.player.markerRotateSpeed =
-            getNum(playerJson, "markerRotateSpeed", cfg.player.markerRotateSpeed);
-        cfg.player.markerRingMargin =
-            getNum(playerJson, "markerRingMargin", cfg.player.markerRingMargin);
-        cfg.player.markerArrowGap =
-            getNum(playerJson, "markerArrowGap", cfg.player.markerArrowGap);
+        // 城市选择命中与产兵指示参数（hoverCityRadius 虽参与交互判定，配置随 render.player 管理）。
+        if (renderJson.contains("player") && renderJson["player"].is_object()) {
+            const auto& playerJson = renderJson["player"];
+            cfg.render.player.hoverCityRadius =
+                getNum(playerJson, "hoverCityRadius", cfg.render.player.hoverCityRadius);
+            cfg.render.player.markerAlpha =
+                getNum(playerJson, "markerAlpha", cfg.render.player.markerAlpha);
+            cfg.render.player.markerRotateSpeed =
+                getNum(playerJson, "markerRotateSpeed", cfg.render.player.markerRotateSpeed);
+            cfg.render.player.markerRingMargin =
+                getNum(playerJson, "markerRingMargin", cfg.render.player.markerRingMargin);
+            cfg.render.player.markerArrowGap =
+                getNum(playerJson, "markerArrowGap", cfg.render.player.markerArrowGap);
+        }
     }
 
     // ---- ui（消息面板 P4）----
@@ -1235,7 +1235,7 @@ bool Config::validate(std::string* err) const {
         if (!positive(f.speedMultAll) || !positive(f.seaMult) || !nonNegative(f.bounceMultAll)
             || !positive(f.pioneerSpeedMult) || f.extraLaserBeams < 0
             || !positive(f.laserDurationMult) || !positive(f.laserLengthMult)
-            || !positive(f.bombRadius) || !positive(f.mineTriggerRadius)
+            || !nonNegative(f.bombRadiusBonus) || !nonNegative(f.mineTriggerBombRadiusBonus)
             || !unitInterval(f.freeArmyChance))
             return fail("faction numeric range invalid");
     }
@@ -1244,7 +1244,7 @@ bool Config::validate(std::string* err) const {
         || !positive(effect.bomb.expansionRate) || !positive(effect.bomb.baseRadius)
         || !positive(effect.mine.radius)
         || effect.mine.armTicks < 0 || effect.mine.checkEveryTicks <= 0
-        || effect.mine.timeoutTicks <= 0 || !positive(effect.mine.triggerRadiusMult)
+        || effect.mine.timeoutTicks <= 0 || !positive(effect.mine.triggerRadius)
         || !positive(effect.mine.triggerBombRadius) || effect.laser.durationTicks <= 0
         || !positive(effect.laser.length) || effect.laser.extendPerTick < 0
         || !nonNegative(effect.laser.killExtraRadius) || !nonNegative(effect.laser.beamSpreadPIFrac))
@@ -1257,8 +1257,8 @@ bool Config::validate(std::string* err) const {
     if (!nonNegative(capital.relocationDelayTicks) || !positive(sim.tickRate)
         || sim.maxArmyGuard <= 0)
         return fail("capital or simulation numeric range invalid");
-    if (render.windowWidth <= 0 || render.windowHeight <= 0 || render.spriteSize <= 0
-        || render.armyDrawSize <= 0 || !finite(render.tileMix.primary)
+    if (render.windowWidth <= 0 || render.windowHeight <= 0 || render.armyDrawSize <= 0
+        || !finite(render.tileMix.primary)
         || !finite(render.tileMix.secondary) || !finite(render.tileMix.white)
         || !nonNegative(render.tileMix.variation) || render.tileMix.primary < 0.0
         || render.tileMix.secondary < 0.0 || render.tileMix.white < 0.0
@@ -1286,10 +1286,10 @@ bool Config::validate(std::string* err) const {
             segment[3] < 0.0 || segment[3] > render.mountain.sourceHeight)
             return fail("render mountain segment is outside source image");
     }
-    if (!positive(player.hoverCityRadius) || !unitInterval(player.markerAlpha)
-        || !finite(player.markerRotateSpeed) || !nonNegative(player.markerRingMargin)
-        || !nonNegative(player.markerArrowGap) || ui.messageMaxShown <= 0)
-        return fail("player or ui numeric range invalid");
+    if (!positive(render.player.hoverCityRadius) || !unitInterval(render.player.markerAlpha)
+        || !finite(render.player.markerRotateSpeed) || !nonNegative(render.player.markerRingMargin)
+        || !nonNegative(render.player.markerArrowGap) || ui.messageMaxShown <= 0)
+        return fail("render.player or ui numeric range invalid");
 
     const auto validateSet = [&](const City::TilingSet& set, const char* name) {
         if (set.levels.empty() || set.shapeLevelIndex.size() != set.shapes.size())
@@ -1425,8 +1425,8 @@ std::string Config::toJson() const {
         fj["extraLaserBeams"] = f.extraLaserBeams;
         fj["laserDurationMult"] = f.laserDurationMult;
         fj["laserLengthMult"] = f.laserLengthMult;
-        fj["bombRadius"] = f.bombRadius;
-        fj["mineTriggerRadius"] = f.mineTriggerRadius;
+        fj["bombRadiusBonus"] = f.bombRadiusBonus;
+        fj["mineTriggerBombRadiusBonus"] = f.mineTriggerBombRadiusBonus;
         fj["freeArmyChance"] = f.freeArmyChance;
         j["factions"].push_back(std::move(fj));
     }
@@ -1436,11 +1436,11 @@ std::string Config::toJson() const {
                             {"expansionRate", effect.bomb.expansionRate},
                             {"baseRadius", effect.bomb.baseRadius}};
     j["effect"]["mine"] = {{"radius", effect.mine.radius},
-                           {"armTicks", effect.mine.armTicks},
-                           {"checkEveryTicks", effect.mine.checkEveryTicks},
-                           {"timeoutTicks", effect.mine.timeoutTicks},
-                           {"triggerRadiusMult", effect.mine.triggerRadiusMult},
-                           {"triggerBombRadius", effect.mine.triggerBombRadius}};
+                            {"armTicks", effect.mine.armTicks},
+                            {"checkEveryTicks", effect.mine.checkEveryTicks},
+                            {"timeoutTicks", effect.mine.timeoutTicks},
+                            {"triggerRadius", effect.mine.triggerRadius},
+                            {"triggerBombRadius", effect.mine.triggerBombRadius}};
     j["effect"]["laser"] = {{"durationTicks", effect.laser.durationTicks},
                             {"length", effect.laser.length},
                             {"extendPerTick", effect.laser.extendPerTick},
@@ -1455,7 +1455,7 @@ std::string Config::toJson() const {
                     {"cityBaseMult", economy.cityBaseMult},
                     {"capitalBase", economy.capitalBase}};
 
-    // P1.2：所有密铺形状统一以 cells=[dx,dy] 世界偏移序列化（square 不再输出旧 w/h）。
+    // P1.2：所有密铺形状统一以 cells=[dx,dy] 世界单位 U 偏移序列化（square 不再输出旧 w/h）。
     const auto shapeArrayJ = [](const Config::City::TilingSet& set) {
         Json shapes = Json::array();
         for (int s = 0; s < static_cast<int>(set.shapes.size()); ++s) {
@@ -1505,7 +1505,6 @@ std::string Config::toJson() const {
         Json renderJ;
         renderJ["windowWidth"] = render.windowWidth;
         renderJ["windowHeight"] = render.windowHeight;
-        renderJ["spriteSize"] = render.spriteSize;
         renderJ["armyDrawSize"] = render.armyDrawSize;
         Json mountainJ;
         mountainJ["sourceWidth"] = render.mountain.sourceWidth;
@@ -1545,13 +1544,14 @@ std::string Config::toJson() const {
         capitalJ["designatedAlpha"] = render.capital.designatedAlpha;
         renderJ["capital"] = std::move(capitalJ);
 
+        renderJ["player"] = {{"hoverCityRadius", render.player.hoverCityRadius},
+                              {"markerAlpha", render.player.markerAlpha},
+                              {"markerRotateSpeed", render.player.markerRotateSpeed},
+                              {"markerRingMargin", render.player.markerRingMargin},
+                              {"markerArrowGap", render.player.markerArrowGap}};
+
         j["render"] = std::move(renderJ);
     }
-    j["player"] = {{"hoverCityRadius", player.hoverCityRadius},
-                   {"markerAlpha", player.markerAlpha},
-                   {"markerRotateSpeed", player.markerRotateSpeed},
-                   {"markerRingMargin", player.markerRingMargin},
-                   {"markerArrowGap", player.markerArrowGap}};
 
     j["ui"] = {{"messageMaxShown", ui.messageMaxShown}};
 

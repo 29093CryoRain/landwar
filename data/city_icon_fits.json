@@ -3,7 +3,7 @@
     "城市贴图预计算缩放/竖直平移表（外置于 config.json，2026-08-26）。",
     "由 tools/city_icon_fit_tool 生成临时 data/city_icon_fit_scales.json，",
     "经 tools/apply_city_icon_fit_scales.py 去重写回本文件。",
-    "iconFitScale 键 = tiling -> 贴图等级 -> fitW(世界单位)；iconFitOffsetY 每项 =",
+    "iconFitScale 键 = tiling -> 贴图等级 -> fitW（世界单位 U 的宽度，不是无量纲倍率）；iconFitOffsetY 每项 =",
     "{iconLevel, variant(同级形状变体下标), bases(该锚基础格类的全部格), value(世界单位竖向平移，同类均值)}。"
   ],
   "iconFitScale": {

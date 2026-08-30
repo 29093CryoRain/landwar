@@ -600,7 +600,7 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex, int variant) con
     return resolveShapeCells(*sh, anchorIndex);
 }
 
-// P1.2：统一形状解析。所有密铺 cells 都是相对锚格中心的世界偏移；
+// P1.2：统一形状解析。所有密铺 cells 都是相对锚格中心的世界单位 U 偏移；
 // 三角反锚时镜像 dy（形状表按正锚模式定义）。
 std::vector<int> Map::resolveShapeCells(const Config::City::Shape& sh, int anchorIndex) const {
     std::vector<int> out;

@@ -26,7 +26,7 @@
       "color": [0, 255, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"vanguard": 3.0},
-      "speedMultAll": 1.5,
+      "speedMultAll": 1.2,
       "seaMult": 0.666
     },
     {
@@ -35,8 +35,8 @@
       "color": [0, 85, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"pioneer": 3.0, "vanguard": 1.5},
-      "bounceMultAll": 0.6,
-      "pioneerSpeedMult": 2.0
+      "bounceMultAll": 0.8,
+      "pioneerSpeedMult": 1.5
     },
     {
       "id": 5,
@@ -54,7 +54,7 @@
       "color": [255, 127, 0],
       "secondary": [191, 191, 191],
       "unitPreference": {"bomb": 3.0},
-      "bombRadius": 4.08
+      "bombRadiusBonus": 0.5
     },
     {
       "id": 7,
@@ -62,14 +62,14 @@
       "color": [127, 0, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"mine": 3.0},
-      "mineTriggerRadius": 1.43
+      "mineTriggerBombRadiusBonus": 0.5
     },
     {
       "id": 8,
       "name": "品红",
       "color": [255, 0, 255],
       "secondary": [191, 191, 191],
-      "freeArmyChance": 0.6
+      "freeArmyChance": 0.5
     }
   ]
 }

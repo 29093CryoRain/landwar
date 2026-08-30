@@ -41,7 +41,8 @@ double raySegHit(double px, double py, double dx, double dy, double ax, double a
 //   idx = (r*cols + c)*B + b 平移复制：center = base[b].center + c*W + r*H。
 // 邻接在首次加载时按"某基础格的边经 ±dr,±dc 平移后与另一基础格的边反向重合"求得。
 // 5.1 的规则类型预建半区/象限候选，5.2 的复杂类型预建周期坐标细网格；两者均以
-// 预计算半平面作为精确判定，边界不明确时保留原扫描兜底。
+// 预计算半平面作为精确判定，边界不明确时保留原扫描兜底。网格短方向默认 128 档，
+// 周期向量长度明显较长的方向使用两倍密度（实验记录见 .docs/Phase5性能实验记录.md）。
 // ---------------------------------------------------------------------------
 struct TilingTable {
     double wx = 0.0, wy = 0.0, hx = 0.0, hy = 0.0;  // W=(wx,wy)、H=(hx,hy)（一般平行四边形周期域）
@@ -83,7 +84,8 @@ struct TilingTable {
     int analyticRegionCount = 0;
     std::vector<std::vector<FastCandidate>> analyticCandidates;
     // 5.2：周期坐标细网格；b=-1 表示该小块跨越几何边界，必须回退。
-    int lookupGridSize = 0;
+    int lookupGridWidth = 0;
+    int lookupGridHeight = 0;
     std::vector<FastCandidate> lookupGrid;
     // 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）：loadTable 尾部派生。
     // paletteSize = 档数（0 = 不分档；方/六/三不计于此）；basePalette[b] = 每基础格档位。
@@ -213,7 +215,7 @@ bool candidateIntersectsRect(const TilingTable& tab, const TilingTable::Cell& ce
     return false;
 }
 
-constexpr int kLookupGridSize = 64;
+constexpr int kDefaultLookupGridTier = 128;
 
 void buildFastIndexes(TilingTable& tab, TilingType t) {
     const int baseCount = static_cast<int>(tab.cells.size());
@@ -250,14 +252,24 @@ void buildFastIndexes(TilingTable& tab, TilingType t) {
     }
 
     if (!isGridType(t)) return;
-    tab.lookupGridSize = kLookupGridSize;
-    tab.lookupGrid.assign(static_cast<size_t>(kLookupGridSize * kLookupGridSize), {});
-    const double step = 1.0 / static_cast<double>(kLookupGridSize);
-    for (int gy = 0; gy < kLookupGridSize; ++gy) {
-        for (int gx = 0; gx < kLookupGridSize; ++gx) {
-            const double x0 = gx * step, x1 = (gx + 1) * step;
-            const double y0 = gy * step, y1 = (gy + 1) * step;
-            auto& result = tab.lookupGrid[static_cast<size_t>(gy * kLookupGridSize + gx)];
+    const int tier = kDefaultLookupGridTier;
+    const double wLength = std::hypot(tab.wx, tab.wy);
+    const double hLength = std::hypot(tab.hx, tab.hy);
+    tab.lookupGridWidth = tier;
+    tab.lookupGridHeight = tier;
+    if (hLength > wLength * 1.25)
+        tab.lookupGridHeight = tier * 2;
+    else if (wLength > hLength * 1.25)
+        tab.lookupGridWidth = tier * 2;
+    const int gridWidth = tab.lookupGridWidth, gridHeight = tab.lookupGridHeight;
+    tab.lookupGrid.assign(static_cast<size_t>(gridWidth * gridHeight), {});
+    const double stepX = 1.0 / static_cast<double>(gridWidth);
+    const double stepY = 1.0 / static_cast<double>(gridHeight);
+    for (int gy = 0; gy < gridHeight; ++gy) {
+        for (int gx = 0; gx < gridWidth; ++gx) {
+            const double x0 = gx * stepX, x1 = (gx + 1) * stepX;
+            const double y0 = gy * stepY, y1 = (gy + 1) * stepY;
+            auto& result = tab.lookupGrid[static_cast<size_t>(gy * gridWidth + gx)];
             bool found = false;
             for (int b = 0; b < baseCount && !found; ++b) {
                 const auto& cell = tab.cells[static_cast<size_t>(b)];
@@ -663,12 +675,12 @@ int tryFastTableCell(const TilingTable& tab, TilingType type, int cols, int rows
         return -1;
     }
 
-    if (tab.lookupGridSize <= 0 || tab.lookupGrid.empty()) return -1;
-    const int gx = std::min(tab.lookupGridSize - 1,
-                            static_cast<int>(fu * static_cast<double>(tab.lookupGridSize)));
-    const int gy = std::min(tab.lookupGridSize - 1,
-                            static_cast<int>(fv * static_cast<double>(tab.lookupGridSize)));
-    return tryCandidate(tab.lookupGrid[static_cast<size_t>(gy * tab.lookupGridSize + gx)]);
+    if (tab.lookupGridWidth <= 0 || tab.lookupGridHeight <= 0 || tab.lookupGrid.empty()) return -1;
+    const int gx = std::min(tab.lookupGridWidth - 1,
+                            static_cast<int>(fu * static_cast<double>(tab.lookupGridWidth)));
+    const int gy = std::min(tab.lookupGridHeight - 1,
+                            static_cast<int>(fv * static_cast<double>(tab.lookupGridHeight)));
+    return tryCandidate(tab.lookupGrid[static_cast<size_t>(gy * tab.lookupGridWidth + gx)]);
 }
 
 int scanTableCell(const TilingTable& tab, int cols, int rows, double worldX, double worldY,

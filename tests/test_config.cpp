@@ -30,10 +30,10 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.factions[1].unitPreference[0], 2.0);   // 红：普通兵偏好 2（P11 改版）
     EXPECT_EQ(cfg.factions[3].speedMultAll, 1.5);        // 青：全速 ×1.5
     EXPECT_EQ(cfg.factions[5].extraLaserBeams, 2);       // 绿：激光 3 条
-    EXPECT_EQ(cfg.factions[6].bombRadius, 4.08);         // 橙：爆炸半径覆盖
+    EXPECT_EQ(cfg.factions[6].bombRadiusBonus, 0.7);     // 橙：爆炸半径增加 70%
     EXPECT_EQ(cfg.effect.bomb.baseRadius, 2.4);          // 炸弹死亡爆炸基础半径
     EXPECT_EQ(cfg.effect.bomb.expansionRate, 1.0);       // 内置默认；数据配置为 0.5
-    EXPECT_EQ(cfg.factions[7].mineTriggerRadius, 1.43);  // 紫：地雷引爆爆炸半径覆盖
+    EXPECT_EQ(cfg.factions[7].mineTriggerBombRadiusBonus, 0.3);  // 紫：地雷爆炸半径增加 30%
     EXPECT_EQ(cfg.factions[8].freeArmyChance, 0.6);      // 品红：免费产兵
     // 双色系统（⑫）：副色默认浅灰 191；中立灰占位主色 = 深灰 96（用户定夺"深灰+浅灰"）。
     EXPECT_EQ(cfg.factions[0].color, (std::array<int, 3>{96, 96, 96}));
@@ -80,7 +80,7 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.units[6].bulletSpreadPIFrac, 0.0);  // 手枪单发无散射
     EXPECT_NEAR(cfg.units[7].bulletSpreadPIFrac, 2.0 / 9.0, 1e-12);
     EXPECT_NEAR(cfg.units[7].bulletSpreadJitterFrac, 0.3, 1e-12);
-    EXPECT_EQ(cfg.projectile.drawSize, 32);  // 子弹 sprite 边长（= sprite 原生）
+    EXPECT_EQ(cfg.projectile.drawSize, 32);  // 子弹 sprite 边长（逻辑屏幕像素）
     EXPECT_EQ(cfg.projectile.mountainLifespanPenalty, 2);
     // P14 经济重构：朴素逐 tick 收入键（占位默认）；旧魔法公式键已删除。
     EXPECT_NEAR(cfg.economy.initialEconomy, 1.1, 1e-12);
@@ -176,7 +176,7 @@ TEST(Config, LoadsDataFile) {
     // 从项目根运行（ctest 的 WORKING_DIRECTORY 已设为源码根）。
     const lw::Config cfg = lw::Config::loadFromFile("data/config.json");
     EXPECT_EQ(cfg.map.width, 105);
-    EXPECT_DOUBLE_EQ(cfg.map.forceCoastRangeMultiplier, 1.0);
+    EXPECT_DOUBLE_EQ(cfg.map.forceCoastRangeMultiplier, 3.2);
     EXPECT_DOUBLE_EQ(cfg.map.forceCoastStrengthMultiplier, 1.0);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
     EXPECT_NEAR(cfg.army.spawnAngleStep, 2.0, 1e-12);
@@ -187,11 +187,12 @@ TEST(Config, LoadsDataFile) {
     EXPECT_EQ(cfg.effect.mine.armTicks, 1200);
     EXPECT_EQ(cfg.effect.mine.checkEveryTicks, 24);
     EXPECT_EQ(cfg.effect.mine.timeoutTicks, 7200);
+    EXPECT_NEAR(cfg.effect.mine.triggerRadius, 1.54, 1e-12);
     EXPECT_EQ(cfg.effect.laser.durationTicks, 44);
     EXPECT_EQ(cfg.effect.laser.extendPerTick, 1);
     EXPECT_EQ(cfg.projectile.mountainLifespanPenalty, 1);
-    EXPECT_NEAR(cfg.economy.perLandIncome, 0.00015, 1e-12);
-    EXPECT_NEAR(cfg.economy.cityBaseMult, 10.0, 1e-12);
+    EXPECT_NEAR(cfg.economy.perLandIncome, 0.00007, 1e-12);
+    EXPECT_NEAR(cfg.economy.cityBaseMult, 20.0, 1e-12);
     EXPECT_NEAR(cfg.capital.relocationDelayTicks, 1200.0, 1e-12);
     EXPECT_EQ(cfg.units[6].periodTicks, 240);
     EXPECT_NEAR(cfg.units[6].bulletSpeed, 0.25, 1e-12);
@@ -216,6 +217,10 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.primary, 0.6, 1e-9);
     EXPECT_NEAR(cfg.render.city.spawnArrow.secondary, 0.1, 1e-9);
     EXPECT_NEAR(cfg.render.city.spawnArrow.black, 0.3, 1e-9);
+    EXPECT_NEAR(cfg.render.player.hoverCityRadius, 2.0, 1e-9);
+    EXPECT_NEAR(cfg.render.player.markerRingMargin, 1.5, 1e-9);
+    EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.7, 1e-9);
+    EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.3, 1e-9);
     EXPECT_NEAR(cfg.units[7].bulletSpreadPIFrac, 2.0 / 9.0, 1e-5);  // 数据文件 0.222222 ≈ 2/9
 }
 
@@ -280,7 +285,7 @@ TEST(Config, NewTilingCitySetsRoundTrip) {
 }
 
 TEST(Config, CityShapesFileProvidesSquareHexTri) {
-    // P1.2：square/hex/tri 形状表从 data/city_shapes.json 加载，cells 为世界偏移。
+    // P1.2：square/hex/tri 形状表从 data/city_shapes.json 加载，cells 为世界单位 U 偏移。
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     ASSERT_EQ(cfg.city.square.levels.size(), 5u);
     ASSERT_EQ(cfg.city.square.shapes.size(), 5u);

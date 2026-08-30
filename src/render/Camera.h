@@ -31,7 +31,7 @@ public:
         clampPan();
     }
 
-    // ---- 世界坐标（格）→ 屏幕像素（逻辑坐标空间）----
+    // ---- 世界坐标（U）→ 屏幕像素（逻辑坐标空间）----
     // 用连续变换（toXf/toYf）：整数世界坐标与旧 int 版一致，但非整数（城市中心等）不被
     // 抹掉小数 → 消除"图标偏左/上随 zoom 放大"（2026-08-07 城市 1/2 级偏左回归）。
     double toScreenX(double worldX) const { return tf_.toXf(worldX) * zoom_ + panX_; }
@@ -67,7 +67,7 @@ public:
     double viewWorldY0() const { return toWorldY(windowH_); }  // 屏幕底（世界 y 小）
     double viewWorldY1() const { return toWorldY(0.0); }       // 屏幕顶（世界 y 大）
 
-    // 每格屏幕像素 = blockSize*zoom（特效半径/光束高度等世界几何用）。
+    // 每世界单位 U 的逻辑屏幕像素 = blockSize*zoom（特效半径/光束高度等世界几何用）。
     double cellPx() const { return tf_.blockSize * zoom_; }
 
     // 以屏幕点 (sx,sy) 为锚缩放：锚点下的世界坐标保持不动。factor>1 放大。

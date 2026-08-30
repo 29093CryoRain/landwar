@@ -228,8 +228,8 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
             }
         }
 
-        // 图标尺寸：生产渲染只使用预计算 iconFitScale（世界单位，中心 = 基建地块几何中心，
-        // 不平移）；缺失时按 1 倍缩放兜底，不调用 CityIconFitter 实时拟合。
+        // 图标尺寸：生产渲染只使用预计算 iconFitScale（保存的是世界单位 U 的宽度，中心 =
+        // 基建地块几何中心，不平移）；缺失时按 1 倍缩放兜底，不调用实时拟合。
         const std::size_t lvi = static_cast<size_t>(texLevel <= 9 ? texLevel - 1 : 8);
         const double cellPx = cam_.cellPx();
 

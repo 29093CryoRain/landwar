@@ -18,17 +18,18 @@ class Snapshot;  // replay/Snapshot.h：读档需重建网格/首都/城市（Ph
 // 城市（P13 多格重构）：注册表存于 Map，cityId = 注册表下标，全图唯一、永不回收
 // （城市一经放置整局存在，仅易主不销毁 → 下标稳定，无需空闲列表）。
 // P12：基建格集合由 锚点格（baseIndex）+ 形状（level 查 cfg.city.setFor(tiling)）隐式导出
-// （形状 = 相对锚格中心的世界偏移格集，见 Config::City::Shape），取代矩形 (baseX, baseY, w, h)。
+// （形状 = 相对锚格中心的世界单位 U 偏移集，见 Config::City::Shape），取代矩形 (baseX, baseY, w, h)。
 struct City {
     int id = -1;               // cityId（Map 注册表下标）
     int ownerId = 0;           // 归属势力 id（0 = 中立/未占）
-    double level = 1.0;        // 等级（当前严格等于城市基建区域面积）
-    double area = 1.0;         // 城市基建区域面积（预留字段；当前 area == level）
+    double level = 1.0;        // 等级（当前严格等于城市基建区域面积，单位 U²）
+    double area = 1.0;         // 城市基建区域面积（单位 U²；当前 area == level）
     int baseX = 0, baseY = 0;  // 锚点坐标（方：(x,y)；六/三：(c,r)；快照序列化）
     int baseIndex = -1;        // 锚点格下标（P12；快照序列化）
     int shapeVariant = 0;      // 形状表变体下标（同级多形状时放置选定，快照序列化；
                                // 渲染/读档用同一变体保证形状一致；旧档默认 0）。
-    int w = 1, h = 1;          // 形状 AABB 格数（方：w×h 语义不变；六/三：AABB 列/行，显示用）
+    // 显示用 AABB 尺寸：方形是离散格数；非方形由世界坐标跨度四舍五入得到，仅供指示器布局。
+    int w = 1, h = 1;
     int lastProduceArmyN = 0;  // 产兵计数（保留原语义；公平调度 least-recent 排序键）
     std::uint64_t lastCapturedTick = 0;  // 最近一次整城易主/建立 tick（P15 首都"最久未被攻破"）
     double centerX_ = 0, centerY_ = 0;   // 形状几何中心（世界坐标；产兵/玩家指示锚点）
@@ -132,7 +133,7 @@ public:
     const std::vector<City>& cities() const { return cities_; }
     const City& city(int id) const { return cities_[static_cast<size_t>(id)]; }
     City& city(int id) { return cities_[static_cast<size_t>(id)]; }
-    // P12：城市基建格下标集合（形状 = 锚点 + level 查密铺形状表，经世界偏移解析）。
+    // P12：城市基建格下标集合（形状 = 锚点 + level 查密铺形状表，经 U 偏移解析）。
     std::vector<int> cityCells(const City& c) const;
     // P12：形状 → 基建格下标（level + 锚点格 index + 变体 variant；界外格 = -1）。
     // 公开供放置/渲染/测试。variant < 0 时按锚点确定性选取（旧行为，测试用）。
@@ -167,7 +168,7 @@ private:
     // 返回全部能放下的变体下标（2026-08-17：addCity 用它 + rng 随机选，保证同级不同
     // 形状都能出现；placeableVariant = 本列表首元素或 -1）。
     std::vector<int> placeableVariants(double level, int index, bool requireAllowed) const;
-    // P1.2：将形状表 cells（世界偏移）解析为格下标；方/六/三/半正/Laves 统一。
+    // P1.2：将形状表 cells（世界单位 U 偏移）解析为离散格下标；所有密铺统一。
     // 三角反锚镜像 dy；界外格返回 -1。shapeCells 与 placeableVariants 共用。
     std::vector<int> resolveShapeCells(const Config::City::Shape& shape, int anchorIndex) const;
     // 每格概率通道（地形基图：海/陆确定性 + 山 R / 城 G 概率通道）。方/六/三共用。

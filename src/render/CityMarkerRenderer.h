@@ -7,10 +7,10 @@
 // 旋转角来自 sim.tickCount()（世界时钟），**绝不触碰 sim RNG**。
 //
 // 2026-08-07 指示尺寸自适应：环/箭头按目标城市基建地块尺寸（w,h）——环的公式
-//   （外圆直径 = max(w,h)+markerRingMargin 格 / kRingOuterFrac）保持不变。
+//   （标称 U 外圆直径 = max(w,h)+markerRingMargin，再除以 kRingOuterFrac）保持不变。
 // 2026-08 细节改进（箭头拆分）：原实现把整张四箭头图按城市大小缩放（大城箭头跟着变大，
 // 小城缩向中心，观感生硬）。现改为**拆分 arrow.png 为 4 个方向子图，不随城市大小缩放**：
-// 每个箭头以固定尺寸（长度 = kArrowLenCells 格 × cellPx，缩放只随 zoom，与其余精灵一致）
+// 每个箭头以固定尺寸（长度 = kArrowLenCells U × cellPx，缩放只随 zoom，与其余精灵一致）
 // 绘制，位置随城市基建框移动——左/右箭头尖端对齐框左/右缘中点、上/下箭头尖端对齐
 // 框上/下缘中点，尖端与框缘间距 = markerArrowGap 格 × cellPx。大城箭头自然外移、小城内收。
 // 纯几何（arrowRects/ringSizePx）为静态，可离屏单测（无 SDL 渲染器）。
@@ -53,12 +53,12 @@ public:
     // 源贴图比例常数（tools/gen_markers.py）：
     static constexpr double kRingOuterFrac = 104.0 / 128.0;  // 环外圆直径占源贴图 = 52×2/128
     // 箭头基准尺寸（2026-08 拆分后）：长度（指向方向）按格计，缩放只随 zoom（cellPx）。
-    static constexpr double kArrowLenCells = 1.4;   // 箭头长（格；zoom1 时 ≈21px）
+    static constexpr double kArrowLenCells = 1.4;   // 箭头长（U；zoom1 时 ≈21px）
     static constexpr double kArrowWidthOverLen = 1.5;  // 源图宽:长 = 30:20
 
     // 环纹理边长（px）：外圆直径 = max(w,h)+margin 格（除以 kRingOuterFrac 换算回贴图边长）。
     static int ringSizePx(int w, int h, double cellPx, double margin);
-    // 箭头中心相对城市中心的前移距离：sqrt(城市基建总面积 / 配置分母) + 贴图长度/2。
+    // 箭头中心相对城市中心的前移距离（U）：sqrt(城市面积 / 面积尺度) + 贴图长度/2。
     static double spawnArrowDistance(double area, double areaDivisor, double renderedLength);
     // 四箭头屏幕布局（顺序：左/右/上/下）：固定尺寸 + 随城市框移动（见文件头注）。
     // **输入/输出均为屏幕像素坐标**（CityTarget.cx/cy 传屏幕坐标；draw 前须先经 Camera 转换）。

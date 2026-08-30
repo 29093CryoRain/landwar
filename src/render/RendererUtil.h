@@ -32,8 +32,8 @@ inline std::array<int, 3> scaledColor(const std::array<int, 3>& col, double rate
     return out;
 }
 
-// 视野剔除：世界点 (wx,wy) 外扩 worldRadius（世界格）后是否可能与视口相交
-// （屏幕空间矩形重叠判定；y 翻转无影响）。worldRadius 取绘制尺寸折算格数
+// 视野剔除：世界点 (wx,wy) 外扩 worldRadius（世界单位 U）后是否可能与视口相交
+// （屏幕空间矩形重叠判定；y 翻转无影响）。worldRadius 取绘制尺寸折算的 U 数
 // （sprite 半宽 + 余量）即可，多画无害、少画为 bug → 宁可保守。
 inline bool isVisibleOnScreen(const Camera& cam, double wx, double wy, double worldRadius) {
     const double sx = cam.toScreenX(wx);

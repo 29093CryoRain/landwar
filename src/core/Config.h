@@ -34,7 +34,7 @@ struct Config {
         std::string file = kDefaultMapFile;  // 基线地图（2026-08-02 用户定夺；资产在 data/）
         int width = 105;
         int height = 95;
-        int blockSize = 15;
+        int blockSize = 15; // 正方形单格边长（逻辑屏幕像素）；其他密铺按平均面积归一化
         int panelWidth = 600;
         int capitalMinDistance = 28;
         // 随机图生成：山地格城市权重（普通陆地=1.0，山地×此值；2026-08 从硬编码移入）。
@@ -50,7 +50,7 @@ struct Config {
 
     struct Army {
         double baseSpeed = 0.3;
-        double baseSize = 1.1;
+        double baseSize = 1.1; // 基础碰撞半径（世界单位 U）
         // 反弹角偏置的弧度半区间；每次反弹取一次 unit()，范围为 [-range, range)。
         double bounceJitterRangeRad = 0.03;
         // 首次产兵方向随机，之后每次按此弧度逆时针递增。
@@ -88,12 +88,12 @@ struct Config {
     struct Unit {
         double cost = 1.0;        // 产兵经济成本
         double speedMult = 1.0;   // 速度乘数（先锋2、激光/爆炸/地雷0.6）
-        double sizeMult = 1.0;    // 碰撞半径乘数（激光/爆炸1.8、地雷1.4）
+        double sizeMult = 1.0;    // 碰撞半径乘数（结果仍为世界单位 U）
         double bounceMult = 1.0;  // 撞敌方领土反弹概率乘数（先锋0.4=60% 不反弹；开拓1.0 恒反弹）
         // 视觉半径（逻辑像素，zoom=1 空间）：army.png 对应子图的目测视觉大小（略小于
         // 最远像素距离，用户目测校准）。点选兵用（Phase 8，按兵种外置表）。
         // 校准值（2026-08，用户目测）：普通12/先锋13/开拓15/激光20/爆炸21/地雷17。
-        double visualRadius = 12.0;
+        double visualRadius = 12.0; // 点选视觉半径（逻辑屏幕像素，zoom=1）
         // 山地特性（细节改进，2026-08）：开拓兵进入概率更高（0.5×1.6=0.8 → 阻挡 20%）、
         // 在山地不减速（普通兵进山减速 ×mountainSpeedMult）。
         double mountainEnterMult = 1.0;  // 山地进入概率乘数（开拓 1.6）
@@ -104,11 +104,11 @@ struct Config {
         PeriodicAction periodic = PeriodicAction::none;  // 周期动作（none=无）
         int periodTicks = 0;                            // 动作间隔（tick；periodic 非 none 时有效）
         // P9 射弹参数（periodic 非 none 的发射兵用）：
-        double bulletSpeed = 0.0;        // 子弹基础速度（格/tick；手枪=恒定值，霰弹=随机中心）
-        double bulletSpeedJitter = 0.0;  // 子弹速度随机半区间（霰弹 ±；手枪 0）
+        double bulletSpeed = 0.0;        // 子弹基础速度（U/tick；手枪=恒定值，霰弹=随机中心）
+        double bulletSpeedJitter = 0.0;  // 子弹速度随机半区间（U/tick；霰弹 ±；手枪 0）
         int    bulletCount = 1;          // 每次齐射子弹数
         int    bulletLifespanTicks = 0;  // 子弹寿命（tick）
-        double bulletSize = 0.3;         // 子弹碰撞/绘制半径（格）
+        double bulletSize = 0.3;         // 子弹碰撞半径（世界单位 U）
         // P9（2026-08-07）散射：向正前方扇形齐射。全角 = bulletSpreadPIFrac·π
         //（霰弹 40° = 2π/9；手枪单发 → 0）。单颗在均布占位上加 ±(frac·半角) 抖动。
         double bulletSpreadPIFrac = 0.0;      // 散射总角（π 的分数；0 = 无散射）
@@ -140,8 +140,9 @@ struct Config {
         int extraLaserBeams = 0;        // 势力5：额外激光条数 +2
         double laserDurationMult = 1.0; // 势力5：激光寿命 ×1.5
         double laserLengthMult = 1.0;   // 势力5：激光长度 ×1.5
-        double bombRadius = 2.4;        // 势力6：爆炸半径覆盖（4.08）；其余用 effect.bomb.baseRadius
-        double mineTriggerRadius = 1.1; // 势力7：地雷引爆爆炸半径覆盖（1.43）；其余用 effect.mine.triggerBombRadius
+        // 势力6/7 的爆炸半径相对基础值的增加比例；0.7 表示基础值增加 70%。
+        double bombRadiusBonus = 0.0;
+        double mineTriggerBombRadiusBonus = 0.0;
         double freeArmyChance = 0.0;    // 势力8：攻占城市免费产兵概率 0.6
     };
     std::vector<Faction> factions;  // 下标即 id（0..8）
@@ -162,15 +163,15 @@ struct Config {
             int lifetimeTicks = 8;     // tt>8 消亡（数据配置 16）
             int conquerEveryTicks = 2; // tt%2==0 时占领/击杀（数据配置 4）
             double expansionRate = 1.0; // 爆炸半径时间推进倍率
-            double baseRadius = 2.4;   // 炸弹死亡爆炸基础半径（橙6 用势力表 bombRadius 覆盖 4.08）
+            double baseRadius = 2.4;   // 炸弹死亡爆炸基础半径（世界单位 U）
         } bomb;
         struct Mine {
             double radius = 1.4;           // 静态半径
             int armTicks = 600;            // 10s 后进入可引爆状态
             int checkEveryTicks = 12;      // 每 12 tick 探测
             int timeoutTicks = 3600;       // 60s 超时自爆
-            double triggerRadiusMult = 1.1; // 探测半径 = mineRadius*1.1 + army.size
-            double triggerBombRadius = 1.1; // 引爆/超时自爆生成的爆炸特效半径（紫7 用势力表覆盖）
+            double triggerRadius = 1.54;    // 地雷触发距离（世界单位 U，不依赖地雷自身半径）
+            double triggerBombRadius = 1.1; // 引爆/超时自爆爆炸初始半径（世界单位 U）
         } mine;
         struct Laser {
         int durationTicks = 22;        // 基础寿命（数据配置 44；绿5 ×1.5 = 66）
@@ -200,13 +201,13 @@ struct Config {
 
     // P13 城市系统（多格基建地块 + 等级 + 幂律分布，思路 9.1）。
     // P12 改版：等级形状表**按密铺**（正方形沿用 w×h 语义；六边形轴向偏移；
-    // 三角形世界偏移 + 朝向）。等级集按密铺（方 {1,2,4,6,9}、六 {1,3,4,6,7,9}、
-    // 三 {1,2,4,6,8}）；**性质：各形状格数恰 = 等级数**（单测锁定）。
-    // 形状格 = 相对锚格中心的**世界单位偏移**（ShapeCell{dx,dy}）——parity-free，
-    // 放置时经 worldToCell 解析。三角正/反朝向由锚格奇偶在运行时镜像 dy 处理
+    // 三角形 U 偏移 + 朝向）。等级集按密铺（方 {1,2,4,6,9}、六 {1,3,4,6,7,9}、
+    // 三 {1,2,4,6,8}）；普通/等面积密铺中等级数值恰好等于格数，半正密铺按实际面积。
+    // 形状格 = 相对锚格中心的**世界单位 U 偏移**（ShapeCell{dx,dy}）——parity-free，
+    // 放置时经 worldToCell 解析。三角正/反朝向由锚格奇偶在运行时镜像 dy 处理。
     //（Map::shapeCells）；半正/Laves 已烘焙世界帧、锚格朝向由数据保证，运行时不旋转。
     struct City {
-        // 形状格（世界单位相对锚格中心的偏移）。
+        // 形状格（相对锚格中心的世界单位 U 偏移）。
         struct ShapeCell {
             double dx = 0.0;
             double dy = 0.0;
@@ -221,8 +222,8 @@ struct Config {
         };
         // 一个密铺的等级集 + 形状表。levels 为去重等级；shapes 为全部形状变体
         // （同级多形状：Laves 部分等级有两种形状），shapeLevelIndex[s] 指向 levels。
-        // 2026-08-16：levels 改 double——半正密铺城市等级 = 面积和（实数）；Laves 等级 = 格数
-        // （整数，按 double 存）。levelIndex 用容差匹配（同一实数的 JSON 往返/采样浮点）。
+        // 2026-08-16：levels 改 double——城市等级统一表示基建区域面积（U²）；Laves 因每格面积为 1，
+        // 数值恰好等于离散格数。levelIndex 用容差匹配（同一实数的 JSON 往返/采样浮点）。
         struct TilingSet {
             std::vector<double> levels;
             std::vector<Shape> shapes;
@@ -277,11 +278,11 @@ struct Config {
         // beta 按当前密铺最小等级动态取 (1 - minLevel)/2。
         double levelRankExponent = 0.5;
         // 各密铺等级/形状表（默认从 data/city_shapes.json 加载；代码内置表作无文件兜底。
-        // P1.2 起 square/hex/tri/半正/Laves 的 cells 统一为世界偏移，config.json 的 city 段
+        // P1.2 起 square/hex/tri/半正/Laves 的 cells 统一为世界单位 U 偏移，config.json 的 city 段
         // 仍可覆盖。square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]）。
         TilingSet square;  // 默认 1/2/4/6/9：1×1 / 1×2 / 2×2 / 2×3 / 3×3
-        TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，世界偏移）
-        TilingSet tri;     // 默认 1/2/4/6/8（P12 形状表，世界偏移）
+        TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，U 偏移）
+        TilingSet tri;     // 默认 1/2/4/6/8（P12 形状表，U 偏移）
         std::array<TilingSet, kTilingTypeCount> sets;  // 半正/Laves 的等级形状表（默认空）
         // 默认构造：填充全部密铺内置等级/形状表（裸 City{} 即可用，Map::cityConfig_ 等）。
         City();
@@ -316,14 +317,15 @@ struct Config {
     struct Render {
         int windowWidth = 2175;
         int windowHeight = 1425;
-        int spriteSize = 32;
         int armyDrawSize = 48;
         // 山地线稿按原始 mountain.png 参数预烘焙；所有参数仅影响渲染，不消耗模拟 RNG。
         struct Mountain {
-            int sourceWidth = 128;           // mountain.png 宽
-            int sourceHeight = 128;          // mountain.png 高
-            double strokeWidthPx = 6.0;      // mountain.png 线条中心线粗细
-            double areaReference = 1.0;      // 面积缩放基准，scale=sqrt(cellArea/此值)
+            int sourceWidth = 128;           // mountain.png 源图宽（源图像素）
+            int sourceHeight = 128;          // mountain.png 源图高（源图像素）
+            // 源图像素中的线宽；最终逻辑屏幕线宽还要乘 blockSize*zoom/sourceWidth。
+            double strokeWidthPx = 6.0;
+            // 面积缩放基准（世界面积 U²）；山纹非线条部分的缩放 = sqrt(cellArea / 此值)。
+            double areaReference = 1.0;
             double colorDarken = 0.08;       // 山线颜色 = 势力色 × 此比例
             std::vector<std::array<double, 4>> segments = {
                 {0.0, 119.0, 47.0, 1.0},
@@ -349,7 +351,7 @@ struct Config {
         // 等级图标不再有全局 iconScale 表：所有密铺（含 square）统一走预计算
         // iconFitScale[tilingName][texLevel]；缺失时按 1 倍缩放兜底（P1.2/P1.3）。
         struct City {
-            // 屏上格大小阈值（逻辑像素）：屏上格 > 此值 → 高缩放档（画细线围基建地块区域）。
+            // 每世界单位 U 的屏幕像素阈值（逻辑像素）：超过此值 → 高缩放档。
             double lineMinCellPx = 20.0;
             // （2026-08-08：`minIconSizePx` 已移除——普通城市随缩放继续缩小（无下限），
             // 正式首都/候补的保底最小宽改由 `capital.minIconSizePx` 承担。）
@@ -358,13 +360,14 @@ struct Config {
             // 高缩放细线颜色加深系数（0-1）：细线颜色 = 势力色 × lineDarken（与图标同势力色处理，
             // 但加深以便与城市图标区分）。0 → 黑，1 → 势力色原色。
             double lineDarken = 0.7;
-            // 预计算"贴图最大内接框宽"（世界单位，中心 = 基建地块几何中心，不平移）。
+            // 预计算"贴图最大内接框宽"（世界单位 U，中心 = 基建地块几何中心，不平移）。
+            // 注意：字段名虽含 Scale，实际保存的是宽度，不是无量纲倍率。
             // 键：tilingName -> 贴图等级(1..10) -> fitW。由交互工具人工调定并经
             // tools/apply_city_icon_fit_scales.py 取同级最小值后写入。
-            // 渲染时 fitW = iconFitScale[tiling][texLevel] × cellPx；方形也使用此表，
+            // 渲染时 fitW(U) = iconFitScale[tiling][texLevel] × cellPx；方形也使用此表，
             // 缺失时按 1 倍缩放兜底（不再乘以 iconScale）。
             std::unordered_map<std::string, std::unordered_map<int, double>> iconFitScale;
-            // 贴图竖直平移（世界单位，正=向上；由交互工具逐条目人工调定）。
+            // 贴图竖直平移（世界单位 U，正=向上；由交互工具逐条目人工调定）。
             // 每项 = 某贴图等级 + 某同级形状变体 + 某**锚基础格类**（baseGroups 一个数组）的偏移，
             // 同类内取均值（2026-08-26 去重：不再按单个 anchorB 展开）。渲染时 iconCy = centerY + value，
             // 命中条件 = iconLevel + variant 匹配 且 城市实际 anchorB ∈ bases。
@@ -391,6 +394,7 @@ struct Config {
                 double primary = 0.60;
                 double secondary = 0.10;
                 double black = 0.30;
+                // 城市面积为 U²；箭头距离使用 sqrt(area / 此值)，此值是面积尺度。
                 double areaDivisor = 3.0;
             } spawnArrow;
             // 图标中心 = 基建地块几何中心（2026-08-07：移除 offsetY 错开偏移，见 P13 后续修订）。
@@ -408,21 +412,17 @@ struct Config {
             // 候补指定新都虚化首都图标透明度（0-1）。
             double designatedAlpha = 0.45;
         } capital;
+        // 城市选择命中与产兵指示（交互命中半径除外，其余为视觉参数）。
+        struct Player {
+            double hoverCityRadius = 2.0;    // 城市命中半径（世界单位 U）
+            double markerAlpha = 0.85;       // 指示圈透明度（0-1）
+            double markerRotateSpeed = 0.03; // 指示圈旋转角 / tick（rad）
+            // 环外径（标称 U）= max(城市 AABB w,h) + 此边距。
+            double markerRingMargin = 1.5;
+            // 箭头尖端与城市 AABB 边缘的间距（标称 U）。
+            double markerArrowGap = 0.6;
+        } player;
     } render;
-
-    // 玩家模式（P2）：产兵城选择/悬停指示圈。
-    struct Player {
-        double hoverCityRadius = 2.0;    // 悬停指示圈触发半径（格；含格本身）
-        double markerAlpha = 0.85;       // 指示圈透明度（0-1）
-        double markerRotateSpeed = 0.03; // 指示圈旋转角 / tick（rad）
-        // 产兵城指示环（P13 后续修订，2026-08-07）：环外径（格）= max(w,h) + markerRingMargin，
-        // 随城市基建地块大小自适应（圈住大小不一的城）；外径须 ≥ 对角 √(w²+h²) 才圈住全部
-        // 基建格（当前最大形状 3×3 → 对角 4.24，margin≥1.24 即够；默认 1.5）。改值即"自由缩放"。
-        double markerRingMargin = 1.5;
-        // 悬停四箭头（P13 后续修订，2026-08-07）：箭头尖端半径（格）= max(w,h)/2 + markerArrowGap，
-        // 间距可调，能指示大小不一的城（大城箭头外移、不埋进基建地块）。
-        double markerArrowGap = 0.6;
-    } player;
 
     // 消息面板（P4）：消息持续留存（不自动消失），仅超上限丢最旧。
     struct Ui {

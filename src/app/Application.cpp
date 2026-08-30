@@ -402,7 +402,7 @@ void Application::pickSelection() {
 
     // 1) 兵：屏幕空间点选，与渲染视觉对齐。
     //    - 锚点 = 兵 sprite 的【绘制中心】= (toScreenXi(x), toScreenYi(y))。
-    //      （渲染曾加 spriteSize/2 的 y 偏移，后取消；点选与渲染必须一致，故也取消。）
+    //      （渲染曾加精灵边长一半的 y 偏移，后取消；点选与渲染必须一致，故也取消。）
     //    - 半径 = 该兵种 visualRadius * zoom（config.units 表，由 army.png 子图量得；
     //      不同兵种视觉大小不同，统一半格阈值会点到邻近普通兵的空白区）。
     //    - 判定取 ratio = 距离/半径 最小者（相对其视觉最居中），且 < 1 才算命中。
@@ -537,7 +537,7 @@ void Application::updatePlayerIntent() {
     // 屏幕距离 ≤ 阈值 → 命中最近者。阈值随缩放（= hoverCityRadius 格 × cellPx），
     // 下限 20px 防缩小时过小。悬停圈与点击共用同一判定（所见即所选）。
     const double cellPx = camera_.cellPx();
-    const double selR = std::max(20.0, sim_.config().player.hoverCityRadius * cellPx);
+    const double selR = std::max(20.0, sim_.config().render.player.hoverCityRadius * cellPx);
     int hitCityId = -1;
     double hitDist = std::numeric_limits<double>::max();
     // P13：多格城市以城市中心（baseX+w/2, baseY+h/2）为命中/指示锚点（2026-08-07 起意图坐标

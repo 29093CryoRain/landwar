@@ -29,8 +29,8 @@ constexpr SDL_Rect kArrowBottomSrc{49, 86, 30, 20};
 }  // namespace
 
 int CityMarkerRenderer::ringSizePx(int w, int h, double cellPx, double margin) {
-    const double outerCells = static_cast<double>(std::max(w, h)) + margin;  // 外圆直径（格）
-    return static_cast<int>(std::lround(outerCells * cellPx / kRingOuterFrac));
+    const double outerWorld = static_cast<double>(std::max(w, h)) + margin;  // 标称外圆直径（U）
+    return static_cast<int>(std::lround(outerWorld * cellPx / kRingOuterFrac));
 }
 
 double CityMarkerRenderer::spawnArrowDistance(double area, double areaDivisor,
@@ -42,7 +42,7 @@ double CityMarkerRenderer::spawnArrowDistance(double area, double areaDivisor,
 std::array<CityMarkerRenderer::ArrowRect, 4> CityMarkerRenderer::arrowRects(
     const CityTarget& t, double cellPx, double gap) {
     // 固定箭头尺寸（只随 zoom/cellPx；不随城市大小——城市大小由位置吸收）。
-    const double lenPx = kArrowLenCells * cellPx;          // 箭头长（指向方向）
+    const double lenPx = kArrowLenCells * cellPx;          // 箭头长（U 转逻辑像素）
     const double widPx = lenPx * kArrowWidthOverLen;       // 箭头宽
     const double hw = static_cast<double>(t.w) * cellPx / 2.0;  // 城市框半宽（屏幕 px）
     const double hh = static_cast<double>(t.h) * cellPx / 2.0;  // 城市框半高
@@ -113,7 +113,7 @@ void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const 
     if (!hover && !sel && spawnDirections.empty()) return;
     const int idx = playerFactionId - 1;  // 烘焙的下标 = 势力 id - 1
     const std::uint64_t tick = sim.tickCount();
-    const auto& pcfg = sim.config().player;
+    const auto& pcfg = sim.config().render.player;
     const double rotSpeed = pcfg.markerRotateSpeed;
     const double alphaScale = std::clamp(pcfg.markerAlpha, 0.0, 1.0);
     const double cellPx = cam_.cellPx();
@@ -121,7 +121,7 @@ void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const 
     if (hover) {
         // 待选城（按下鼠标会选中）：四箭头指向该城，不旋转。
         // 2026-08 细节改进：拆分四方向子图、固定尺寸、位置随城市框移动（大城箭头外移）。
-        // 尺寸只随 zoom（cellPx），与其余精灵一致；尖端与框缘间距 = markerArrowGap 格。
+        // 尺寸只随 zoom（cellPx），与其余精灵一致；尖端与框缘间距 = markerArrowGap U。
         // **注意**：arrowRects 在屏幕坐标空间计算——先把城市中心从世界坐标转换到屏幕
         // （2026-08 修复：漏掉转换曾把箭头画到"世界坐标当像素"的错位位置 → 完全不可见）。
         const CityTarget screenTarget{cam_.toScreenX(hover->cx), cam_.toScreenY(hover->cy),
@@ -142,7 +142,7 @@ void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const 
         }
     }
     if (sel) {
-        // 产兵城：旋转虚线环（顺时针）。外圆直径 = max(w,h) + markerRingMargin 格，
+        // 产兵城：旋转虚线环（顺时针）。标称外圆直径 = max(w,h) + markerRingMargin U，
         // 圈住大小不一的城市（2026-08-07 起可自由缩放）。
         const int size = ringSizePx(sel->w, sel->h, cellPx, pcfg.markerRingMargin);
         const int alpha = static_cast<int>(std::lround(255.0 * alphaScale));

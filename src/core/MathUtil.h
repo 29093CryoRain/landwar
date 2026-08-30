@@ -21,7 +21,7 @@ unsigned mixColor(unsigned color1, unsigned color2, double rate);
 // 2026-08 收敛：f 版（连续 double）为唯一实现，int 版 = f 版显式截断（语义与旧版逐位一致）。
 // 规则：新代码一律用 f 版（ScreenTransform::toXf / Camera::toScreenX），保留小数；
 // 绘制取整走 Camera::toScreenXi/Yi（lround）。int 版仅供历史逐像素对齐路径。
-// P12：mapHeight 为世界高度（六/三角非整数；方 = 行数）。
+// P12：mapHeight 为世界高度（单位 U；六/三角非整数，方形恰为行数）。
 double toScreenXf(double x, double blockSize, int panelWidth);
 double toScreenYf(double y, double blockSize, double mapHeight);
 int toScreenX(double x, double blockSize, int panelWidth);

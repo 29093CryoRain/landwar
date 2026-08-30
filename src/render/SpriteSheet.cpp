@@ -22,15 +22,15 @@ SDL_Rect SpriteSheet::unitRect(int type) const {
     // 行 8 = 子弹；行 9 = 手枪；行 10 = 霰弹（P9 用户新增贴图，army_base.png 最底 3 格）。
     static constexpr int kUnitRow[kArmyTypeCount] = {0, 1, 2, 3, 4, 5, 9, 10};
     const int row = (type >= 0 && type < kArmyTypeCount) ? kUnitRow[type] : type;
-    return SDL_Rect{0, row * spriteSize_, spriteSize_, spriteSize_};
+    return SDL_Rect{0, row * kSourceSpriteSize, kSourceSpriteSize, kSourceSpriteSize};
 }
 
 SDL_Rect SpriteSheet::bulletRect() const {
-    return SDL_Rect{0, 8 * spriteSize_, spriteSize_, spriteSize_};
+    return SDL_Rect{0, 8 * kSourceSpriteSize, kSourceSpriteSize, kSourceSpriteSize};
 }
 
 SDL_Rect SpriteSheet::rect(int row) const {
-    return SDL_Rect{0, row * spriteSize_, spriteSize_, spriteSize_};
+    return SDL_Rect{0, row * kSourceSpriteSize, kSourceSpriteSize, kSourceSpriteSize};
 }
 
 }  // namespace lw::render

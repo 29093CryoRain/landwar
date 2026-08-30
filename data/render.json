@@ -3,7 +3,6 @@
     "_comment": "双色势力渲染（⑫）：tile=地块格填色 主:副:白 加权平均；city.mix=城市图标填色 主:副:黑 加权平均。",
     "windowWidth": 2560,
     "windowHeight": 1600,
-    "spriteSize": 32,
     "armyDrawSize": 48,
     "tile": {
       "primary": 0.5,
@@ -12,6 +11,7 @@
       "variation": 0.05
     },
     "mountain": {
+      "_comment": "sourceWidth/sourceHeight/segments 使用源图像素；strokeWidthPx 是预烘焙掩膜线宽，最终逻辑屏幕线宽还要按 blockSize×zoom/sourceWidth 换算。",
       "sourceWidth": 128,
       "sourceHeight": 128,
       "strokeWidthPx": 6.0,
@@ -47,6 +47,14 @@
       "minIconSizePx": 30,
       "lineThickness": 2.5,
       "designatedAlpha": 0.45
+    },
+    "player": {
+      "_comment": "城市选择命中与产兵指示参数；长度均按世界单位 U 解释。",
+      "hoverCityRadius": 2.0,
+      "markerAlpha": 0.85,
+      "markerRotateSpeed": 0.03,
+      "markerRingMargin": 1.5,
+      "markerArrowGap": 0.6
     }
   }
 }

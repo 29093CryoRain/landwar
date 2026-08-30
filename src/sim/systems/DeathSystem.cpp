@@ -39,10 +39,10 @@ void spawnDeathEffects(Simulation& sim, const DeathEvent& d) {
             break;
         }
         case DeathEffect::bomb: {
-            // 爆炸：基础半径 effect.bomb.baseRadius（2.4）× 势力覆盖（橙6 bombRadius 4.08）
-            // × 增益乘数（基线 1.0 → 恒等）。与地雷"基础+势力覆盖"同构（§2.6）。
+            // 爆炸：基础半径 ×（1 + 橙色势力加成）× 科技爆炸半径乘数。
             const double radius =
-                (d.factionId == 6 ? cfg.factions[6].bombRadius : cfg.effect.bomb.baseRadius)
+                cfg.effect.bomb.baseRadius
+                * (1.0 + (d.factionId == 6 ? cfg.factions[6].bombRadiusBonus : 0.0))
                 * sim.faction(d.factionId).mods.bombRadiusMult;
             SpawnSystem::spawnEffect(sim, d.x, d.y, d.factionId, EffectType::bomb, radius, creator);
             break;

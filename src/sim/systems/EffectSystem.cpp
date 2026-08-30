@@ -108,16 +108,15 @@ void solveMine(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
     const auto& mineCfg = ctx.move.config.effect.mine;
     const auto& f7 = ctx.move.config.factions[7];
 
-    const double radius = mineCfg.radius;
     bool explode = false;
-    // P7/P8：势力增益（地雷超时 × mineTimeoutMult；爆炸半径 × bombRadiusMult——大爆炸科技同时
-    // 作用于地雷引爆/超时爆炸，基线乘数 1.0 → 恒等，行为不变）。
+    // 地雷触发距离与地雷自身显示/静态半径独立；爆炸半径先应用紫色势力的相对基础值加成，
+    // 再应用科技 bombRadiusMult。
     const auto& fmodsMine = ctx.move.factions[static_cast<size_t>(fid.value)].mods;
     if (elapsedTicks >= mineCfg.armTicks && elapsedTicks % mineCfg.checkEveryTicks == 0) {
-        // 探测：敌方兵距雷 < radius*1.1 + 兵size → 引爆（生成爆炸特效）。
+        // 探测：敌方兵距雷 < triggerRadius + 兵碰撞半径 → 引爆（生成爆炸特效）。
         // Phase 9 修原版怪癖：首个命中即 break → 每雷只产生一个爆炸（原版无 break，
         // 多个敌兵在范围内会产生多个爆炸特效）。
-        const double searchRadius = radius * mineCfg.triggerRadiusMult + ctx.maxArmySize;
+        const double searchRadius = mineCfg.triggerRadius + ctx.maxArmySize;
         for (auto a : ctx.move.spatialHash.queryCircle(reg, pos.x, pos.y, searchRadius)) {
             if (reg.all_of<comp::Dead>(a)) continue;
             if (reg.all_of<comp::Projectile>(a)) continue;  // P9：子弹不触发地雷
@@ -125,9 +124,10 @@ void solveMine(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
             const auto& armyPos = reg.get<comp::Position>(a);
             const double armyRadius = reg.get<comp::Collider>(a).radius;
             if (math::distance(armyPos.x, armyPos.y, pos.x, pos.y)
-                < radius * mineCfg.triggerRadiusMult + armyRadius) {
+                < mineCfg.triggerRadius + armyRadius) {
                 const double bombRadius =
-                    (fid.value == 7 ? f7.mineTriggerRadius : mineCfg.triggerBombRadius)
+                    mineCfg.triggerBombRadius
+                    * (1.0 + (fid.value == 7 ? f7.mineTriggerBombRadiusBonus : 0.0))
                     * fmodsMine.bombRadiusMult;
                 SpawnSystem::spawnEffect(ctx.sim, pos.x, pos.y, fid.value, EffectType::bomb,
                                          bombRadius, creator);
@@ -137,9 +137,10 @@ void solveMine(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
         }
     }
     else if (elapsedTicks >= static_cast<int>(mineCfg.timeoutTicks * fmodsMine.mineTimeoutMult)) {
-        // 超时自爆：爆炸半径统一为**引爆半径**（2026-08 用户定夺；原版超时更大 1.3 / 紫7 1.95）。
+        // 超时自爆：爆炸半径统一使用 triggerBombRadius 及紫色势力加成。
         const double bombRadius =
-            (fid.value == 7 ? f7.mineTriggerRadius : mineCfg.triggerBombRadius)
+            mineCfg.triggerBombRadius
+            * (1.0 + (fid.value == 7 ? f7.mineTriggerBombRadiusBonus : 0.0))
             * fmodsMine.bombRadiusMult;
         SpawnSystem::spawnEffect(ctx.sim, pos.x, pos.y, fid.value, EffectType::bomb, bombRadius,
                                  creator);

@@ -6,7 +6,7 @@
     "panelWidth": 600,
     "capitalMinDistance": 28,
     "cityMountainWeight": 0.3,
-    "forceCoastRangeMultiplier": 1.0,
+    "forceCoastRangeMultiplier": 3.2,
     "forceCoastStrengthMultiplier": 1.0
   },
   "army": {
@@ -43,7 +43,7 @@
       "armTicks": 1200,
       "checkEveryTicks": 24,
       "timeoutTicks": 7200,
-      "triggerRadiusMult": 1.1,
+      "triggerRadius": 1.54,
       "triggerBombRadius": 1.1
     },
     "laser": {
@@ -62,14 +62,14 @@
   "economy": {
     "_comment": "逐 tick 收入参数；城市等级形状表在 city_shapes.json。",
     "initialEconomy": 1.1,
-    "perLandIncome": 0.00015,
-    "cityBaseMult": 10.0,
+    "perLandIncome": 0.00007,
+    "cityBaseMult": 20.0,
     "capitalBase": 0.2
   },
   "city": {
     "_comment": "城市经济与等级分布指数；全部密铺形状表在 city_shapes.json。",
-    "levelIncomeExponent": 1.0,
-    "levelRankExponent": 0.5
+    "levelIncomeExponent": 1.3,
+    "levelRankExponent": 0.3
   },
   "capital": {
     "_comment": "首都迁都冷却参数。",
@@ -77,15 +77,7 @@
   },
   "sim": {
     "tickRate": 60.0,
-    "maxArmyGuard": 50000
-  },
-  "player": {
-    "_comment": "玩家产兵指示。",
-    "hoverCityRadius": 2.0,
-    "markerAlpha": 0.85,
-    "markerRotateSpeed": 0.03,
-    "markerRingMargin": 1.5,
-    "markerArrowGap": 0.6
+    "maxArmyGuard": 2000
   },
   "ui": {
     "messageMaxShown": 12
