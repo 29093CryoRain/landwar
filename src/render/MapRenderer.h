@@ -35,8 +35,10 @@ public:
     // gradeColors（2026-08 双色密铺分档；arch/laves 叠加分档着色）：下标 = 档位 j，
     // 每项下标即势力 id = 该档配色（t = j/(paletteSize-1)）。仅 arch/laves 非空
     // （paletteSize>=2）；方/六/三与单色情形传空 → 用 tileColors 中点色。
-    void draw(const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
-              const std::vector<std::array<std::array<int, 3>, kFactionTotal>>& gradeColors = {});
+    void draw(const Map& map, const std::vector<std::array<int, 3>>& tileColors,
+              const std::vector<std::vector<std::array<int, 3>>>& gradeColors = {});
+    // 旧测试/调用方兼容入口；新代码应使用运行时长度的 vector 版本。
+    void draw(const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
 
 private:
     struct MountainScale {
@@ -47,11 +49,9 @@ private:
     void ensureMountainScales(const Map& map);
     void drawMountain(const Map& map, int index, Renderer& renderer);
     void releaseMountainScales();
-    void drawSquare(const Map& map,
-                    const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
-    void drawTiled(const Map& map,
-                   const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
-                   const std::vector<std::array<std::array<int, 3>, kFactionTotal>>& gradeColors);
+    void drawSquare(const Map& map, const std::vector<std::array<int, 3>>& tileColors);
+    void drawTiled(const Map& map, const std::vector<std::array<int, 3>>& tileColors,
+                   const std::vector<std::vector<std::array<int, 3>>>& gradeColors);
     // P12 决策 3：一圈灰线描出地图边界（任意密铺；实心粗线段）。
     void drawBoundaryOutline(const Map& map);
     SDL_Renderer* ren_;

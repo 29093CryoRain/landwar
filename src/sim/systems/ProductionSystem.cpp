@@ -14,7 +14,7 @@
 namespace lw {
 
 void ProductionSystem::update(Simulation& sim) {
-    for (int playerIdx : sim.turnOrder()) produce(sim, playerIdx + 1);
+    for (int playerIdx : sim.turnOrder()) produce(sim, sim.factionIdForTurnIndex(playerIdx));
 }
 
 void ProductionSystem::produce(Simulation& sim, int factionId) {

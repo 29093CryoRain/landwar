@@ -63,8 +63,8 @@ struct Config {
         double goSeaIncrease = 1.7 / 20000.0;   // 下海概率每 tick 增量 = 1.7/20000
         double goSeaChanceConst = 110.0;        // 下海概率 = (ttime-last+110)*p/17700
         double goSeaChanceDenominator = 17700.0;
-        // 2026-08：cyanSeaMult 已删除（旧死键）——势力3 下海概率 ×0.666 统一由
-        // factions[3].seaMult 承担（见 initDefaultFactions 与 config.json）。
+        // 2026-08：cyanSeaMult 已删除（旧死键）；下海概率倍率统一由各势力的
+        // Faction::seaMult 定义承担。
         // 海陆速度统一（Phase 9）：下海 speed ×seaSpeedMult，登陆 /seaSpeedMult（互逆）。
         double seaSpeedMult = 0.5;
     } sea;
@@ -127,25 +127,29 @@ struct Config {
 
     struct Faction {
         int id = 0;
+        std::string name; // 菜单/消息显示名；缺省时由配置加载器补齐
+        std::string description; // 菜单中的势力简介
+        // 按 UTF-8 字符顺序指定名称颜色来源：primary 或 secondary；不足部分用 primary。
+        std::vector<std::string> nameColors = {"primary"};
         std::array<int, 3> color = {127, 127, 127};   // 主色（双色系统⑫：渲染色主源；旧单色语义保留）
         std::array<int, 3> secondary = {191, 191, 191};  // 副色（双色系统⑫：旧势力默认浅灰）
         // P11 改版（用户定夺）：势力特色**不再影响兵种价格**（原 costDiv 价格折扣已移除），
         // 改由【兵种偏好系数】unitPreference 驱动默认 AI 的产兵分配（见 ProductionAI）。
         // 值 = 各兵种偏好系数（默认 1.0；>1 → 默认 AI 在该兵种上花费更多）。未来与科技挂钩。
         std::array<double, kArmyTypeCount> unitPreference = {1, 1, 1, 1, 1, 1, 1, 1};
-        double speedMultAll = 1.0;      // 势力3：全兵速 ×1.5
-        double seaMult = 1.0;           // 势力3：下海概率 ×0.666
-        double bounceMultAll = 1.0;     // 势力4：全兵反弹概率 ×0.6
-        double pioneerSpeedMult = 1.0;  // 势力4：开拓速度 ×2
-        int extraLaserBeams = 0;        // 势力5：额外激光条数 +2
-        double laserDurationMult = 1.0; // 势力5：激光寿命 ×1.5
-        double laserLengthMult = 1.0;   // 势力5：激光长度 ×1.5
-        // 势力6/7 的爆炸半径相对基础值的增加比例；0.7 表示基础值增加 70%。
+        double speedMultAll = 1.0;      // 全兵速乘数
+        double seaMult = 1.0;           // 下海概率乘数
+        double bounceMultAll = 1.0;     // 全兵反弹概率乘数
+        double pioneerSpeedMult = 1.0;  // 开拓兵速度乘数
+        int extraLaserBeams = 0;        // 额外激光条数
+        double laserDurationMult = 1.0; // 激光寿命乘数
+        double laserLengthMult = 1.0;   // 激光长度乘数
+        // 爆炸半径相对基础值的增加比例；0.7 表示基础值增加 70%。
         double bombRadiusBonus = 0.0;
         double mineTriggerBombRadiusBonus = 0.0;
-        double freeArmyChance = 0.0;    // 势力8：攻占城市免费产兵概率 0.6
+        double freeArmyChance = 0.0;    // 攻占城市免费产兵概率
     };
-    std::vector<Faction> factions;  // 下标即 id（0..8）
+    std::vector<Faction> factions;  // 下标即 id（0=中立；其余数量由 JSON 决定）
 
     // ---- 双色势力渲染派生色（视觉工程改进 ⑫；纯函数，四舍五入）----
     // 主色 = factions[id].color、副色 = factions[id].secondary。

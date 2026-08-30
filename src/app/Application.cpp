@@ -22,6 +22,7 @@
 #include "ui/ImGuiSetup.h"
 #include "ui/Menu.h"
 #include "ui/UiScale.h"
+#include "ui/UiText.h"
 #include "ui/panels/LeaderboardPanel.h"  // 3.7：排行榜独立面板
 #include "ui/panels/StatsPanel.h"  // P11：统计面板注册
 #include "ui/panels/TechPanel.h"   // P8：科技面板注册
@@ -301,7 +302,7 @@ void Application::renderFrame() {
                                                                                        factionId});
         };
         // 玩家：选中产兵城始终显示；悬停另一座己方城市时同步显示该城的预览箭头。
-        if (playerFid > 0 && playerFid <= kPlayerFactionCount) {
+        if (playerFid > 0 && playerFid < sim_.factionCount()) {
             const auto& player = sim_.faction(playerFid);
             if (player.spawnAngleSet) {
                 if (selCityId_ >= 0) addSpawnDirection(playerFid, selCityId_, player.spawnAngle);
@@ -310,7 +311,7 @@ void Application::renderFrame() {
             }
         }
         // AI：显示默认/回退 AI 的 least-recent 城市；玩家 AI 由上面的选中/悬停路径处理。
-        for (int fid = 1; fid <= kPlayerFactionCount; ++fid) {
+        for (int fid : sim_.selectedFactionIds()) {
             if (fid == playerFid) continue;
             const auto& faction = sim_.faction(fid);
             if (!faction.alive || faction.aiId == 1 || !faction.spawnAngleSet) continue;
@@ -383,7 +384,7 @@ void Application::computeCounts() {
     for (auto e : reg.view<comp::UnitType, comp::FactionId>()) {
         if (reg.all_of<comp::Dead>(e)) continue;
         const int fid = reg.get<comp::FactionId>(e).value;
-        if (fid >= 0 && fid < kFactionTotal) {
+        if (fid >= 0 && fid < sim_.factionCount()) {
             ++counts_.armyPerFaction[static_cast<size_t>(fid)];
         }
         ++counts_.armyTotal;
@@ -463,7 +464,7 @@ void Application::pickSelection() {
 
 int Application::playerFactionId() const {
     // 以运行时 Faction.aiId 为准（读档后也正确；options 不随快照）。
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+    for (int id : sim_.selectedFactionIds()) {
         if (sim_.faction(id).aiId == 1) return id;
     }
     return 0;
@@ -578,8 +579,8 @@ bool Application::applyPaletteColors() {
     // render.tileMix / render.city.mix = 地块格/城市图标混合比例。
     // 势力 1..8 主副色对 → 兵表双色烘焙（TwoToneTintCache：反解模板 → 按 (主,副) 合成）。
     std::vector<std::pair<std::array<int, 3>, std::array<int, 3>>> pairs;
-    pairs.reserve(kPlayerFactionCount);
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+    pairs.reserve(uiConfig_.factions.size() > 0 ? uiConfig_.factions.size() - 1 : 0);
+    for (size_t id = 1; id < uiConfig_.factions.size(); ++id) {
         const auto& f = uiConfig_.factions[static_cast<size_t>(id)];
         pairs.emplace_back(f.color, f.secondary);
     }
@@ -589,21 +590,20 @@ bool Application::applyPaletteColors() {
     }
     // 主色表（含中立 0 共 9 项）：山贴图 / 城细线与图标共用。
     std::vector<std::array<int, 3>> primaries;
-    primaries.reserve(kFactionTotal);
-    for (int id = 0; id < kFactionTotal; ++id)
-        primaries.push_back(uiConfig_.factions[static_cast<size_t>(id)].color);
+    primaries.reserve(uiConfig_.factions.size());
+    for (const auto& f : uiConfig_.factions) primaries.push_back(f.color);
     if (mapRenderer_) mapRenderer_->reloadColors(primaries);
     if (cityRenderer_) cityRenderer_->reloadColors(uiConfig_, uiConfig_.render.city.iconDarken);
     // 玩家指示（环/箭头）与特效爆炸圆：势力 1..8 主色。
     std::vector<std::array<int, 3>> primaries8;
-    primaries8.reserve(kPlayerFactionCount);
-    for (int id = 1; id <= kPlayerFactionCount; ++id)
-        primaries8.push_back(uiConfig_.factions[static_cast<size_t>(id)].color);
+    primaries8.reserve(uiConfig_.factions.size() > 0 ? uiConfig_.factions.size() - 1 : 0);
+    for (size_t id = 1; id < uiConfig_.factions.size(); ++id)
+        primaries8.push_back(uiConfig_.factions[id].color);
     if (cityMarker_) cityMarker_->reloadColors(primaries8);
     std::vector<std::array<int, 3>> spawnArrowColors;
-    spawnArrowColors.reserve(kPlayerFactionCount);
-    for (int id = 1; id <= kPlayerFactionCount; ++id)
-        spawnArrowColors.push_back(uiConfig_.factionSpawnArrowColor(id));
+    spawnArrowColors.reserve(uiConfig_.factions.size() > 0 ? uiConfig_.factions.size() - 1 : 0);
+    for (size_t id = 1; id < uiConfig_.factions.size(); ++id)
+        spawnArrowColors.push_back(uiConfig_.factionSpawnArrowColor(static_cast<int>(id)));
     if (cityMarker_) cityMarker_->reloadSpawnArrowColors(spawnArrowColors);
     if (effectRenderer_) effectRenderer_->reloadColors(primaries8);
     // 地块填色缓存（MapRenderer::draw 用；主:副:白 加权平均）。
@@ -617,17 +617,20 @@ void Application::rebuildTilePalette() {
     // 不同 t：t = 档位/(档数-1)）。档数与地图无关（只由密铺类型决定）→ 用 1×1 几何推算；
     // 未就绪时用 uiConfig_ 密铺（frame 阶段的 sim 已构建 → simReady_ 优先）。
     const TilingType tt = simReady_ ? sim_.map().tiling() : uiConfig_.map.tilingType();
-    for (int id = 0; id < kFactionTotal; ++id)
-        tileColors_[static_cast<size_t>(id)] = uiConfig_.factionTileColor(id);
+    tileColors_.clear();
+    tileColors_.reserve(uiConfig_.factions.size());
+    for (size_t id = 0; id < uiConfig_.factions.size(); ++id)
+        tileColors_.push_back(uiConfig_.factionTileColor(static_cast<int>(id)));
     const TilingGeom tg{tt, 1, 1};
     const int paletteSize = std::max(0, tg.tilePaletteSize());
     tileGradeColors_.clear();
     tileGradeColors_.reserve(static_cast<size_t>(paletteSize));
     for (int j = 0; j < paletteSize; ++j) {
         const double t = static_cast<double>(j) / static_cast<double>(paletteSize - 1);
-        std::array<std::array<int, 3>, kFactionTotal> row;
-        for (int id = 0; id < kFactionTotal; ++id)
-            row[static_cast<size_t>(id)] = uiConfig_.factionTileColor(id, t);
+        std::vector<std::array<int, 3>> row;
+        row.reserve(uiConfig_.factions.size());
+        for (size_t id = 0; id < uiConfig_.factions.size(); ++id)
+            row.push_back(uiConfig_.factionTileColor(static_cast<int>(id), t));
         tileGradeColors_.push_back(row);
     }
 }
@@ -669,7 +672,7 @@ void Application::reloadConfig() {
 void Application::endgameSummary() {
     // 与 headless --summary 同款终局摘要（写日志；不改模拟状态）。
     spdlog::info("=== endgame summary (tick {}) ===", sim_.tickCount());
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+    for (int id : sim_.selectedFactionIds()) {
         const auto& f = sim_.faction(id);
         spdlog::info("  faction {}: land={} city={} army={} 留存经济={:.2f}", id, f.landCount,
                      f.cityCount, counts_.armyPerFaction[static_cast<size_t>(id)], f.economy);
@@ -730,11 +733,11 @@ void Application::drawTechResearchModal(ui::UiRequests& req) {
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize
                      | ImGuiWindowFlags_NoResize);
 
-    const auto& fc = f.color;
-    ImGui::PushStyleColor(ImGuiCol_Text,
-                          ImVec4(fc[0] / 255.0f, fc[1] / 255.0f, fc[2] / 255.0f, 1.0f));
-    ImGui::Text("势力 %s 获得科研机会", factionShortName(playerFid));
-    ImGui::PopStyleColor();
+    ImGui::TextUnformatted("势力");
+    ImGui::SameLine();
+    ui::drawFactionName(sim_, playerFid);
+    ImGui::SameLine();
+    ImGui::TextUnformatted("获得科研机会");
     ImGui::TextUnformatted("科技点已攒满阈值，选择一个科技（升级项旧值黄、新值绿）：");
     ImGui::Separator();
 

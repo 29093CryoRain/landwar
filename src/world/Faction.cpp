@@ -20,6 +20,8 @@ bool allBaseCellsOwned(const Map& map, const City& city, int factionId) {
 
 void Faction::initFromDef(const Config::Faction& def, const Config& cfg) {
     id = def.id;
+    name = def.name;
+    selected = false;
     alive = (id != kNeutralFaction);
     aiId = 0;  // Options 会覆盖（Simulation::initFactions），此处给默认
     color = def.color;
@@ -31,6 +33,8 @@ void Faction::initFromDef(const Config::Faction& def, const Config& cfg) {
     techRate = 0.0;
     maxCityLevel = 0.0;
     freeArmyChance = def.freeArmyChance;
+    bombRadiusBonus = def.bombRadiusBonus;
+    mineTriggerBombRadiusBonus = def.mineTriggerBombRadiusBonus;
     spawnAngle = 0.0;
     spawnAngleSet = false;
     for (int t = 0; t < kArmyTypeCount; ++t) {
@@ -70,7 +74,7 @@ int Faction::techLevel() const {
 }
 
 void Faction::insertCity(int cityId, double level) {
-    if (id <= 0 || id >= kFactionTotal) return;
+    if (id <= 0 || id >= kMaxFactionCount) return;
     if (cityId < 0) return;
     for (int cid : cityIds)
         if (cid == cityId) return;  // 已存在，去重
@@ -82,7 +86,7 @@ void Faction::insertCity(int cityId, double level) {
 }
 
 void Faction::removeCity(int cityId, double level) {
-    if (cityIds.empty() || id <= 0 || id >= kFactionTotal) return;
+    if (cityIds.empty() || id <= 0 || id >= kMaxFactionCount) return;
     for (size_t i = 0; i < cityIds.size(); ++i) {
         if (cityIds[i] == cityId) {
             // 与原版一致：与末位交换再删除（顺序无关）。
@@ -133,9 +137,9 @@ void Faction::conquerIndex(ConquerContext& ctx, int index) {
             this->insertCity(city.id, city.level);
             city.ownerId = this->id;
             city.lastCapturedTick = ctx.tick;
-            // 势力8：整城易主一次免费产兵机会（原版每城一次；多格城市非每格）。
+            // 任意定义了免费产兵概率的势力：整城易主一次免费产兵机会。
             // init 阶段（freeArmyEnabled=false）跳过 → 无"开局免费兵"（用户定夺 2026-08）。
-            if (this->id == 8 && ctx.freeArmyEnabled
+            if (ctx.freeArmyEnabled && this->freeArmyChance > 0.0
                 && ctx.rng.chance(this->freeArmyChance * this->mods.freeArmyChanceMult)) {
                 ctx.pendingSpawns.push_back(
                     PendingSpawn{0, this->id, city.centerX(), city.centerY()});

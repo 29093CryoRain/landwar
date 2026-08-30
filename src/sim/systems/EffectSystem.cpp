@@ -106,7 +106,6 @@ void solveMine(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
     const auto& creator = reg.get<comp::Creator>(e);
     const int elapsedTicks = ctx.move.ttime - reg.get<comp::EffectTimer>(e).createdTick;
     const auto& mineCfg = ctx.move.config.effect.mine;
-    const auto& f7 = ctx.move.config.factions[7];
 
     bool explode = false;
     // 地雷触发距离与地雷自身显示/静态半径独立；爆炸半径先应用紫色势力的相对基础值加成，
@@ -127,7 +126,8 @@ void solveMine(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
                 < mineCfg.triggerRadius + armyRadius) {
                 const double bombRadius =
                     mineCfg.triggerBombRadius
-                    * (1.0 + (fid.value == 7 ? f7.mineTriggerBombRadiusBonus : 0.0))
+                    * (1.0 + ctx.move.factions[static_cast<size_t>(fid.value)]
+                                      .mineTriggerBombRadiusBonus)
                     * fmodsMine.bombRadiusMult;
                 SpawnSystem::spawnEffect(ctx.sim, pos.x, pos.y, fid.value, EffectType::bomb,
                                          bombRadius, creator);
@@ -140,7 +140,8 @@ void solveMine(EffectCtx& ctx, entt::entity e, std::vector<entt::entity>& toDest
         // 超时自爆：爆炸半径统一使用 triggerBombRadius 及紫色势力加成。
         const double bombRadius =
             mineCfg.triggerBombRadius
-            * (1.0 + (fid.value == 7 ? f7.mineTriggerBombRadiusBonus : 0.0))
+            * (1.0 + ctx.move.factions[static_cast<size_t>(fid.value)]
+                                  .mineTriggerBombRadiusBonus)
             * fmodsMine.bombRadiusMult;
         SpawnSystem::spawnEffect(ctx.sim, pos.x, pos.y, fid.value, EffectType::bomb, bombRadius,
                                  creator);

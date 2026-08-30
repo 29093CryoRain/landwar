@@ -23,10 +23,10 @@ struct FactionUnitStat {
 
 // 全量统计（Simulation 持有，系统经 sim.stats() 访问）。
 struct Statistics {
-    std::array<std::array<FactionUnitStat, kArmyTypeCount>, kFactionTotal> perFactionUnit{};
-    std::array<int, kFactionTotal> factionKills{};
-    std::array<int, kFactionTotal> factionLands{};
-    std::array<int, kFactionTotal> factionProduced{};
+    std::array<std::array<FactionUnitStat, kArmyTypeCount>, kMaxFactionCount> perFactionUnit{};
+    std::array<int, kMaxFactionCount> factionKills{};
+    std::array<int, kMaxFactionCount> factionLands{};
+    std::array<int, kMaxFactionCount> factionProduced{};
     std::array<int, kArmyTypeCount> unitKills{};
     std::array<int, kArmyTypeCount> unitLands{};
     std::array<int, kArmyTypeCount> unitProduced{};
@@ -60,7 +60,7 @@ struct Statistics {
         unitKills.fill(0);
         unitLands.fill(0);
         unitProduced.fill(0);
-        for (int fid = 1; fid < kFactionTotal; ++fid) {
+        for (int fid = 1; fid < kMaxFactionCount; ++fid) {
             for (int ut = 0; ut < kArmyTypeCount; ++ut) {
                 const auto& s = perFactionUnit[static_cast<size_t>(fid)][static_cast<size_t>(ut)];
                 factionKills[static_cast<size_t>(fid)] += s.kills;
@@ -76,7 +76,7 @@ struct Statistics {
 private:
     bool valid(int fid, int ut) const {
         if (cutoffTick > 0) return false;          // 截止后冻结
-        if (fid <= 0 || fid >= kFactionTotal) return false;  // 不含中立 0 / 越界
+        if (fid <= 0 || fid >= kMaxFactionCount) return false;  // 不含中立 0 / 越界
         return ut >= 0 && ut < kArmyTypeCount;
     }
 };

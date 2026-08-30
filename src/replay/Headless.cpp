@@ -37,7 +37,7 @@ std::string formatSummary(const Simulation& sim, std::uint32_t seed) {
 
     int landTotal = 0;
     int armyTotal = 0;
-    for (int id = 1; id <= 8; ++id) {
+    for (int id : sim.selectedFactionIds()) {
         const auto& f = sim.faction(id);
         int army = 0;
         for (auto e : sim.registry().view<comp::Position, comp::Collider, comp::FactionId>()) {

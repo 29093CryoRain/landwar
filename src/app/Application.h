@@ -138,8 +138,8 @@ private:
     std::string optionsPath_ = kDefaultOptionsPath;  // 菜单选项路径（开始游戏时保存；userdata/）
     std::string mapOverride_;          // CLI --map 覆盖
     Options options_;                  // 菜单选项（启动时从 optionsPath_ 读取）
-    std::array<std::array<int, 3>, kFactionTotal> tileColors_{};  // 地块填色（config.factionTileColor 缓存，渐变中点）
-    std::vector<std::array<std::array<int, 3>, kFactionTotal>> tileGradeColors_{};  // 双色密铺分档配色（下标=档位）
+    std::vector<std::array<int, 3>> tileColors_;  // 地块填色（运行时势力数量）
+    std::vector<std::vector<std::array<int, 3>>> tileGradeColors_;  // 双色密铺分档配色
     Config uiConfig_;                  // init() 的窗口/相机尺寸来源（菜单阶段 sim 未构建）。
                                        // 声明在 configPath_/optionsPath_/options_ 之后 →
                                        // 初始化顺序保证 ctor 中读取它们时已就绪。

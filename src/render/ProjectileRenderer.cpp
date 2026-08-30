@@ -22,7 +22,7 @@ void ProjectileRenderer::draw(const Simulation& sim) {
     const double z = cam_.zoom();
     for (auto e : reg.view<comp::Projectile, comp::Position, comp::FactionId>()) {
         const int fid = reg.get<comp::FactionId>(e).value;
-        if (fid < 1 || fid > kPlayerFactionCount) continue;
+        if (fid < 1 || fid >= sim.factionCount()) continue;
         const auto& pos = reg.get<comp::Position>(e);
         // 子弹 sprite（army_base.png 行 8，势力色 tint）：边长 drawSize×zoom（最小 2px 防退化）。
         const int s = render::spriteSize(drawSize_, z);

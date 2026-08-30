@@ -149,6 +149,13 @@ public:
     const Faction& faction(int id) const { return factions_[static_cast<size_t>(id)]; }
     const std::vector<Faction>& factions() const { return factions_; }
     std::vector<Faction>& factions() { return factions_; }
+    int factionCount() const { return static_cast<int>(factions_.size()); }
+    const std::vector<int>& selectedFactionIds() const { return selectedFactionIds_; }
+    int factionIdForTurnIndex(int index) const {
+        return index >= 0 && index < static_cast<int>(selectedFactionIds_.size())
+                   ? selectedFactionIds_[static_cast<size_t>(index)]
+                   : 0;
+    }
     const std::vector<int>& turnOrder() const { return turnOrder_; }
     std::vector<int>& turnOrder() { return turnOrder_; }  // 经济阶段洗牌回合顺序用
     const std::vector<PendingSpawn>& pendingSpawns() const { return pendingSpawns_; }
@@ -211,7 +218,8 @@ private:
     std::uint32_t mapSeed_ = 0;    // 地图种子值（显示/快照用）
     Map map_;
     std::vector<Faction> factions_;
-    std::vector<int> turnOrder_;  // 0..7 排列（原版 faction_solve_order）
+    std::vector<int> selectedFactionIds_;  // 本局选入势力，顺序与选项/回合索引一致
+    std::vector<int> turnOrder_;  // 选入势力列表下标的排列（原版 faction_solve_order）
     std::vector<PendingSpawn> pendingSpawns_;  // 势力8 免费兵待办（tick 末落地）
     std::vector<DeathEvent> deaths_;
     entt::registry registry_;

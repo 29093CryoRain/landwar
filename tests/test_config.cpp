@@ -25,7 +25,7 @@ TEST(Config, Defaults) {
     EXPECT_EQ(cfg.units[2].bounceMult, 1.0);
     EXPECT_EQ(cfg.units[2].mountainEnterMult, 1.6);
     EXPECT_EQ(cfg.units[2].mountainNoSlow, true);
-    // 势力表 1..8 内置默认。
+    // 内置默认势力仍为 1..8；数据文件可额外追加配置势力。
     ASSERT_EQ(cfg.factions.size(), 9u);
     EXPECT_EQ(cfg.factions[1].unitPreference[0], 2.0);   // 红：普通兵偏好 2（P11 改版）
     EXPECT_EQ(cfg.factions[3].speedMultAll, 1.5);        // 青：全速 ×1.5
@@ -136,6 +136,29 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(cfg.economy.capitalBase, 0.0, 1e-12);  // 未覆盖的保持默认
 }
 
+TEST(Config, AppendedFactionIsLoadedAndSerialized) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "factions": [{
+            "id": 9,
+            "name": "测试势力",
+            "color": [255, 204, 181],
+            "secondary": [168, 255, 89],
+            "unitPreference": {"bomb": 3.0},
+            "bombRadiusBonus": 0.5
+        }]
+    })");
+    ASSERT_EQ(cfg.factions.size(), 10u);
+    EXPECT_EQ(cfg.factions[9].name, "测试势力");
+    EXPECT_EQ(cfg.factions[9].color, (std::array<int, 3>{255, 204, 181}));
+    EXPECT_EQ(cfg.factions[9].secondary, (std::array<int, 3>{168, 255, 89}));
+    EXPECT_DOUBLE_EQ(cfg.factions[9].unitPreference[static_cast<int>(lw::ArmyType::bomb)], 3.0);
+    EXPECT_DOUBLE_EQ(cfg.factions[9].bombRadiusBonus, 0.5);
+
+    const lw::Config roundTrip = lw::Config::loadFromJson(cfg.toJson());
+    EXPECT_EQ(roundTrip.factions[9].name, "测试势力");
+    EXPECT_DOUBLE_EQ(roundTrip.factions[9].bombRadiusBonus, 0.5);
+}
+
 TEST(Config, TwoToneDerivedColors) {
     // 双色派生色公式（⑫）：地块格 = 主:副:白、城市图标 = 主:副:黑（加权平均四舍五入）。
     const lw::Config cfg = lw::Config::loadFromJson("{}");
@@ -204,7 +227,7 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 2.0, 1e-12);
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 0.000085, 1e-9);
     EXPECT_NEAR(cfg.sea.goSeaChanceDenominator, 17700.0, 1e-9);
-    EXPECT_EQ(cfg.factions.size(), 9u);
+    EXPECT_EQ(cfg.factions.size(), 10u);
     EXPECT_EQ(cfg.tech.techs.size(), 21u);  // techs.json 已合并
     EXPECT_EQ(cfg.factions[1].unitPreference[0], 2.0);  // 数据文件红 normal 偏好 2
     EXPECT_NEAR(cfg.factions[3].seaMult, 0.666, 1e-9);
@@ -219,8 +242,15 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.black, 0.3, 1e-9);
     EXPECT_NEAR(cfg.render.player.hoverCityRadius, 2.0, 1e-9);
     EXPECT_NEAR(cfg.render.player.markerRingMargin, 1.5, 1e-9);
-    EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.7, 1e-9);
-    EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.3, 1e-9);
+    EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.5, 1e-9);
+    EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.5, 1e-9);
+    EXPECT_EQ(cfg.factions[9].name, "测试");
+    EXPECT_EQ(cfg.factions[9].description, "用于验证新增势力：炸弹兵偏好更高且爆炸范围增加。");
+    ASSERT_EQ(cfg.factions[9].nameColors, (std::vector<std::string>{"primary", "secondary"}));
+    EXPECT_EQ(cfg.factions[9].color, (std::array<int, 3>{255, 204, 181}));
+    EXPECT_EQ(cfg.factions[9].secondary, (std::array<int, 3>{168, 255, 89}));
+    EXPECT_DOUBLE_EQ(cfg.factions[9].unitPreference[static_cast<int>(lw::ArmyType::bomb)], 3.0);
+    EXPECT_DOUBLE_EQ(cfg.factions[9].bombRadiusBonus, 0.5);
     EXPECT_NEAR(cfg.units[7].bulletSpreadPIFrac, 2.0 / 9.0, 1e-5);  // 数据文件 0.222222 ≈ 2/9
 }
 

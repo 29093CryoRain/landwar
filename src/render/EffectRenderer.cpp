@@ -28,7 +28,7 @@ void EffectRenderer::draw(const Simulation& sim) {
     for (auto e : reg.view<comp::EffectTypeId>()) {
         const auto& pos = reg.get<comp::Position>(e);
         const int fid = reg.get<comp::FactionId>(e).value;
-        if (fid < 1 || fid > kPlayerFactionCount) continue;
+        if (fid < 1 || fid >= sim.factionCount()) continue;
         const auto& params = reg.get<comp::EffectParams>(e);
         const int elapsedTicks =
             static_cast<int>(simTick) - reg.get<comp::EffectTimer>(e).createdTick;
@@ -48,7 +48,7 @@ void EffectRenderer::draw(const Simulation& sim) {
         const int cy = cam_.toScreenYi(pos.y);
         // 爆炸圆等直接色填充：优先调色板主色（双色系统，视觉工程改进 ⑫），缺省回退 sim 势力色。
         const std::array<int, 3> color =
-            (fid >= 1 && fid <= kPlayerFactionCount &&
+            (fid >= 1 && fid < sim.factionCount() &&
              static_cast<std::size_t>(fid - 1) < primaryColors_.size())
                 ? primaryColors_[static_cast<std::size_t>(fid - 1)]
                 : sim.faction(fid).color;

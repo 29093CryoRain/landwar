@@ -25,7 +25,7 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 9;  // v9：保存排行榜统计缓存；v8 为产兵方向状态
+constexpr int kSnapshotVersion = 10;  // v10：保存本局选入势力及其顺序
 
 void setErr(std::string* err, const std::string& msg) {
     if (err) *err = msg;
@@ -158,6 +158,7 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
     for (const auto& [key, type, path] : std::initializer_list<std::tuple<const char*, int, const char*>>{
              {"config", 0, "config"}, {"map", 0, "map"}, {"rng", 0, "rng"},
              {"factions", 1, "factions"}, {"turnOrder", 1, "turnOrder"},
+             {"selectedFactionIds", 1, "selectedFactionIds"},
              {"pendingSpawns", 1, "pendingSpawns"}, {"registry", 0, "registry"},
              {"stats", 0, "stats"},
              {"cityIconFits", 0, "cityIconFits"}}) {
@@ -176,8 +177,12 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
 
     const Json& config = root["config"];
     if (!objectMember(config, "map", "config.map") || !config.contains("units")
-        || !config["units"].is_array())
+        || !config["units"].is_array() || !config.contains("factions")
+        || !config["factions"].is_array())
         return false;
+    const size_t factionCount = config["factions"].size();
+    if (factionCount < 2 || factionCount > static_cast<size_t>(kMaxFactionCount))
+        return fail("invalid faction count");
     const Json& map = root["map"];
     if (!integerMember(map, "width", "map.width") || !integerMember(map, "height", "map.height")
         || map["width"].get<int>() <= 0 || map["height"].get<int>() <= 0)
@@ -206,18 +211,32 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
         return fail("bad rng state");
     if (!rng.contains("seed") || !rng["seed"].is_number_unsigned()) return fail("bad rng seed");
 
-    if (root["factions"].size() != static_cast<size_t>(kFactionTotal))
+    if (root["factions"].size() != factionCount)
         return fail("factions size mismatch");
+    std::vector<bool> selected(static_cast<size_t>(factionCount), false);
+    for (const auto& value : root["selectedFactionIds"]) {
+        if (!value.is_number_integer() || value.get<int>() <= 0
+            || value.get<int>() >= static_cast<int>(factionCount)
+            || selected[static_cast<size_t>(value.get<int>())])
+            return fail("bad selected faction list");
+        selected[static_cast<size_t>(value.get<int>())] = true;
+    }
     for (const auto& faction : root["factions"]) {
         if (!faction.is_object()) return fail("bad faction record");
-        for (const auto& key : {"id", "alive", "aiId", "color", "cityCount", "landCount",
+        for (const auto& key : {"id", "selected", "alive", "aiId", "color", "cityCount", "landCount",
                                 "numArmyProduced", "economy", "economyRate", "techRate",
                                 "maxCityLevel", "freeArmyChance", "spawnAngle", "spawnAngleSet",
                                 "capital", "armyCost", "producedCost",
                                 "unitPreference", "cityIds", "tech"}) {
             if (!faction.contains(key)) return fail(std::string("missing faction.") + key);
         }
-        if (!faction["id"].is_number_integer() || !faction["alive"].is_boolean()
+        if (!faction["id"].is_number_integer()
+            || faction["id"].get<int>() < 0
+            || faction["id"].get<int>() >= static_cast<int>(factionCount)
+            || !faction["selected"].is_boolean()
+            || faction["selected"].get<bool>()
+                   != selected[static_cast<size_t>(faction["id"].get<int>())]
+            || !faction["alive"].is_boolean()
             || !faction["aiId"].is_number_integer() || !faction["color"].is_array()
             || !faction["economyRate"].is_number() || !faction["techRate"].is_number()
             || !faction["maxCityLevel"].is_number() || !faction["spawnAngle"].is_number()
@@ -250,11 +269,15 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
             return fail("bad tech state");
     }
 
-    if (root["turnOrder"].size() != static_cast<size_t>(kPlayerFactionCount))
+    // turnOrder 只覆盖本局拥有选项槽位的可玩势力；旧 options.json 可能少于当前配置
+    // 的势力数量，因此允许长度小于等于配置可玩数量。
+    if (root["turnOrder"].size() > factionCount - 1)
         return fail("turn order size mismatch");
+    if (root["turnOrder"].size() != root["selectedFactionIds"].size())
+        return fail("turn order and selected faction size mismatch");
     for (const auto& value : root["turnOrder"])
         if (!value.is_number_integer() || value.get<int>() < 0
-            || value.get<int>() >= kPlayerFactionCount)
+            || value.get<int>() >= static_cast<int>(root["turnOrder"].size()))
             return fail("bad turn order");
     for (const auto& spawn : root["pendingSpawns"])
         if (!spawn.is_array() || spawn.size() != 4 || !spawn[0].is_number_integer()
@@ -278,7 +301,8 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
         if (kind != 0 && kind != 1 && kind != 2) return fail("bad entity kind");
         for (const auto& key : {"fid"})
             if (!entity.contains(key) || !entity[key].is_number_integer()
-                || entity[key].get<int>() < 0 || entity[key].get<int>() >= kFactionTotal)
+            || entity[key].get<int>() < 0
+            || entity[key].get<int>() >= static_cast<int>(factionCount))
                 return fail("bad entity faction");
         if (!entity.contains("type") || !entity["type"].is_number_integer())
             return fail("bad entity type");
@@ -310,7 +334,7 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
 
     const Json& stats = root["stats"];
     if (!arrayMember(stats, "perFactionUnit", "stats.perFactionUnit")
-        || stats["perFactionUnit"].size() != static_cast<size_t>(kFactionTotal)
+        || stats["perFactionUnit"].size() != factionCount
         || !unsignedMember(stats, "cutoffTick", "stats.cutoffTick"))
         return false;
     for (const auto& faction : stats["perFactionUnit"]) {
@@ -340,10 +364,11 @@ std::string Snapshot::serialize(const Simulation& sim) {
     root["goSeaProbability"] = sim.goSeaProbability();
     root["nextEntityId"] = sim.nextEntityId_;  // 实体单调 id 分配器（读档后新实体 id 确定）
     root["unificationEmitted"] = sim.unificationEmitted_;
+    root["selectedFactionIds"] = sim.selectedFactionIds();
 
     // P11：统计（perFactionUnit + cutoffTick；汇总为派生，读档 recompute 重建）。
     root["stats"]["perFactionUnit"] = Json::array();
-    for (int fid = 0; fid < kFactionTotal; ++fid) {
+    for (int fid = 0; fid < sim.factionCount(); ++fid) {
         Json fj = Json::array();
         for (int ut = 0; ut < kArmyTypeCount; ++ut) {
             const auto& s =
@@ -393,6 +418,7 @@ std::string Snapshot::serialize(const Simulation& sim) {
     for (const auto& f : sim.factions()) {
         Json fj;
         fj["id"] = f.id;
+        fj["selected"] = f.selected;
         fj["alive"] = f.alive;
         fj["aiId"] = f.aiId;  // 产兵 AI id（P1/P2；读档后玩家势力不退回默认 AI）
         fj["color"] = {f.color[0], f.color[1], f.color[2]};
@@ -518,6 +544,7 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
     sim.config_ = Config::loadFromJson(root.at("config").dump());
     if (!restoreCityIconFits(sim.config_, root.at("cityIconFits"), err))
         return false;
+    sim.selectedFactionIds_ = root.at("selectedFactionIds").get<std::vector<int>>();
 
     // ---- rng：恢复 mt19937 完整内部状态（seed 仅供展示/复现，序列以 state 为准）----
     const auto& rj = root["rng"];
@@ -594,6 +621,7 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
     for (const auto& fj : root.at("factions")) {
         Faction f;
         f.id = fj.at("id").get<int>();
+        f.selected = fj.at("selected").get<bool>();
         f.alive = fj.at("alive").get<bool>();
         f.aiId = fj.at("aiId").get<int>();
         const auto& color = fj.at("color");
@@ -640,8 +668,12 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
     // 读档后从势力定义 + 科技等级重建 buffs + mods，与直跑一致（快照字节不变）。
     for (auto& f : sim.factions_) {
         const size_t fi = static_cast<size_t>(f.id);
-        if (fi < sim.config_.factions.size())
+        if (fi < sim.config_.factions.size()) {
+            f.name = sim.config_.factions[fi].name;
+            f.bombRadiusBonus = sim.config_.factions[fi].bombRadiusBonus;
+            f.mineTriggerBombRadiusBonus = sim.config_.factions[fi].mineTriggerBombRadiusBonus;
             f.rebuildBuffsFromDef(sim.config_.factions[fi], sim.config_);
+        }
     }
 
     // ---- 回合顺序 / 待产兵 ----
@@ -710,7 +742,7 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
     // P11：统计（perFactionUnit + cutoffTick；汇总为派生，读档重建）。
     const auto& st = root.at("stats");
     const auto& pu = st.at("perFactionUnit");
-    for (int fid = 0; fid < kFactionTotal; ++fid) {
+    for (int fid = 0; fid < sim.factionCount(); ++fid) {
         for (int ut = 0; ut < kArmyTypeCount; ++ut) {
             const auto& v = pu[static_cast<size_t>(fid)][static_cast<size_t>(ut)];
             auto& s = sim.stats_.perFactionUnit[static_cast<size_t>(fid)]

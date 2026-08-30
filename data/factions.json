@@ -3,12 +3,17 @@
     {
       "_comment": "id 0 = 中立灰占位（双色系统⑫）：主色=深灰、副色=浅灰。",
       "id": 0,
+      "name": "中立",
+      "description": "不参与战争的中立土地与城市。",
+      "nameColors": ["primary"],
       "color": [96, 96, 96],
       "secondary": [191, 191, 191]
     },
     {
       "id": 1,
       "name": "红",
+      "description": "偏好普通兵，擅长稳定推进。",
+      "nameColors": ["primary"],
       "color": [255, 0, 0],
       "secondary": [191, 191, 191],
       "unitPreference": {"normal": 2.0}
@@ -16,6 +21,8 @@
     {
       "id": 2,
       "name": "黄",
+      "description": "均衡使用激光、炸弹和地雷。",
+      "nameColors": ["primary"],
       "color": [255, 255, 0],
       "secondary": [191, 191, 191],
       "unitPreference": {"laser": 1.5, "bomb": 1.5, "mine": 1.5}
@@ -23,6 +30,8 @@
     {
       "id": 3,
       "name": "青",
+      "description": "偏好先锋，拥有更快的全军速度。",
+      "nameColors": ["primary"],
       "color": [0, 255, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"vanguard": 3.0},
@@ -32,6 +41,8 @@
     {
       "id": 4,
       "name": "蓝",
+      "description": "偏好开拓，适合扩张和山地作战。",
+      "nameColors": ["primary"],
       "color": [0, 85, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"pioneer": 3.0, "vanguard": 1.5},
@@ -41,6 +52,8 @@
     {
       "id": 5,
       "name": "绿",
+      "description": "偏好激光，拥有更强的激光火力。",
+      "nameColors": ["primary"],
       "color": [0, 255, 0],
       "secondary": [191, 191, 191],
       "unitPreference": {"laser": 3.0},
@@ -51,6 +64,8 @@
     {
       "id": 6,
       "name": "橙",
+      "description": "偏好炸弹，爆炸范围更大。",
+      "nameColors": ["primary"],
       "color": [255, 127, 0],
       "secondary": [191, 191, 191],
       "unitPreference": {"bomb": 3.0},
@@ -59,6 +74,8 @@
     {
       "id": 7,
       "name": "紫",
+      "description": "偏好地雷，地雷爆炸范围更大。",
+      "nameColors": ["primary"],
       "color": [127, 0, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"mine": 3.0},
@@ -67,9 +84,21 @@
     {
       "id": 8,
       "name": "品红",
+      "description": "攻占城市时有机会获得免费兵力。",
+      "nameColors": ["primary", "primary"],
       "color": [255, 0, 255],
       "secondary": [191, 191, 191],
       "freeArmyChance": 0.5
+    },
+    {
+      "id": 9,
+      "name": "测试",
+      "description": "用于验证新增势力：炸弹兵偏好更高且爆炸范围增加。",
+      "nameColors": ["primary", "secondary"],
+      "color": [255, 204, 181],
+      "secondary": [168, 255, 89],
+      "unitPreference": {"bomb": 3.0},
+      "bombRadiusBonus": 0.5
     }
   ]
 }

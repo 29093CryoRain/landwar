@@ -398,17 +398,23 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
 
     auto& neutral = v[0];
     neutral.id = 0;
+    neutral.name = "中立";
+    neutral.nameColors = {"primary"};
     // 双色系统（⑫）：中立灰占位 = 深灰主色 + 浅灰副色（用户定夺）。
     neutral.color = {96, 96, 96};
     neutral.secondary = {191, 191, 191};
 
     auto& red = v[1];
     red.id = 1;
+    red.name = "红";
+    red.nameColors = {"primary"};
     red.color = {255, 0, 0};
     red.unitPreference[0] = 2.0;  // 普通兵偏好 2（用户定夺 2026-08-08）
 
     auto& yellow = v[2];
     yellow.id = 2;
+    yellow.name = "黄";
+    yellow.nameColors = {"primary"};
     yellow.color = {255, 255, 0};
     yellow.unitPreference[3] = 1.5;  // 激光
     yellow.unitPreference[4] = 1.5;  // 炸弹
@@ -416,6 +422,8 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
 
     auto& cyan = v[3];
     cyan.id = 3;
+    cyan.name = "青";
+    cyan.nameColors = {"primary"};
     cyan.color = {0, 255, 255};
     cyan.unitPreference[1] = 3.0;  // 先锋（特色）
     cyan.speedMultAll = 1.5;
@@ -423,6 +431,8 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
 
     auto& blue = v[4];
     blue.id = 4;
+    blue.name = "蓝";
+    blue.nameColors = {"primary"};
     blue.color = {0, 85, 255};
     blue.unitPreference[2] = 3.0;  // 开拓（特色）
     blue.unitPreference[1] = 1.5;  // 先锋（用户增注）
@@ -431,6 +441,8 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
 
     auto& green = v[5];
     green.id = 5;
+    green.name = "绿";
+    green.nameColors = {"primary"};
     green.color = {0, 255, 0};
     green.unitPreference[3] = 3.0;  // 激光（特色）
     green.extraLaserBeams = 2;
@@ -439,18 +451,24 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
 
     auto& orange = v[6];
     orange.id = 6;
+    orange.name = "橙";
+    orange.nameColors = {"primary"};
     orange.color = {255, 127, 0};
     orange.unitPreference[4] = 3.0;  // 炸弹（特色）
     orange.bombRadiusBonus = 0.7;
 
     auto& purple = v[7];
     purple.id = 7;
+    purple.name = "紫";
+    purple.nameColors = {"primary"};
     purple.color = {127, 0, 255};
     purple.unitPreference[5] = 3.0;  // 地雷（特色）
     purple.mineTriggerBombRadiusBonus = 0.3;
 
     auto& magenta = v[8];
     magenta.id = 8;
+    magenta.name = "品红";
+    magenta.nameColors = {"primary", "primary"};
     magenta.color = {255, 0, 255};
     magenta.freeArmyChance = 0.6;
 }
@@ -575,7 +593,7 @@ void validateConfigKeys(const Json& root) {
                          "periodic",      "periodTicks",       "bulletSpeed",
                          "bulletSpeedJitter", "bulletCount",   "bulletLifespanTicks",
                          "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac"};
-    const V kFactionKeys = {"id", "name", "color", "secondary", "unitPreference", "speedMultAll",
+     const V kFactionKeys = {"id", "name", "description", "nameColors", "color", "secondary", "unitPreference", "speedMultAll",
                             "seaMult", "bounceMultAll", "pioneerSpeedMult", "extraLaserBeams",
                             "laserDurationMult", "laserLengthMult", "bombRadiusBonus",
                             "mineTriggerBombRadiusBonus", "freeArmyChance"};
@@ -766,8 +784,27 @@ Config Config::loadFromJson(const std::string& jsonText) {
         for (const auto& factionJson : root["factions"]) {
             if (!factionJson.is_object()) continue;
             const int id = getInt(factionJson, "id", -1);
-            if (id < 0 || id >= kFactionTotal) continue;
+            if (id < 0 || id >= kMaxFactionCount) continue;
+            if (id >= static_cast<int>(cfg.factions.size())) {
+                const size_t oldSize = cfg.factions.size();
+                cfg.factions.resize(static_cast<size_t>(id + 1));
+                for (size_t i = oldSize; i < cfg.factions.size(); ++i) {
+                    cfg.factions[i].id = static_cast<int>(i);
+                    cfg.factions[i].name = "势力" + std::to_string(i);
+                    cfg.factions[i].nameColors = {"primary"};
+                }
+            }
             auto& fdef = cfg.factions[static_cast<std::size_t>(id)];
+            fdef.id = id;
+            fdef.name = getStr(factionJson, "name", fdef.name.empty()
+                                                        ? "势力" + std::to_string(id)
+                                                        : fdef.name);
+            fdef.description = getStr(factionJson, "description", fdef.description);
+            if (factionJson.contains("nameColors") && factionJson["nameColors"].is_array()) {
+                fdef.nameColors.clear();
+                for (const auto& color : factionJson["nameColors"])
+                    if (color.is_string()) fdef.nameColors.push_back(color.get<std::string>());
+            }
             if (factionJson.contains("color") && factionJson["color"].is_array()
                 && factionJson["color"].size() == 3) {
                 fdef.color[0] = factionJson["color"][0].get<int>();
@@ -1221,11 +1258,15 @@ bool Config::validate(std::string* err) const {
             return fail("periodic unit must have positive bullet lifespan");
     }
 
-    if (factions.size() != static_cast<size_t>(kFactionTotal))
-        return fail("factions size mismatch");
-    for (int i = 0; i < kFactionTotal; ++i) {
+    if (factions.size() < 2 || factions.size() > static_cast<size_t>(kMaxFactionCount))
+        return fail("factions count out of range");
+    for (size_t i = 0; i < factions.size(); ++i) {
         const auto& f = factions[static_cast<size_t>(i)];
-        if (f.id != i) return fail("faction ids must match their indexes");
+        if (f.id != static_cast<int>(i)) return fail("faction ids must match their indexes");
+        if (f.name.empty() || f.nameColors.empty()) return fail("faction name is incomplete");
+        for (const auto& source : f.nameColors)
+            if (source != "primary" && source != "secondary")
+                return fail("faction name color source is invalid");
         for (int channel : f.color)
             if (channel < 0 || channel > 255) return fail("faction color out of range");
         for (int channel : f.secondary)
@@ -1412,6 +1453,9 @@ std::string Config::toJson() const {
     for (const auto& f : factions) {
         Json fj;
         fj["id"] = f.id;
+        fj["name"] = f.name;
+        fj["description"] = f.description;
+        fj["nameColors"] = f.nameColors;
         fj["color"] = {f.color[0], f.color[1], f.color[2]};
         fj["secondary"] = {f.secondary[0], f.secondary[1], f.secondary[2]};
         Json up;

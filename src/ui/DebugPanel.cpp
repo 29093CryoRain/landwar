@@ -162,7 +162,7 @@ void DebugPanel::drawPanelToggles(PanelCtx& ctx) {
 
 int DebugPanel::playerFactionId(const Simulation& sim) {
     // 以运行时 Faction.aiId 为准（读档后也正确，options 不随快照）。
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+    for (int id : sim.selectedFactionIds()) {
         if (sim.faction(id).aiId == 1) return id;
     }
     return 0;
@@ -176,9 +176,9 @@ void DebugPanel::drawPlayerSection(const Simulation& sim, UiRequests& req, UiCon
     const auto& intent = sim.playerIntent();
 
     ImGui::Separator();
-    ImGui::PushStyleColor(ImGuiCol_Text, rgbToImVec4(f.color));
-    ImGui::Text("玩家 · %s", factionShortName(playerFid));
-    ImGui::PopStyleColor();
+    ImGui::TextUnformatted("玩家 ·");
+    ImGui::SameLine();
+    drawFactionName(sim, playerFid);
 
     // 经济（留存值库存）
     char buf[64];
@@ -325,8 +325,9 @@ void DebugPanel::drawSelection(const Simulation& sim, const app::Selection& sel)
             const auto& collider = reg.get<comp::Collider>(sel.army);
             const int fid = reg.get<comp::FactionId>(sel.army).value;
             const ArmyType t = reg.get<comp::UnitType>(sel.army).type;
-            std::snprintf(buf, sizeof(buf), "%s · %s", armyTypeName(t), factionShortName(fid));
-            ImGui::TextUnformatted(buf);
+            ImGui::Text("%s ·", armyTypeName(t));
+            ImGui::SameLine();
+            drawFactionName(sim, fid);
             std::snprintf(buf, sizeof(buf), "位置 (%.2f, %.2f)  速度 %.2f", p.x, p.y, speed.value);
             ImGui::TextUnformatted(buf);
             std::snprintf(buf, sizeof(buf), "%s · 半径 %.2f", onLand.value ? "陆上" : "海上",
@@ -340,11 +341,12 @@ void DebugPanel::drawSelection(const Simulation& sim, const app::Selection& sel)
                 break;
             }
             const MapCell& cell = sim.map().atIndex(sel.cellIndex);
-            // 归属显示势力名（单字颜色名；0 = 中立）。
-            const char* owner = cell.belongi == 0 ? "中立" : factionShortName(cell.belongi);
-            std::snprintf(buf, sizeof(buf), "格 (%d, %d)  %s%s · 归属 %s", sel.cellX, sel.cellY,
-                          cell.land ? "陆地" : "海上", cell.cityId >= 0 ? "/城市" : "", owner);
+            std::snprintf(buf, sizeof(buf), "格 (%d, %d)  %s%s · 归属", sel.cellX, sel.cellY,
+                          cell.land ? "陆地" : "海上", cell.cityId >= 0 ? "/城市" : "");
             ImGui::TextUnformatted(buf);
+            ImGui::SameLine();
+            if (cell.belongi == 0) ImGui::TextUnformatted("中立");
+            else drawFactionName(sim, cell.belongi);
             break;
         }
     }

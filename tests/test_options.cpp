@@ -118,6 +118,18 @@ TEST(Options, ValidatePlayerLimit) {
     EXPECT_FALSE(err.empty());
 }
 
+TEST(Options, DynamicFactionSlotsRoundTrip) {
+    lw::Options a;
+    a.factions.resize(9);
+    a.factions[8].factionId = 9;
+    a.factions[8].enabled = true;
+    a.factions[8].aiId = 1;
+    const lw::Options b = lw::Options::loadFromJson(a.toJson());
+    ASSERT_EQ(b.factions.size(), 9u);
+    EXPECT_TRUE(b.factions[8].enabled);
+    EXPECT_EQ(b.factions[8].aiId, 1);
+}
+
 // ---- Simulation::init(options)：势力出场开关 ----
 
 TEST(OptionsSim, DisabledFactionHasNoCapitalAndStaysNeutral) {
@@ -141,6 +153,30 @@ TEST(OptionsSim, DisabledFactionHasNoCapitalAndStaysNeutral) {
     EXPECT_EQ(a.map().totalCities(), b.map().totalCities());
 }
 
+TEST(OptionsSim, ConfiguredAdditionalFactionCanJoin) {
+    const lw::Config cfg = loadCfg();
+    ASSERT_GE(cfg.factions.size(), 10u);
+    lw::Options opts;
+    opts.factions.resize(cfg.factions.size() - 1);
+    opts.factions.back().enabled = true;
+    lw::Simulation sim(cfg, 42);
+    ASSERT_TRUE(sim.init(opts));
+    ASSERT_EQ(sim.factionCount(), static_cast<int>(cfg.factions.size()));
+    EXPECT_TRUE(sim.faction(9).alive);
+    EXPECT_DOUBLE_EQ(sim.faction(9).bombRadiusBonus, 0.5);
+}
+
+TEST(OptionsSim, SelectedFactionOrderSupportsNonContiguousIds) {
+    const lw::Config cfg = loadCfg();
+    lw::Options opts;
+    opts.factions = {{9, true, 0}, {1, true, 0}};
+    lw::Simulation sim(cfg, 42);
+    ASSERT_TRUE(sim.init(opts));
+    ASSERT_EQ(sim.selectedFactionIds(), (std::vector<int>{9, 1}));
+    EXPECT_EQ(sim.map().capitalCount(), 2);
+    EXPECT_EQ(sim.factionIdForTurnIndex(0) == 9 || sim.factionIdForTurnIndex(0) == 1, true);
+}
+
 TEST(OptionsSim, SameOptionsSameSeedDeterministic) {
     lw::Options opts;
     opts.factions[4].enabled = false;
@@ -155,17 +191,17 @@ TEST(OptionsSim, SameOptionsSameSeedDeterministic) {
     EXPECT_EQ(a.map().totalCities(), b.map().totalCities());
 }
 
-TEST(OptionsSim, DisablingFactionDoesNotChangeRngStream) {
-    // 禁用势力只跳过 init 阶段的"征服"（不消耗 RNG），地图/首都放置的 RNG 序列与全启用一致。
+TEST(OptionsSim, RemovingFactionChangesSelectedCapitalCount) {
+    // 选入列表只保留实际参战势力，因此移除一个势力也减少一个首都槽位。
     lw::Options opts;
     opts.factions[2].enabled = false;
     lw::Simulation a(loadCfg(), 99), full(loadCfg(), 99);
     ASSERT_TRUE(a.init(opts));
     ASSERT_TRUE(full.init());
-    for (int i = 0; i < full.map().capitalCount(); ++i) {
-        EXPECT_EQ(a.map().capitalX(i), full.map().capitalX(i)) << "capital " << i;
-        EXPECT_EQ(a.map().capitalY(i), full.map().capitalY(i)) << "capital " << i;
-    }
+    EXPECT_EQ(a.selectedFactionIds().size(), 7u);
+    EXPECT_EQ(full.selectedFactionIds().size(), 8u);
+    EXPECT_EQ(a.map().capitalCount(), 7);
+    EXPECT_EQ(full.map().capitalCount(), 8);
 }
 
 // ---- 产兵 AI 分派 ----

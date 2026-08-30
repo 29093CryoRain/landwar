@@ -43,7 +43,7 @@ bool Simulation::init(const Options& options) {
 }
 
 bool Simulation::init() {
-    if (config_.factions.size() != static_cast<size_t>(kFactionTotal)) {
+    if (config_.factions.size() < 2 || config_.factions.size() > static_cast<size_t>(kMaxFactionCount)) {
         config_.factions = defaultFactions();
     }
     map_.configure(config_.map);
@@ -56,11 +56,22 @@ bool Simulation::init() {
                            ? map_.loadFromBmp(config_.map.file, *mapRng_)
                            : map_.loadFromLwmap(config_.map.file, *mapRng_);
     if (!mapOk) return false;  // 每陆地格 2 次 chance
-    if (!map_.placeCapitals(*rng_)) return false;                     // 每 attempt get(w-1)+get(h-1)
-    initFactions();  // 征服 8 个首都（势力8 无开局免费兵，见 §1.4）
+    int selectedCount = 0;
+    std::vector<bool> selected(static_cast<size_t>(config_.factions.size()), false);
+    for (size_t i = 0; i < options_.factions.size(); ++i) {
+        const FactionSlot& slot = options_.factions[i];
+        const int fid = slot.factionId > 0 ? slot.factionId : static_cast<int>(i) + 1;
+        if (slot.enabled && fid > 0 && fid < static_cast<int>(config_.factions.size())
+            && !selected[static_cast<size_t>(fid)]) {
+            selected[static_cast<size_t>(fid)] = true;
+            ++selectedCount;
+        }
+    }
+    if (!map_.placeCapitals(*rng_, selectedCount)) return false;
+    initFactions();  // 按当前选项槽位征服首都
     initializeSpawnAngles();  // 开局即确定各势力的首个产兵方向，供 UI 立即显示
     // 中立势力0 landCount 初始 = 无主领地数（2026-08 用户定夺）：随征服递减，全图被占完恰好归 0
-    // （原版从 0 起一路减负）。仅 1..8 参与排行榜，不影响模拟逻辑。
+    // （原版从 0 起一路减负）。中立不参与排行榜，不影响模拟逻辑。
     factions_[0].landCount = 0;
     for (int idx = 0; idx < map_.cellCount(); ++idx) {
         const MapCell& c = map_.atIndex(idx);
@@ -71,7 +82,7 @@ bool Simulation::init() {
 }
 
 void Simulation::initializeSpawnAngles() {
-    for (int fid = 1; fid <= kPlayerFactionCount; ++fid) {
+    for (int fid : selectedFactionIds_) {
         Faction& faction = factions_[static_cast<size_t>(fid)];
         faction.spawnAngle = math::getRandomAngle(*rng_);
         faction.spawnAngleSet = true;
@@ -80,41 +91,50 @@ void Simulation::initializeSpawnAngles() {
 
 void Simulation::initFactions() {
     factions_.clear();
-    factions_.resize(static_cast<size_t>(kFactionTotal));
-    for (int id = 0; id < kFactionTotal; ++id) {
+    selectedFactionIds_.clear();
+    factions_.resize(config_.factions.size());
+    for (int id = 0; id < static_cast<int>(config_.factions.size()); ++id) {
         factions_[static_cast<size_t>(id)].initFromDef(config_.factions[static_cast<size_t>(id)],
                                                        config_);
+        if (id > 0) factions_[static_cast<size_t>(id)].alive = false;
     }
-    // P1：Options 决定势力出场与产兵 AI（默认全启用 aiId=0 → 行为与旧版一致）。
-    for (int i = 0; i < kPlayerFactionCount; ++i) {
-        Faction& f = factions_[static_cast<size_t>(i + 1)];
-        f.alive = options_.factions[static_cast<size_t>(i)].enabled;
-        f.aiId = options_.factions[static_cast<size_t>(i)].aiId;
+    // P1：Options.factions 是本局已选列表；配置库中未选势力只保留定义，不进入模拟。
+    for (size_t i = 0; i < options_.factions.size(); ++i) {
+        const FactionSlot& slot = options_.factions[i];
+        const int fid = slot.factionId > 0 ? slot.factionId : static_cast<int>(i) + 1;
+        if (!slot.enabled || fid <= 0 || fid >= static_cast<int>(factions_.size())) continue;
+        Faction& f = factions_[static_cast<size_t>(fid)];
+        if (f.selected) continue;  // 防御：Options::validate 会提前拒绝重复 ID
+        f.selected = true;
+        f.alive = true;
+        f.aiId = slot.aiId;
+        selectedFactionIds_.push_back(fid);
     }
 
-    // 回合顺序：初始为 0..7 排列（原版 random_shuffle；新版用注入 Rng 的 Fisher-Yates）。
+    // 回合顺序：初始为选入列表下标排列（原版 random_shuffle；新版用注入 Rng 的 Fisher-Yates）。
     // 无论势力是否禁用都执行洗牌（消耗相同 RNG），保证确定性不受 options 影响。
-    turnOrder_.resize(static_cast<size_t>(kPlayerFactionCount));
+    const int playerFactionCount = static_cast<int>(selectedFactionIds_.size());
+    turnOrder_.resize(static_cast<size_t>(playerFactionCount));
     std::iota(turnOrder_.begin(), turnOrder_.end(), 0);
-    for (int i = kPlayerFactionCount - 1; i > 0; --i) {
+    for (int i = playerFactionCount - 1; i > 0; --i) {
         const int j = rng_->get(i);  // [0, i]
         std::swap(turnOrder_[static_cast<size_t>(i)], turnOrder_[static_cast<size_t>(j)]);
     }
 
-    // 按打乱顺序征服首都：势力 i+1 征服第 turnOrder_[i] 个首都（原版 Init_faction 对应行）。
+    // 按打乱顺序征服首都：选入列表第 i 个势力征服第 turnOrder_[i] 个首都。
     // freeArmyEnabled=false：init 阶段不触发势力8 免费产兵（用户定夺 2026-08，去掉开局免费兵）。
     // 禁用势力跳过征服 → 其首都保持中立（belongi=0，city=1），仍计入 totalCities。
-    for (int i = 0; i < kPlayerFactionCount; ++i) {
-        if (!options_.factions[static_cast<size_t>(i)].enabled) continue;
+    for (int i = 0; i < playerFactionCount; ++i) {
+        const int factionId = selectedFactionIds_[static_cast<size_t>(i)];
         const int capIdx = turnOrder_[static_cast<size_t>(i)];
         const int capX = map_.capitalX(capIdx);
         const int capY = map_.capitalY(capIdx);
         // P12：首都格按密铺格下标（方 = y*width+x；六/三 = cellIndexAt，三角锚恒为正；
         // 半正/Laves 需带基础格序号 b）。
         const int capCell = map_.cellIndexAt(capX, capY, map_.capitalB(capIdx));
-        conquerIndex(capCell, i + 1, /*freeArmyEnabled=*/false);
+        conquerIndex(capCell, factionId, /*freeArmyEnabled=*/false);
         // P15：初始首都 = 初始城（征服后该格所属城市 id）。首都语义本阶段起生效。
-        const int fid = i + 1;
+        const int fid = factionId;
         Faction& f = factions_[static_cast<size_t>(fid)];
         const int capCityId = map_.atIndex(capCell).cityId;
         f.capitalState.capitalCityId = capCityId;
@@ -136,7 +156,7 @@ void Simulation::initFactions() {
 
 // P15：指定候补新都（玩家经 DebugPanel"指定首都"点击己方城市调用；AI 走 CapitalSystem）。
 bool Simulation::setDesignatedCapital(int factionId, int cityId) {
-    if (factionId <= 0 || factionId >= kFactionTotal) return false;
+    if (factionId <= 0 || factionId >= factionCount()) return false;
     Faction& f = factions_[static_cast<size_t>(factionId)];
     if (!f.alive) return false;
     if (f.capitalState.capitalCityId >= 0) return false;  // 有正式首都不可指定
@@ -153,7 +173,7 @@ bool Simulation::setDesignatedCapital(int factionId, int cityId) {
 bool Simulation::choosePlayerTech(int techIndex) {
     // 找玩家势力（aiId==1；最多一个）。
     int fid = -1;
-    for (int id = 1; id <= kPlayerFactionCount; ++id)
+    for (int id : selectedFactionIds_)
         if (factions_[static_cast<size_t>(id)].aiId == 1) { fid = id; break; }
     if (fid < 0) return false;
     Faction& f = factions_[static_cast<size_t>(fid)];
@@ -281,11 +301,11 @@ int Simulation::countEffects(int factionId) const {
 void Simulation::detectAnnihilationAndUnification() {
     // 防空：默认 Simulation（未 init）factions 为空 → 直接跳过（tick 冒烟测试依赖此，
     // 与 EconomySystem 同款防线）。
-    if (factions_.size() != static_cast<size_t>(kFactionTotal)) return;
+    if (factions_.size() < 2) return;
     // 灭亡判定（思路 6.0.5：城市/兵力/效果全灭才算灭亡）：
     // 在 tick 末尾（特效结算、死亡处理之后）执行 → 残留地雷/激光/爆炸的势力不误报。
     // 置 alive=false 会冻结该势力经济/产兵——灭亡势力无城市不可恢复，属预期（P4 基线 hash 更新）。
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+    for (int id : selectedFactionIds_) {
         Faction& f = factions_[static_cast<size_t>(id)];
         if (!f.alive) continue;
         if (f.cityCount == 0 && countArmies(id) == 0 && countEffects(id) == 0) {
@@ -293,14 +313,14 @@ void Simulation::detectAnnihilationAndUnification() {
             events_.push_back(
                 GameEvent{GameEventKind::FactionAnnihilated, id, 0,
                           formatEventTime(tickCount_, config_.sim.tickRate) + " 势力 "
-                              + factionShortName(id) + " 被灭亡",
+                              + f.name + " 被灭亡",
                           tickCount_});
         }
     }
-    // 统一判定：alive 势力（1..8）恰剩一个 → 发 Unification（恰一次，unificationEmitted_ 防重）。
+    // 统一判定：alive 可玩势力恰剩一个 → 发 Unification（恰一次，unificationEmitted_ 防重）。
     if (unificationEmitted_) return;
     int winner = 0;
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+    for (int id : selectedFactionIds_) {
         if (factions_[static_cast<size_t>(id)].alive) {
             if (winner != 0) return;  // 多于一个 alive → 未统一
             winner = id;
@@ -313,7 +333,7 @@ void Simulation::detectAnnihilationAndUnification() {
         events_.push_back(
             GameEvent{GameEventKind::Unification, winner, 0,
                       formatEventTime(tickCount_, config_.sim.tickRate) + " 势力 "
-                          + factionShortName(winner) + " 统一天下",
+                          + factions_[static_cast<size_t>(winner)].name + " 统一天下",
                       tickCount_});
     }
 }

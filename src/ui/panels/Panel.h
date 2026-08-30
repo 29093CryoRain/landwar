@@ -42,7 +42,7 @@ struct UiRequests {
 
 // 每帧实体计数（Application 计算，面板展示）。
 struct DebugCounts {
-    std::array<int, kFactionTotal> armyPerFaction{};
+    std::array<int, kMaxFactionCount> armyPerFaction{};
     int armyTotal = 0;
     int effectCount = 0;
 };

@@ -139,7 +139,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
                                           const std::vector<int>& capitalStatus) const {
     Frame f;
     const bool highZoom = cam_.cellPx() > rc.city.lineMinCellPx;
-    const int nColor = kFactionTotal;  // 势力色数（含中立 0）
+    const int nColor = std::max(1, static_cast<int>(factionColors_.size()));  // 势力色数（含中立 0）
     // capitalStatus[c.id]：0=普通、1=正式首都、2=候补指定。空向量 → 全普通（向后兼容）。
     const auto statusOf = [&](const City& c) -> int {
         if (c.id < 0 || static_cast<size_t>(c.id) >= capitalStatus.size()) return 0;

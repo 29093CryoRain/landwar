@@ -35,10 +35,10 @@ int CapitalSystem::pickDesignatedCity(const Simulation& sim, int factionId) {
 void CapitalSystem::update(Simulation& sim) {
     // 防空：默认 Simulation（未 init）factions 为空 → 直接跳过（tick 冒烟测试依赖此，
     // 与 EconomySystem/detectAnnihilationAndUnification 同款防线）。
-    if (sim.factions().size() != static_cast<size_t>(kFactionTotal)) return;
+    if (sim.factions().size() < 2) return;
     const std::uint64_t now = sim.tickCount();
     const auto& cfg = sim.config();
-    for (int fid = 1; fid <= kPlayerFactionCount; ++fid) {
+    for (int fid : sim.selectedFactionIds()) {
         auto& f = sim.faction(fid);
         if (!f.alive) continue;
         CapitalState& cs = f.capitalState;
@@ -52,7 +52,7 @@ void CapitalSystem::update(Simulation& sim) {
                 cs.immediateRelocate = false;
                 sim.pushEvent(GameEvent{GameEventKind::CapitalLost, fid, 0,
                                         formatEventTime(now, cfg.sim.tickRate) + " 势力 "
-                                            + factionShortName(fid) + " 的首都被攻破",
+                                             + f.name + " 的首都被攻破",
                                         now});
             }
             continue;

@@ -74,7 +74,7 @@ void TechSystem::update(Simulation& sim) {
     for (auto& f : sim.factions()) f.techRate = 0.0;
     if (cfg.tech.techs.empty()) return;  // 无科技表（默认 config）→ 系统惰性，零 RNG
     for (int idx : sim.turnOrder()) {
-        const int fid = idx + 1;  // turnOrder 存 0..7 → 势力 id 1..8
+        const int fid = sim.factionIdForTurnIndex(idx);
         Faction& f = sim.faction(fid);
         if (!f.alive) continue;
         if (f.tech.researchPending) continue;  // 玩家待选：等 choosePlayerTech 结算（暂停中）
@@ -137,7 +137,7 @@ void TechSystem::applyTech(Simulation& sim, int factionId, int techIndex) {
     // 4. 事件（消息面板显示；data = 科技下标）。
     sim.pushEvent(GameEvent{GameEventKind::TechAcquired, factionId, techIndex,
                             formatEventTime(sim.tickCount(), cfg.sim.tickRate) + " 势力 "
-                                + factionShortName(factionId) + " 获得科技 " + def.name + "("
+                                 + sim.faction(factionId).name + " 获得科技 " + def.name + "("
                                 + std::to_string(newLevel) + "级)",
                             sim.tickCount()});
 }

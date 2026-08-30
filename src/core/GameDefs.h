@@ -67,9 +67,12 @@ enum class BuffType : int {
 
 using FactionId = int;
 
-// 势力数（含中立势力 0）与可玩势力数。
-inline constexpr int kFactionTotal = 9;      // 0..8，0 为中立灰
-inline constexpr int kPlayerFactionCount = 8; // 1..8
+// 默认势力数（含中立势力 0）与默认可玩势力数。
+// 运行时实际数量由 Config::factions.size() - 1 决定；这两个常量只保留
+// 旧 API/测试的默认容量语义，不应作为游戏逻辑的循环上界。
+inline constexpr int kFactionTotal = 9;      // 旧默认值：0..8
+inline constexpr int kPlayerFactionCount = 8; // 旧默认值：1..8
+inline constexpr int kMaxFactionCount = 64;  // JSON 势力 id 的防御上限（含中立）
 inline constexpr FactionId kNeutralFaction = 0;
 
 // 兵种数量（数组维度用，= ArmyType::count）。
@@ -147,22 +150,6 @@ inline TilingType tilingFromName(const std::string& name) {
     if (name == "laves_33336") return TilingType::Laves33336;
     if (name == "laves_3464") return TilingType::Laves3464;
     return TilingType::Square;
-}
-
-// 势力名单字显示名（红/黄/青/蓝/绿/橙/紫/品；0/越界=中立"?"）。
-// 与 UI（Menu/DebugPanel）共用一份；P4 消息文案复用（灭亡/统一事件）。
-inline const char* factionShortName(int id) {
-    switch (id) {
-        case 1: return "红";
-        case 2: return "黄";
-        case 3: return "青";
-        case 4: return "蓝";
-        case 5: return "绿";
-        case 6: return "橙";
-        case 7: return "紫";
-        case 8: return "品";
-        default: return "?";
-    }
 }
 
 // 事件时间格式（P4 修正：消息显示事件发生时间，用户可读的秒，不显示 debug 风格变量名）：

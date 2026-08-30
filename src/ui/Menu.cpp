@@ -188,26 +188,113 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
     ImGui::Separator();
     ImGui::TextUnformatted("势力配置");
 
-    // ---- 每个势力：出场勾选 + AI 下拉 ----
-    char buf[48];
-    for (int i = 0; i < kPlayerFactionCount; ++i) {
-        auto& slot = options.factions[static_cast<size_t>(i)];
-        const std::array<int, 3>& col =
-            (i + 1 < static_cast<int>(cfg.factions.size()))
-                ? cfg.factions[static_cast<size_t>(i + 1)].color
-                : std::array<int, 3>{127, 127, 127};
-        ImGui::PushStyleColor(ImGuiCol_Text, rgbToImVec4(col));
-        ImGui::TextUnformatted(factionShortName(i + 1));
-        ImGui::PopStyleColor();
-        ImGui::SameLine();
-        std::snprintf(buf, sizeof(buf), "出场##f%d", i + 1);
-        ImGui::Checkbox(buf, &slot.enabled);
-        ImGui::SameLine();
-        std::snprintf(buf, sizeof(buf), "##ai%d", i + 1);
-        ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
+    const int factionCount = std::max(0, static_cast<int>(cfg.factions.size()) - 1);
+    // 旧 options.json 是按 ID 排列的槽位；首次进入新菜单时转换为紧凑的已选列表。
+    options.factions.erase(
+        std::remove_if(options.factions.begin(), options.factions.end(),
+                       [&](const FactionSlot& slot) {
+                           return !slot.enabled || slot.factionId <= 0
+                                  || slot.factionId > factionCount;
+                       }),
+        options.factions.end());
+    std::vector<bool> seen(static_cast<size_t>(factionCount + 1), false);
+    options.factions.erase(
+        std::remove_if(options.factions.begin(), options.factions.end(),
+                       [&](const FactionSlot& slot) {
+                           const size_t id = static_cast<size_t>(slot.factionId);
+                           if (seen[id]) return true;
+                           seen[id] = true;
+                           return false;
+                       }),
+        options.factions.end());
+
+    const char* aiItems[] = {"默认AI", "玩家"};
+    // ---- 已选势力列表：条目顺序就是加入顺序 ----
+    char buf[96];
+    ImGui::BeginChild("##faction-list", ImVec2(0.0f, scaled(220.0f, uiScale)), true);
+    const float aiWidth = scaled(kDropdownWidth, uiScale);
+    if (ImGui::BeginTable("##selected-factions", 3,
+                          ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV)) {
+        ImGui::TableSetupColumn("势力");
+        ImGui::TableSetupColumn("AI", ImGuiTableColumnFlags_WidthFixed, aiWidth);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::CalcTextSize("移除").x
+                                    + 2.0f * ImGui::GetStyle().FramePadding.x);
+    for (size_t i = 0; i < options.factions.size();) {
+        auto& slot = options.factions[i];
+        const auto& faction = cfg.factions[static_cast<size_t>(slot.factionId)];
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        drawFactionName(faction);
+        if (!faction.description.empty()) {
+            ImGui::SameLine();
+            ImGui::Text("%s", faction.description.c_str());
+        }
+        ImGui::TableSetColumnIndex(1);
+        std::snprintf(buf, sizeof(buf), "##ai%zu", i);
         int ai = slot.aiId;
-        const char* aiItems[] = {"默认AI", "玩家"};
         if (ImGui::Combo(buf, &ai, aiItems, 2)) slot.aiId = ai;
+        ImGui::TableSetColumnIndex(2);
+        std::snprintf(buf, sizeof(buf), "移除##remove%zu", i);
+        if (ImGui::SmallButton(buf)) {
+            options.factions.erase(options.factions.begin() + static_cast<std::ptrdiff_t>(i));
+            continue;
+        }
+        ++i;
+    }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+
+    // ---- 列表尾部固定的添加势力条 ----
+    if (ImGui::Button("添加势力", ImVec2(-1.0f, 0.0f))) ImGui::OpenPopup("##add-faction");
+    if (ImGui::BeginPopup("##add-faction")) {
+        static int addFactionId = 0;
+        static int addAiId = 0;
+        const auto isSelected = [&](int id) {
+            return std::any_of(options.factions.begin(), options.factions.end(),
+                               [id](const FactionSlot& slot) { return slot.factionId == id; });
+        };
+        if (addFactionId <= 0 || addFactionId > factionCount || isSelected(addFactionId)) {
+            addFactionId = 0;
+            for (int id = 1; id <= factionCount; ++id)
+                if (!isSelected(id)) {
+                    addFactionId = id;
+                    break;
+                }
+        }
+        ImGui::TextUnformatted("选择势力");
+        if (ImGui::BeginTable("##available-factions", 3,
+                              ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV)) {
+            for (int id = 1; id <= factionCount; ++id) {
+                if (isSelected(id)) continue;
+                ImGui::TableNextColumn();
+                const auto& faction = cfg.factions[static_cast<size_t>(id)];
+                std::snprintf(buf, sizeof(buf), "##pick-faction-%d", id);
+                if (factionNameSelectable(faction, id == addFactionId, buf))
+                    addFactionId = id;
+            }
+            ImGui::EndTable();
+        } else {
+            ImGui::TextUnformatted("没有可添加的势力");
+        }
+        if (addFactionId > 0) {
+            const auto& faction = cfg.factions[static_cast<size_t>(addFactionId)];
+            ImGui::Separator();
+            drawFactionName(faction);
+            if (!faction.description.empty()) ImGui::TextWrapped("%s", faction.description.c_str());
+        }
+        ImGui::SetNextItemWidth(aiWidth);
+        ImGui::Combo("AI", &addAiId, aiItems, 2);
+        ImGui::BeginDisabled(addFactionId <= 0);
+        if (ImGui::Button("确定")) {
+            options.factions.push_back(FactionSlot{addFactionId, true, addAiId});
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("取消")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 
     ImGui::Separator();

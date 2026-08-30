@@ -1,5 +1,5 @@
 // Options.h — 菜单选项（开发计划 P1，思路 1）。
-// 纯逻辑、可序列化：势力出场/产兵 AI 选择、地图选择、边界贯通开关（P10 预留）。
+// 纯逻辑、可序列化：本局已选势力/产兵 AI 选择、地图选择、边界贯通开关（P10 预留）。
 // 开始游戏时保存到 userdata/options.json（2026-08 工程改进：运行期产物入 userdata/），
 // 启动读取作为初始化选项（确定性键含 options，见计划 §0）。
 #pragma once
@@ -22,10 +22,11 @@ struct PanelLayout {
     float x = 0, y = 0, w = 0, h = 0;
 };
 
-// 单个势力的出场配置（Options.factions 下标 0..7 ↔ 势力 id 1..8）。
+// 单个势力的出场配置（Options.factions 下标 i ↔ 势力 id i+1）。
 struct FactionSlot {
-    bool enabled = true;  // 是否出场（false → 不放置首都、alive=false，见计划 P1 任务 4）
-    int aiId = 0;         // 产兵 AI id：0=默认 AI（公平调度堆）；1=玩家（P2 生效，最多一个）
+    int factionId = 0;        // 势力定义库中的稳定 ID
+    bool enabled = true;      // 旧 options.json 兼容字段；新菜单只保存已选条目
+    int aiId = 0;             // 产兵 AI id：0=默认 AI（公平调度堆）；1=玩家（最多一个）
 };
 
 // 地图选择。
@@ -46,7 +47,10 @@ struct MapSelection {
 };
 
 struct Options {
-    std::array<FactionSlot, kPlayerFactionCount> factions{};  // 下标 0..7 ↔ 势力 id 1..8
+    // 本局已选势力，顺序即主菜单显示顺序；未选势力不进入此列表。
+    std::vector<FactionSlot> factions;
+
+    Options();
     MapSelection map;
     std::vector<PanelLayout> panels;  // 面板布局（P3；可移动面板 id/可见性/位置/大小）
 

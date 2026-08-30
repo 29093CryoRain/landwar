@@ -16,14 +16,11 @@ namespace {
 // 势力名用势力色（如 "(333s) 势力 红 被灭亡"，只有"红"红色）。factionId=0 或
 // 文本中找不到势力名时整段白色（如自定义消息）。统一走 drawTextWithHighlight（2026-08）。
 void renderMessageText(const Simulation& sim, const Message& m) {
-    const char* name = (m.factionId >= 1 && m.factionId <= kPlayerFactionCount)
-                           ? factionShortName(m.factionId)
-                           : nullptr;
-    if (!name) {
+    if (m.factionId < 1 || m.factionId >= sim.factionCount()) {
         ImGui::TextUnformatted(m.text.c_str());
         return;
     }
-    drawTextWithHighlight(m.text, name, factionColor(sim, m.factionId));
+    drawTextWithFactionName(sim, m.factionId, m.text);
 }
 
 }  // namespace

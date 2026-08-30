@@ -37,10 +37,31 @@ double getDouble(const Json& j, const char* key, double def) {
 
 }  // namespace
 
+Options::Options() : factions(static_cast<size_t>(kPlayerFactionCount)) {
+    for (int i = 0; i < kPlayerFactionCount; ++i)
+        factions[static_cast<size_t>(i)].factionId = i + 1;
+}
+
 bool Options::validate(std::string* err) const {
     int players = 0;
+    int selectedCount = 0;
+    std::vector<bool> seen(static_cast<size_t>(kMaxFactionCount), false);
     for (const auto& slot : factions) {
-        if (slot.aiId == 1) ++players;
+        if (slot.factionId <= 0 || slot.factionId >= kMaxFactionCount) {
+            if (err) *err = "势力 ID 无效";
+            return false;
+        }
+        if (seen[static_cast<size_t>(slot.factionId)]) {
+            if (err) *err = "势力不能重复加入";
+            return false;
+        }
+        seen[static_cast<size_t>(slot.factionId)] = true;
+        if (slot.enabled) ++selectedCount;
+        if (slot.enabled && slot.aiId == 1) ++players;
+    }
+    if (selectedCount == 0) {
+        if (err) *err = "至少选择一个势力";
+        return false;
     }
     if (players > 1) {
         if (err) *err = "最多只能有一个势力由玩家操控 (aiId=1)";
@@ -61,12 +82,17 @@ Options Options::loadFromJson(const std::string& jsonText) {
     }
 
     if (root.contains("factions") && root["factions"].is_array()) {
+        o.factions.clear();
         int i = 0;
         for (const auto& slotJson : root["factions"]) {
-            if (i >= kPlayerFactionCount) break;
+            if (i >= kMaxFactionCount - 1) break;
             if (!slotJson.is_object()) continue;
-            o.factions[static_cast<size_t>(i)].enabled = getBool(slotJson, "enabled", true);
-            o.factions[static_cast<size_t>(i)].aiId = getInt(slotJson, "aiId", 0);
+            FactionSlot slot;
+            // 新格式用 id；旧 options.json 没有 id 时按旧数组位置映射 1..8。
+            slot.factionId = getInt(slotJson, "id", i + 1);
+            slot.enabled = getBool(slotJson, "enabled", true);
+            slot.aiId = getInt(slotJson, "aiId", 0);
+            o.factions.push_back(slot);
             ++i;
         }
     }
@@ -121,9 +147,10 @@ Options Options::loadFromFile(const std::string& path) {
 std::string Options::toJson() const {
     Json j;
     j["factions"] = Json::array();
-    for (int i = 0; i < kPlayerFactionCount; ++i) {
-        const auto& slot = factions[static_cast<size_t>(i)];
-        j["factions"].push_back({{"enabled", slot.enabled}, {"aiId", slot.aiId}});
+    for (const auto& slot : factions) {
+        j["factions"].push_back({{"id", slot.factionId},
+                                  {"enabled", slot.enabled},
+                                  {"aiId", slot.aiId}});
     }
     // P6 随机图参数：与 loadFromJson 键严格对称（快照/options 往返依赖）。
     j["map"] = {{"kind", map.kind == MapSelection::Kind::Random ? "random" : "file"},

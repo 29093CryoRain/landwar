@@ -384,10 +384,11 @@ void Map::correctMountainCoast() {
     }
 }
 
-bool Map::placeCapitals(Rng& rng) {
-    capitalX_.assign(static_cast<size_t>(kPlayerFactionCount), -9961);
-    capitalY_.assign(static_cast<size_t>(kPlayerFactionCount), -9961);
-    capitalB_.assign(static_cast<size_t>(kPlayerFactionCount), 0);
+bool Map::placeCapitals(Rng& rng, int factionCount) {
+    factionCount = std::clamp(factionCount, 0, kMaxFactionCount - 1);
+    capitalX_.assign(static_cast<size_t>(factionCount), -9961);
+    capitalY_.assign(static_cast<size_t>(factionCount), -9961);
+    capitalB_.assign(static_cast<size_t>(factionCount), 0);
     const bool table = static_cast<int>(geom_.type) > static_cast<int>(TilingType::Tri);
 
     if (table) {
@@ -416,7 +417,7 @@ bool Map::placeCapitals(Rng& rng) {
             double best = 1e18;
             double ax, ay;
             cellCenter(idx, ax, ay);
-            for (int j = 0; j < kPlayerFactionCount; ++j) {
+            for (int j = 0; j < factionCount; ++j) {
                 if (capitalX_[static_cast<size_t>(j)] < 0) continue;
                 const int pj = cellIndexAt(capitalX_[static_cast<size_t>(j)],
                                            capitalY_[static_cast<size_t>(j)],
@@ -428,7 +429,7 @@ bool Map::placeCapitals(Rng& rng) {
             return best;
         };
         int minDist = capitalMinDistance_;
-        for (int i = 0; i < kPlayerFactionCount; ++i) {
+        for (int i = 0; i < factionCount; ++i) {
             bool assigned = false;
             while (minDist >= 1) {
                 int bestJ = -1;
@@ -526,7 +527,7 @@ bool Map::placeCapitals(Rng& rng) {
         }
         return false;
     };
-    for (int i = 0; i < kPlayerFactionCount; ++i) {
+    for (int i = 0; i < factionCount; ++i) {
         capitalX_[static_cast<size_t>(i)] = -9961;
         capitalY_[static_cast<size_t>(i)] = -9961;
         bool anyUsableCityCell = scanUsable(minDist, i);
@@ -567,7 +568,7 @@ bool Map::placeCapitals(Rng& rng) {
     }
     // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册 1 级城
     //（方/六/三最小等级均为 1，即文档存在的单格城）。
-    for (int i = 0; i < kPlayerFactionCount; ++i) {
+    for (int i = 0; i < factionCount; ++i) {
         const int cx = capitalX_[static_cast<size_t>(i)];
         const int cy = capitalY_[static_cast<size_t>(i)];
         if (cx < 0) continue;  // 放置失败槽位（原语义保留）

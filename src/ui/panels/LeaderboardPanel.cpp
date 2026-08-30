@@ -26,7 +26,7 @@ void LeaderboardPanel::draw(PanelCtx& ctx) {
 
     ImGui::TextUnformatted("排行榜（按领地降序）");
     ranked_.clear();
-    for (int id = 1; id <= kPlayerFactionCount; ++id) ranked_.push_back(&sim.faction(id));
+    for (int id : sim.selectedFactionIds()) ranked_.push_back(&sim.faction(id));
     std::sort(ranked_.begin(), ranked_.end(),
               [](const Faction* a, const Faction* b) { return a->landCount > b->landCount; });
 
@@ -44,16 +44,14 @@ void LeaderboardPanel::draw(PanelCtx& ctx) {
         ImGui::TableHeadersRow();
 
         char buf[32];
-        for (int i = 0; i < kPlayerFactionCount; ++i) {
+        for (int i = 0; i < static_cast<int>(ranked_.size()); ++i) {
             const Faction* f = ranked_[static_cast<size_t>(i)];
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             std::snprintf(buf, sizeof(buf), "%d", i + 1);
             ImGui::TextUnformatted(buf);
             ImGui::TableNextColumn();
-            ImGui::PushStyleColor(ImGuiCol_Text, factionColor(sim, f->id));
-            ImGui::TextUnformatted(factionShortName(f->id));
-            ImGui::PopStyleColor();
+            drawFactionName(sim, f->id);
             ImGui::TableNextColumn();
             std::snprintf(buf, sizeof(buf), "%d", f->landCount);
             ImGui::TextUnformatted(buf);

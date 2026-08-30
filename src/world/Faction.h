@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "core/Config.h"
@@ -18,7 +19,7 @@ namespace lw {
 class Map;     // 前向声明
 class Faction; // 前向声明（ConquerContext 先于 Faction 定义引用它）
 
-// 待产兵请求：势力8 攻占城市免费产兵（原版立即 add_army；新版暂记待办，
+// 待产兵请求：配置了免费产兵概率的势力攻占城市后产生（原版立即 add_army；新版暂记待办，
 // Phase 3 由 SpawnSystem 统一落地，见翻新计划 §2.8）。
 struct PendingSpawn {
     int type = 0;
@@ -81,6 +82,8 @@ public:
 
     // ---- 运行时状态 ----
     int id = 0;
+    std::string name;
+    bool selected = false; // 是否由本局选项选入（与 alive 分离，选入后即使灭亡仍属于本局）
     bool alive = false;
     int aiId = 0;  // 产兵 AI id（0=默认 AI，1=玩家；来自 Options，P1）
     std::array<int, 3> color = {127, 127, 127};
@@ -92,7 +95,9 @@ public:
     double economyRate = 0.0;  // 最近一次经济系统计算的每 tick 产出
     double techRate = 0.0;     // 最近一次科技系统计算的每 tick 产出
     double maxCityLevel = 0.0; // 所持城市中的最高等级
-    double freeArmyChance = 0.0;  // 势力8 免费产兵概率（来自定义）
+    double freeArmyChance = 0.0;  // 攻占城市免费产兵概率（来自定义）
+    double bombRadiusBonus = 0.0; // 爆炸半径相对增幅（来自定义，不绑定势力 ID）
+    double mineTriggerBombRadiusBonus = 0.0; // 地雷引爆爆炸半径相对增幅
     // 产兵方向：spawnAngle 是下一次产兵使用的角度；首次产兵前由 spawnAngleSet 区分未初始化。
     double spawnAngle = 0.0;
     bool spawnAngleSet = false;

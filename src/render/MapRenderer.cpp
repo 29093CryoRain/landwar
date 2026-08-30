@@ -14,8 +14,6 @@ namespace lw::render {
 
 namespace {
 
-constexpr int kColorGroups = kPlayerFactionCount + 1;
-
 // mountain.png 是 128×128 的四段折线。预烘焙时按格面积缩放端点，
 // 但 strokeWidthPx 直接使用目标 surface 像素值，因而线宽不随面积缩放。
 struct Segment {
@@ -147,9 +145,8 @@ void MapRenderer::drawMountain(const Map& map, int index, Renderer& renderer) {
                                     cam_.toScreenXi(cx), cam_.toScreenYi(cy), dstW, dstH);
 }
 
-void MapRenderer::draw(const Map& map,
-                       const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
-                       const std::vector<std::array<std::array<int, 3>, kFactionTotal>>& gradeColors) {
+void MapRenderer::draw(const Map& map, const std::vector<std::array<int, 3>>& tileColors,
+                       const std::vector<std::vector<std::array<int, 3>>>& gradeColors) {
     ensureMountainScales(map);
     if (map.tiling() == TilingType::Square) {
         drawSquare(map, tileColors);
@@ -158,11 +155,18 @@ void MapRenderer::draw(const Map& map,
     drawTiled(map, tileColors, gradeColors);
 }
 
-void MapRenderer::drawSquare(
-    const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors) {
-    std::array<std::vector<SDL_Rect>, kColorGroups> batches;
-    std::array<SDL_Color, kColorGroups> groupColor;
-    for (int f = 0; f < kColorGroups; ++f)
+void MapRenderer::draw(const Map& map,
+                       const std::array<std::array<int, 3>, kFactionTotal>& tileColors) {
+    std::vector<std::array<int, 3>> colors(tileColors.begin(), tileColors.end());
+    draw(map, colors);
+}
+
+void MapRenderer::drawSquare(const Map& map, const std::vector<std::array<int, 3>>& tileColors) {
+    if (tileColors.empty()) return;
+    const int colorGroups = static_cast<int>(tileColors.size());
+    std::vector<std::vector<SDL_Rect>> batches(tileColors.size());
+    std::vector<SDL_Color> groupColor(tileColors.size());
+    for (int f = 0; f < colorGroups; ++f)
         groupColor[static_cast<size_t>(f)] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
     Renderer r(ren_);
     const int i0 = std::clamp(static_cast<int>(std::floor(cam_.viewWorldX0())), 0, map.width() - 1);
@@ -173,10 +177,10 @@ void MapRenderer::drawSquare(
         for (int i = i0; i <= i1; ++i) {
             const MapCell& cell = map.at(i, j);
             if (!cell.land) continue;
-            const int group = std::clamp(static_cast<int>(cell.belongi), 0, kColorGroups - 1);
+            const int group = std::clamp(static_cast<int>(cell.belongi), 0, colorGroups - 1);
             batches[static_cast<size_t>(group)].push_back(cam_.cellRect(i, j));
         }
-    for (int group = 0; group < kColorGroups; ++group)
+    for (int group = 0; group < colorGroups; ++group)
         if (!batches[static_cast<size_t>(group)].empty())
             r.fillRects(batches[static_cast<size_t>(group)], groupColor[static_cast<size_t>(group)]);
 
@@ -189,13 +193,15 @@ void MapRenderer::drawSquare(
 }
 
 void MapRenderer::drawTiled(
-    const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors,
-    const std::vector<std::array<std::array<int, 3>, kFactionTotal>>& gradeColors) {
+    const Map& map, const std::vector<std::array<int, 3>>& tileColors,
+    const std::vector<std::vector<std::array<int, 3>>>& gradeColors) {
+    if (tileColors.empty()) return;
     const TilingGeom& g = map.geom();
     Renderer r(ren_);
-    SDL_Color groupColorArr[kColorGroups];
-    for (int f = 0; f < kColorGroups; ++f)
-        groupColorArr[f] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
+    const int colorGroups = static_cast<int>(tileColors.size());
+    std::vector<SDL_Color> groupColorArr(tileColors.size());
+    for (int f = 0; f < colorGroups; ++f)
+        groupColorArr[static_cast<size_t>(f)] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
     const bool graded = !gradeColors.empty();
     const int paletteSize = graded ? static_cast<int>(gradeColors.size()) : 0;
     const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
@@ -221,12 +227,12 @@ void MapRenderer::drawTiled(
                 const MapCell& cell = map.atIndex(idx);
                 if (!cell.land) continue;
                 const int n = g.cellPolygon(idx, wx, wy, 12);
-                const int faction = std::clamp(static_cast<int>(cell.belongi), 0, kColorGroups - 1);
+                const int faction = std::clamp(static_cast<int>(cell.belongi), 0, colorGroups - 1);
                 const SDL_Color color = !graded
                                             ? groupColorArr[static_cast<size_t>(faction)]
                                             : Renderer::toColor(gradeColors[static_cast<size_t>(
                                                   std::clamp(g.tileColorIndex(idx), 0, paletteSize - 1))]
-                                                                    [static_cast<size_t>(faction)]);
+                                                                      [static_cast<size_t>(faction)]);
                 for (int k = 1; k + 1 < n; ++k) {
                     const int tri[3] = {0, k, k + 1};
                     for (int v = 0; v < 3; ++v) {

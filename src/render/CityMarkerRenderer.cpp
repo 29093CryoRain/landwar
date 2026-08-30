@@ -109,7 +109,7 @@ void CityMarkerRenderer::drawTex(SDL_Texture* tex, double worldX, double worldY,
 void CityMarkerRenderer::draw(const Simulation& sim, int playerFactionId, const CityTarget* hover,
                               const CityTarget* sel,
                               const std::vector<SpawnDirection>& spawnDirections) {
-    if ((hover || sel) && (playerFactionId < 1 || playerFactionId > kPlayerFactionCount)) return;
+    if ((hover || sel) && (playerFactionId < 1 || playerFactionId >= sim.factionCount())) return;
     if (!hover && !sel && spawnDirections.empty()) return;
     const int idx = playerFactionId - 1;  // 烘焙的下标 = 势力 id - 1
     const std::uint64_t tick = sim.tickCount();

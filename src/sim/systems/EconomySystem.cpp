@@ -17,7 +17,8 @@ void EconomySystem::update(Simulation& sim) {
         std::swap(order[static_cast<size_t>(sim.rng().get(n))],
                   order[static_cast<size_t>(sim.rng().get(n))]);
     }
-    for (int playerIdx : order) accumulate(sim, playerIdx + 1);  // order 存 0..7，势力 id = +1
+    for (int playerIdx : order)
+        accumulate(sim, sim.factionIdForTurnIndex(playerIdx));
 }
 
 double EconomySystem::cityEconomyRate(const Config& cfg, const City& city) {

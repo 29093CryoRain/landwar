@@ -89,11 +89,11 @@ public:
     // 纯循环、无 RNG、确定性。
     void correctMountainCoast();
 
-    // 放置 8 个首都：优先落在"可产城"格（cityAllowed，基图允许城市）；可产城格不足/太挤时
+    // 放置 factionCount 个首都：优先落在"可产城"格（cityAllowed，基图允许城市）；可产城格不足/太挤时
     // 放宽到任意陆地（保证游戏可玩）。随机陆地格，与已放置首都欧氏距离 >= capitalMinDistance。
     // 每个 attempt 消耗 get(width-1) + get(height-1)。重试耗尽（病态地图）返回 false。
     // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册 1 级城。
-    bool placeCapitals(Rng& rng);
+    bool placeCapitals(Rng& rng, int factionCount = kPlayerFactionCount);
 
 
     MapCell& at(int x, int y);

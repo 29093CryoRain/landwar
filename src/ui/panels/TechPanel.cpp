@@ -29,12 +29,12 @@ void TechPanel::draw(PanelCtx& ctx) {
         return;
     }
     char buf[128];
-    for (int fid = 1; fid <= kPlayerFactionCount; ++fid) {
+    for (int fid : sim.selectedFactionIds()) {
         const Faction& f = sim.faction(fid);
-        std::snprintf(buf, sizeof(buf), "%s 科技等级 %d", factionShortName(fid), f.techLevel());
-        ImGui::PushStyleColor(ImGuiCol_Text, factionColor(sim, fid));
+        drawFactionName(sim, fid);
+        ImGui::SameLine();
+        std::snprintf(buf, sizeof(buf), "科技等级 %d", f.techLevel());
         ImGui::TextUnformatted(buf);
-        ImGui::PopStyleColor();
         // 科技点进度（到阈值获得科研机会）。
         if (f.tech.threshold > 0.0) {
             const double ratio = f.tech.points / f.tech.threshold;

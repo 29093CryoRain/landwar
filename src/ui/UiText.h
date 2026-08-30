@@ -45,4 +45,12 @@ void drawSegmentedText(const std::vector<TextSeg>& segs);
 void drawTextWithHighlight(const std::string& text, const std::string& token,
                            const ImVec4& highlight, const ImVec4& base = ImVec4(1, 1, 1, 1));
 
+// 按 Config::Faction.nameColors 绘制势力名；颜色规则按 UTF-8 字符而不是字节应用。
+void drawFactionName(const Config::Faction& faction);
+void drawFactionName(const Simulation& sim, int factionId);
+bool factionNameSelectable(const Config::Faction& faction, bool selected, const char* id);
+// 在消息文本中按势力定义逐字着色势力名，其余文本保持 base 色。
+void drawTextWithFactionName(const Simulation& sim, int factionId, const std::string& text,
+                             const ImVec4& base = ImVec4(1, 1, 1, 1));
+
 }  // namespace lw::ui

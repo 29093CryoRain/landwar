@@ -19,9 +19,9 @@ TEST(Simulation, InitBuildsFactionsAndConquersCapitals) {
     ASSERT_TRUE(sim.init());
 
     const auto& factions = sim.factions();
-    ASSERT_EQ(factions.size(), static_cast<size_t>(lw::kFactionTotal));
+    ASSERT_EQ(factions.size(), sim.config().factions.size());
     EXPECT_FALSE(factions[0].alive);
-    for (int id = 1; id <= 8; ++id) {
+    for (int id = 1; id <= sim.map().capitalCount(); ++id) {
         const auto& f = factions[static_cast<size_t>(id)];
         EXPECT_TRUE(f.alive) << "faction " << id;
         EXPECT_EQ(f.cityCount, 1) << "faction " << id << " 恰持一个首都";
@@ -30,20 +30,20 @@ TEST(Simulation, InitBuildsFactionsAndConquersCapitals) {
         EXPECT_GE(f.landCount, 1) << "faction " << id;
     }
 
-    // 每个首都归属某个可玩势力，且 8 个首都不重复。
+    // 每个首都归属某个已提供选项槽位的可玩势力，且首都不重复。
     std::vector<std::pair<int, int>> capitals;
     for (int i = 0; i < sim.map().capitalCount(); ++i) {
         const int x = sim.map().capitalX(i);
         const int y = sim.map().capitalY(i);
         const int owner = sim.map().at(x, y).belongi;
         EXPECT_GE(owner, 1);
-        EXPECT_LE(owner, 8);
+        EXPECT_LE(owner, sim.map().capitalCount());
         capitals.emplace_back(x, y);
     }
     std::sort(capitals.begin(), capitals.end());
     EXPECT_EQ(std::adjacent_find(capitals.begin(), capitals.end()), capitals.end());
 
-    EXPECT_GE(sim.map().totalCities(), 8);
+    EXPECT_GE(sim.map().totalCities(), sim.map().capitalCount());
     EXPECT_EQ(sim.tickCount(), 0u);
 }
 

@@ -27,7 +27,7 @@ void ArmyRenderer::draw(const Simulation& sim) {
         // 显式排除 comp::Projectile：子弹只由 ProjectileRenderer 渲染（行 8 子弹贴图，不画兵贴图）。
         if (reg.all_of<comp::Projectile>(e)) continue;
         const int fid = reg.get<comp::FactionId>(e).value;
-        if (fid < 1 || fid > kPlayerFactionCount) continue;  // 防御：中立/非法 id 不上场
+        if (fid < 1 || fid >= sim.factionCount()) continue;  // 防御：中立/非法 id 不上场
         const int type = static_cast<int>(reg.get<comp::UnitType>(e).type);
         const auto& p = reg.get<comp::Position>(e);
         // 视野剔除（2026-08 工程改进）：实体离屏 → 跳过绘制。
