@@ -3,7 +3,7 @@
 
 `landwar` 是一个使用AI开发, 使用了 C++20、SDL2、EnTT 和 Dear ImGui 构建的简易实时领土战争模拟游戏。
 模型主要使用了deepseek-v4-flash和GPT 5.6-luna.
-多个可配置 AI 势力在陆地、海洋、城市和山地组成的地图上持续扩张、交战和争夺首都。
+多个可配置 AI 势力在陆地、海洋、城市和山地组成的地图上持续扩张和交战。
 
 ## 项目特点
 
@@ -65,6 +65,4 @@ Windows 系统中文字体，发行包不捆绑字体。运行时需要从项目
 
 ## 参与开发
 
-Bug 和功能建议请使用 GitHub Issue 模板，并附上提交版本、运行模式、命令行、配置/地图信息和复现步骤。
-代码贡献前请阅读 [`CONTRIBUTING.md`](../CONTRIBUTING.md)。项目源代码遵循 MIT License，其他组件和资源
-的说明见 [`LICENSE`](../LICENSE)、[`THIRD_PARTY.md`](../THIRD_PARTY.md) 及 [`ASSET-LICENSES.md`](../ASSET-LICENSES.md)。
+暂时不是很会用这边的功能.
