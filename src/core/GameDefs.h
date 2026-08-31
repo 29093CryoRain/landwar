@@ -44,25 +44,28 @@ enum class EffectType : int {
 
 // 增益类型（P7 纯数值类；P8 科技=追加 source="tech:<id>" 的 buff）。
 // 原定义于 sim/Buff.h，迁入本公共头：Config（tech 表）需引用 BuffType，且 Config↔Buff 互相包含，
-// 放公共头打破循环。param 语义见各注释；magnitude 语义随类型（乘数/条数）。
+// 放公共头打破循环。param 语义见各注释；magnitude 语义随类型（增量/乘数/条数）。
 // 聚合规则（思路「科技细节」：数值增加默认加算、数值减小默认乘算）：见 sim/Buff.cpp computeMods。
 enum class BuffType : int {
     UnitCostMult,        // param=-1 全兵 | 兵种下标；造价乘数（<1 便宜；乘算）
-    UnitSpeedMult,       // param=-1 全兵 | 兵种下标；速度乘数（>1 快；加算）
+    UnitSpeedAdd,         // param=-1 全兵 | 兵种下标；速度增幅（累计倍率）
     SeaChanceMult,       // 下海概率乘数（<1 少下海；乘算）
     BounceChanceMult,    // 碰敌反弹概率乘数（<1 少反弹；乘算）
-    EconomyGainMult,     // 经济产出乘数（>1 多；加算）
-    BombRadiusMult,      // 爆炸半径乘数（×势力定义基数；加算）
-    LaserDurationMult,   // 激光寿命乘数（加算）
-    LaserLengthMult,     // 激光长度乘数（加算）
-    LaserWidthMult,      // 激光击杀宽度乘数（变宽；加算）
+    EconomyGainAdd,      // 经济产出增幅（累计倍率）
+    ExplosionRadiusAdd,  // 所有爆炸效果半径增幅（累计倍率）
+    BombExplosionRadiusAdd, // 爆炸兵死亡产生的爆炸半径增幅（累计倍率）
+    MineExplosionRadiusAdd, // 地雷产生的爆炸半径增幅（累计倍率）
+    LaserDurationAdd,    // 激光寿命增幅（累计倍率）
+    LaserLengthAdd,      // 激光长度增幅（累计倍率）
+    LaserWidthAdd,       // 激光击杀宽度增幅（累计倍率）
     LaserExtraBeams,     // 额外激光条数（加算）
-    MineTimeoutMult,     // 地雷超时乘数（延长；加算）
+    MineTimeoutAdd,      // 地雷超时增幅（累计倍率）
     FreeArmyChanceMult,  // 攻占城市免费兵概率乘数（乘算）
+    FreeArmyChance,      // 攻占城市触发免费兵的基础概率（加算）
     // P8 科技新增：
-    UnitActionRateMult,  // param=兵种；周期动作（射速）乘数（>1 快；加算）
+    UnitActionRateAdd,   // param=兵种；周期动作（射速）增幅（累计倍率）
     ProjectileCountExtra,// param=兵种；每次齐射额外子弹数（条数，加和）
-    TechGainMult,        // 科技点产出乘数（>1 多；加算）
+    TechGainAdd,         // 科技点产出增幅（累计倍率）
 };
 
 using FactionId = int;

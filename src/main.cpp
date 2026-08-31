@@ -24,6 +24,18 @@ int main(int argc, char* argv[]) {
         std::cout << lw::cliUsage();
         return 0;
     }
+    if (opts.validateConfig) {
+        const std::string configPath = opts.configPath.empty()
+                                           ? std::string(lw::kDefaultConfigPath)
+                                           : opts.configPath;
+        std::string error;
+        if (!lw::Config::validateFile(configPath, &error)) {
+            spdlog::error("config validation failed: {}", error);
+            return 1;
+        }
+        std::cout << "config valid: " << configPath << '\n';
+        return 0;
+    }
     if (opts.headless) return lw::runHeadless(opts);
 
     // 默认种子随机（每次启动不同）；显式 --seed 走确定性路径。

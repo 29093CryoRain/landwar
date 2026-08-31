@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Landwar city_icon_fits.jsonc",
+  "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["iconFitScale", "iconFitOffsetY"],
+  "properties": {
+    "iconFitScale": {"type": "object", "additionalProperties": {"type": "object", "patternProperties": {"^(?:[1-9]|10)$": {"type": "number", "exclusiveMinimum": 0}}, "additionalProperties": false}},
+    "iconFitOffsetY": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["iconLevel", "variant", "bases", "value"], "properties": {"iconLevel": {"type": "integer", "minimum": 1, "maximum": 10}, "variant": {"type": "integer", "minimum": 0}, "bases": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 31}}, "value": {"type": "number"}}}}}
+  }
+}

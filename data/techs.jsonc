@@ -1,17 +1,18 @@
+// 科技配置：levels[i] 是第 i+1 级累计效果；magnitude 必须为有限数；导出时本文件复制到 default/。
 {
   "tech": {
     "_comment": "P8 科技系统（思路'科技细节'）。科技点=城市产出；到阈值清空+科研机会、阈值+thresholdStep。levels[i]=第i+1级累计效果；preferenceUnits=每级默认 AI 兵种偏好加成。",
-    "thresholdBase": 100.0,
-    "thresholdStep": 100.0,
-    "pointsPerCityLevel": 0.005,
-    "preferencePerLevel": 0.5,
-    "playerCandidateCount": 3,
+    "thresholdBase": 100.0, // 首次科研所需科技点，必须 > 0。
+    "thresholdStep": 100.0, // 每次科研后阈值增加量，必须 > 0。
+    "pointsPerCityLevel": 0.005, // 每 tick 每座每级城市产生的科技点，必须 >= 0。
+    "preferencePerLevel": 0.5, // 科技每升一级给默认 AI 的偏好增量，必须 >= 0。
+    "playerCandidateCount": 3, // 玩家科研候选数，必须 > 0。
     "techs": [
       {
         "id": "throttle_normal",
         "name": "节流·普通兵",
         "desc": "造价",
-        "levels": [
+        "levels": [ // 每个元素是该科技对应等级的累计效果，不是本级增量。
           {"type": "UnitCostMult", "param": "normal", "magnitude": 0.9},
           {"type": "UnitCostMult", "param": "normal", "magnitude": 0.82},
           {"type": "UnitCostMult", "param": "normal", "magnitude": 0.75},
@@ -101,10 +102,10 @@
         "name": "行军·普通兵",
         "desc": "速度",
         "levels": [
-          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.2},
-          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.4},
-          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.6},
-          {"type": "UnitSpeedMult", "param": "normal", "magnitude": 1.8}
+          {"type": "UnitSpeedAdd", "param": "normal", "magnitude": 0.2},
+          {"type": "UnitSpeedAdd", "param": "normal", "magnitude": 0.4},
+          {"type": "UnitSpeedAdd", "param": "normal", "magnitude": 0.6},
+          {"type": "UnitSpeedAdd", "param": "normal", "magnitude": 0.8}
         ],
         "preferenceUnits": ["normal"]
       },
@@ -113,9 +114,9 @@
         "name": "行军·先锋兵",
         "desc": "速度",
         "levels": [
-          {"type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.2},
-          {"type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.4},
-          {"type": "UnitSpeedMult", "param": "vanguard", "magnitude": 1.6}
+          {"type": "UnitSpeedAdd", "param": "vanguard", "magnitude": 0.2},
+          {"type": "UnitSpeedAdd", "param": "vanguard", "magnitude": 0.4},
+          {"type": "UnitSpeedAdd", "param": "vanguard", "magnitude": 0.6}
         ],
         "preferenceUnits": ["vanguard"]
       },
@@ -124,9 +125,9 @@
         "name": "行军·开拓兵",
         "desc": "速度",
         "levels": [
-          {"type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.2},
-          {"type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.4},
-          {"type": "UnitSpeedMult", "param": "pioneer", "magnitude": 1.6}
+          {"type": "UnitSpeedAdd", "param": "pioneer", "magnitude": 0.2},
+          {"type": "UnitSpeedAdd", "param": "pioneer", "magnitude": 0.4},
+          {"type": "UnitSpeedAdd", "param": "pioneer", "magnitude": 0.6}
         ],
         "preferenceUnits": ["pioneer"]
       },
@@ -135,9 +136,9 @@
         "name": "行军·激光兵",
         "desc": "速度",
         "levels": [
-          {"type": "UnitSpeedMult", "param": "laser", "magnitude": 1.2},
-          {"type": "UnitSpeedMult", "param": "laser", "magnitude": 1.4},
-          {"type": "UnitSpeedMult", "param": "laser", "magnitude": 1.6}
+          {"type": "UnitSpeedAdd", "param": "laser", "magnitude": 0.2},
+          {"type": "UnitSpeedAdd", "param": "laser", "magnitude": 0.4},
+          {"type": "UnitSpeedAdd", "param": "laser", "magnitude": 0.6}
         ],
         "preferenceUnits": ["laser"]
       },
@@ -146,9 +147,9 @@
         "name": "行军·爆炸兵",
         "desc": "速度",
         "levels": [
-          {"type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.2},
-          {"type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.4},
-          {"type": "UnitSpeedMult", "param": "bomb", "magnitude": 1.6}
+          {"type": "UnitSpeedAdd", "param": "bomb", "magnitude": 0.2},
+          {"type": "UnitSpeedAdd", "param": "bomb", "magnitude": 0.4},
+          {"type": "UnitSpeedAdd", "param": "bomb", "magnitude": 0.6}
         ],
         "preferenceUnits": ["bomb"]
       },
@@ -157,9 +158,9 @@
         "name": "行军·地雷兵",
         "desc": "速度",
         "levels": [
-          {"type": "UnitSpeedMult", "param": "mine", "magnitude": 1.2},
-          {"type": "UnitSpeedMult", "param": "mine", "magnitude": 1.4},
-          {"type": "UnitSpeedMult", "param": "mine", "magnitude": 1.6}
+          {"type": "UnitSpeedAdd", "param": "mine", "magnitude": 0.2},
+          {"type": "UnitSpeedAdd", "param": "mine", "magnitude": 0.4},
+          {"type": "UnitSpeedAdd", "param": "mine", "magnitude": 0.6}
         ],
         "preferenceUnits": ["mine"]
       },
@@ -168,9 +169,9 @@
         "name": "大爆炸",
         "desc": "爆炸半径",
         "levels": [
-          {"type": "BombRadiusMult", "param": "all", "magnitude": 1.3},
-          {"type": "BombRadiusMult", "param": "all", "magnitude": 1.6},
-          {"type": "BombRadiusMult", "param": "all", "magnitude": 1.8}
+          {"type": "ExplosionRadiusAdd", "param": "all", "magnitude": 0.3},
+          {"type": "ExplosionRadiusAdd", "param": "all", "magnitude": 0.6},
+          {"type": "ExplosionRadiusAdd", "param": "all", "magnitude": 0.8}
         ],
         "preferenceUnits": ["bomb", "mine"]
       },
@@ -179,8 +180,8 @@
         "name": "稳定激光",
         "desc": "激光持续时间",
         "levels": [
-          {"type": "LaserDurationMult", "param": "all", "magnitude": 1.5},
-          {"type": "LaserDurationMult", "param": "all", "magnitude": 2.0}
+          {"type": "LaserDurationAdd", "param": "all", "magnitude": 0.5},
+          {"type": "LaserDurationAdd", "param": "all", "magnitude": 1.0}
         ],
         "preferenceUnits": ["laser"]
       },
@@ -189,8 +190,8 @@
         "name": "延长激光",
         "desc": "激光长度",
         "levels": [
-          {"type": "LaserLengthMult", "param": "all", "magnitude": 1.5},
-          {"type": "LaserLengthMult", "param": "all", "magnitude": 2.0}
+          {"type": "LaserLengthAdd", "param": "all", "magnitude": 0.5},
+          {"type": "LaserLengthAdd", "param": "all", "magnitude": 1.0}
         ],
         "preferenceUnits": ["laser"]
       },
@@ -199,9 +200,9 @@
         "name": "高速射击",
         "desc": "手枪兵攻击速度",
         "levels": [
-          {"type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.3},
-          {"type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.6},
-          {"type": "UnitActionRateMult", "param": "pistol", "magnitude": 1.9}
+          {"type": "UnitActionRateAdd", "param": "pistol", "magnitude": 0.3},
+          {"type": "UnitActionRateAdd", "param": "pistol", "magnitude": 0.6},
+          {"type": "UnitActionRateAdd", "param": "pistol", "magnitude": 0.9}
         ],
         "preferenceUnits": ["pistol"]
       },
@@ -221,10 +222,10 @@
         "name": "经济振兴",
         "desc": "经济获取",
         "levels": [
-          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.05},
-          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.1},
-          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.15},
-          {"type": "EconomyGainMult", "param": "all", "magnitude": 1.2}
+          {"type": "EconomyGainAdd", "param": "all", "magnitude": 0.05},
+          {"type": "EconomyGainAdd", "param": "all", "magnitude": 0.1},
+          {"type": "EconomyGainAdd", "param": "all", "magnitude": 0.15},
+          {"type": "EconomyGainAdd", "param": "all", "magnitude": 0.2}
         ],
         "preferenceUnits": []
       },
@@ -233,10 +234,10 @@
         "name": "观星台",
         "desc": "科技获取",
         "levels": [
-          {"type": "TechGainMult", "param": "all", "magnitude": 1.1},
-          {"type": "TechGainMult", "param": "all", "magnitude": 1.2},
-          {"type": "TechGainMult", "param": "all", "magnitude": 1.3},
-          {"type": "TechGainMult", "param": "all", "magnitude": 1.4}
+          {"type": "TechGainAdd", "param": "all", "magnitude": 0.1},
+          {"type": "TechGainAdd", "param": "all", "magnitude": 0.2},
+          {"type": "TechGainAdd", "param": "all", "magnitude": 0.3},
+          {"type": "TechGainAdd", "param": "all", "magnitude": 0.4}
         ],
         "preferenceUnits": []
       }

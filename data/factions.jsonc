@@ -1,13 +1,15 @@
+// 势力配置：id 必须从 0 开始连续；颜色通道为 0..255，偏好系数必须 > 0；导出时本文件复制到 default/。
 {
   "factions": [
     {
+      // id 必须与数组下标一致且最终连续；name/description 用于菜单、消息和排行榜。
       "_comment": "id 0 = 中立灰占位（双色系统⑫）：主色=深灰、副色=浅灰。",
       "id": 0,
       "name": "中立",
       "description": "不参与战争的中立土地与城市。",
       "nameColors": ["primary"],
-      "color": [96, 96, 96],
-      "secondary": [191, 191, 191]
+      "color": [96, 96, 96], // 主色 RGB，每通道整数 0..255。
+      "secondary": [191, 191, 191] // 副色 RGB，每通道整数 0..255。
     },
     {
       "id": 1,
@@ -16,7 +18,8 @@
       "nameColors": ["primary"],
       "color": [255, 0, 0],
       "secondary": [191, 191, 191],
-      "unitPreference": {"normal": 2.0}
+      "unitPreference": {"normal": 2.0},
+      "buffs": []
     },
     {
       "id": 2,
@@ -25,7 +28,8 @@
       "nameColors": ["primary"],
       "color": [255, 255, 0],
       "secondary": [191, 191, 191],
-      "unitPreference": {"laser": 1.5, "bomb": 1.5, "mine": 1.5}
+      "unitPreference": {"laser": 1.5, "bomb": 1.5, "mine": 1.5},
+      "buffs": []
     },
     {
       "id": 3,
@@ -35,8 +39,10 @@
       "color": [0, 255, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"vanguard": 3.0},
-      "speedMultAll": 1.2,
-      "seaMult": 0.666
+      "buffs": [
+        {"type": "UnitSpeedAdd", "param": "all", "magnitude": 0.2},
+        {"type": "SeaChanceMult", "param": "all", "magnitude": 0.666}
+      ]
     },
     {
       "id": 4,
@@ -46,8 +52,10 @@
       "color": [0, 85, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"pioneer": 3.0, "vanguard": 1.5},
-      "bounceMultAll": 0.8,
-      "pioneerSpeedMult": 1.5
+      "buffs": [
+        {"type": "BounceChanceMult", "param": "all", "magnitude": 0.8},
+        {"type": "UnitSpeedAdd", "param": "pioneer", "magnitude": 0.5}
+      ]
     },
     {
       "id": 5,
@@ -57,9 +65,11 @@
       "color": [0, 255, 0],
       "secondary": [191, 191, 191],
       "unitPreference": {"laser": 3.0},
-      "extraLaserBeams": 2,
-      "laserDurationMult": 1.5,
-      "laserLengthMult": 1.5
+      "buffs": [
+        {"type": "LaserExtraBeams", "param": "all", "magnitude": 2},
+        {"type": "LaserDurationAdd", "param": "all", "magnitude": 0.5},
+        {"type": "LaserLengthAdd", "param": "all", "magnitude": 0.5}
+      ]
     },
     {
       "id": 6,
@@ -69,7 +79,9 @@
       "color": [255, 127, 0],
       "secondary": [191, 191, 191],
       "unitPreference": {"bomb": 3.0},
-      "bombRadiusBonus": 0.5
+      "buffs": [
+        {"type": "BombExplosionRadiusAdd", "param": "bomb", "magnitude": 0.5}
+      ]
     },
     {
       "id": 7,
@@ -79,7 +91,9 @@
       "color": [127, 0, 255],
       "secondary": [191, 191, 191],
       "unitPreference": {"mine": 3.0},
-      "mineTriggerBombRadiusBonus": 0.5
+      "buffs": [
+        {"type": "MineExplosionRadiusAdd", "param": "mine", "magnitude": 0.5}
+      ]
     },
     {
       "id": 8,
@@ -88,17 +102,29 @@
       "nameColors": ["primary", "primary"],
       "color": [255, 0, 255],
       "secondary": [191, 191, 191],
-      "freeArmyChance": 0.5
+      "buffs": [
+        {"type": "FreeArmyChance", "param": "normal", "magnitude": 0.5}
+      ]
     },
     {
       "id": 9,
       "name": "测试",
-      "description": "用于验证新增势力：炸弹兵偏好更高且爆炸范围增加。",
+      "description": "用于debug",//这是一条注释, 用于测试.
       "nameColors": ["primary", "secondary"],
       "color": [255, 204, 181],
       "secondary": [168, 255, 89],
-      "unitPreference": {"bomb": 3.0},
-      "bombRadiusBonus": 0.5
+      "unitPreference": {"laser": 2, "bomb": 2, "mine": 2},
+      "buffs": [
+        {"type": "BombExplosionRadiusAdd", "param": "bomb", "magnitude": 0.5},
+        {"type": "MineExplosionRadiusAdd", "param": "mine", "magnitude": 0.5},
+        {"type": "UnitSpeedAdd", "param": "all", "magnitude": 0.5},
+        {"type": "FreeArmyChance", "param": "laser", "magnitude": 0.5},
+        {"type": "FreeArmyChance", "param": "bomb", "magnitude": 0.5},
+        {"type": "LaserExtraBeams", "param": "all", "magnitude": 2},
+        {"type": "LaserDurationAdd", "param": "all", "magnitude": 0.5},
+        {"type": "LaserLengthAdd", "param": "all", "magnitude": 0.5},
+        {"type": "BounceChanceMult", "param": "all", "magnitude": 0.8}
+      ]
     }
   ]
 }

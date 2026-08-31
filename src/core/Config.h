@@ -1,4 +1,4 @@
-// Config.h — 全部魔法数字外置（翻新计划 §3.5 data/config.json）。
+// Config.h — 全部魔法数字外置（翻新计划 §3.5 data/config.jsonc）。
 // 默认值内置于本结构，JSON 仅作覆盖；缺键保持默认，保证无配置文件也能运行。
 #pragma once
 
@@ -13,6 +13,13 @@
 #include "core/Paths.h"
 
 namespace lw {
+
+// 配置层的通用增益定义。科技 levels 与势力 buffs 共用同一格式；source 在运行时补充。
+struct BuffDef {
+    BuffType type = BuffType::UnitSpeedAdd;
+    int param = -1;          // 兵种下标（-1 = 全兵种）
+    double magnitude = 0.0;
+};
 
 // 三分量加权平均（双色势力派生色共用，2026-08 视觉工程改进 ⑫）：
 // 逐通道 round(a·wa + b·wb + c·wc)，结果夹到 [0,255]。
@@ -137,6 +144,8 @@ struct Config {
         // 改由【兵种偏好系数】unitPreference 驱动默认 AI 的产兵分配（见 ProductionAI）。
         // 值 = 各兵种偏好系数（默认 1.0；>1 → 默认 AI 在该兵种上花费更多）。未来与科技挂钩。
         std::array<double, kArmyTypeCount> unitPreference = {1, 1, 1, 1, 1, 1, 1, 1};
+        std::vector<BuffDef> buffs; // 声明式初始增益，与 tech.levels 使用同一格式
+        // 以下字段保留为运行时/旧快照的派生兼容值，不再作为 factions.json 的配置入口。
         double speedMultAll = 1.0;      // 全兵速乘数
         double seaMult = 1.0;           // 下海概率乘数
         double bounceMultAll = 1.0;     // 全兵反弹概率乘数
@@ -281,8 +290,8 @@ struct Config {
         //   P(x) ∝ n_x * (x + beta)^{-s}
         // beta 按当前密铺最小等级动态取 (1 - minLevel)/2。
         double levelRankExponent = 0.5;
-        // 各密铺等级/形状表（默认从 data/city_shapes.json 加载；代码内置表作无文件兜底。
-        // P1.2 起 square/hex/tri/半正/Laves 的 cells 统一为世界单位 U 偏移，config.json 的 city 段
+        // 各密铺等级/形状表（默认从 data/city_shapes.jsonc 加载；代码内置表作无文件兜底。
+        // P1.2 起 square/hex/tri/半正/Laves 的 cells 统一为世界单位 U 偏移，config.jsonc 的 city 段
         // 仍可覆盖。square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]）。
         TilingSet square;  // 默认 1/2/4/6/9：1×1 / 1×2 / 2×2 / 2×3 / 3×3
         TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，U 偏移）
@@ -439,11 +448,7 @@ struct Config {
     //   玩家 3 选 1（candidates 用游戏 Rng 采样）；AI 随机选一个可升级科技。
     //   节奏（用户定夺 2026-08-08 放慢默认）：pointsPerCityLevel 默认 0.01（占位待实验）。
     struct Tech {
-        struct Level {  // 一级的效果（**累计幅度**；升级 = 用新 buff 替换旧 buff）
-            BuffType type = BuffType::UnitSpeedMult;
-            int param = -1;          // 兵种下标（-1 = 全兵；config 用兵种名或 "all"）
-            double magnitude = 1.0;  // 累计乘数（条数型为条数）
-        };
+        using Level = BuffDef;  // 一级的效果（Add 为直接增量；升级 = 用新 buff 替换旧 buff）
         struct TechDef {
             std::string id;     // 唯一 id（事件 data / 排序键）
             std::string name;   // 显示名（如"节流·普通兵"）
@@ -465,12 +470,14 @@ struct Config {
         }
     } tech;
 
-    // 从 JSON 文本解析（覆盖默认值，缺键保持默认）。
+    // 从 JSON/JSONC 文本解析（覆盖默认值，缺键保持默认）。
     static Config loadFromJson(const std::string& jsonText);
-    // 从文件解析；核心文件同目录的 render.json/techs.json/factions.json/units.json
-    // 按对应顶层段覆盖核心配置。文件缺失/解析失败时回退默认并记警告。
+    // 从文件解析；核心文件同目录的 render.jsonc/techs.jsonc/factions.jsonc/units.jsonc
+    // 按对应顶层段覆盖核心配置。A 缺失/损坏时回退 data/default/ 中的 B，再以代码默认值兜底。
     static Config loadFromFile(const std::string& path);
-    // 从外置 data/city_icon_fits.json 加载 render.city.iconFitScale/iconFitOffsetY（2026-08-26）。
+    // 严格校验指定配置及其同目录分片，不触发 loadFromFile 的回退；供发布检查/CLI 使用。
+    static bool validateFile(const std::string& path, std::string* err = nullptr);
+    // 从外置 data/city_icon_fits.jsonc 加载 render.city.iconFitScale/iconFitOffsetY（2026-08-26）。
     // 该两块不再读 config.json；缺省空（任何密铺缺 fit 时按 1 倍缩放兜底，P1.2/P1.3）。
     static void loadCityIconFits(Config& c);
 

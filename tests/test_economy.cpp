@@ -80,8 +80,10 @@ TEST(Economy, CityIncomeUsesLevelsAlpha) {
     f.cityCount = 2;
     f.capitalState.capitalCityId = -1;  // 无正式首都 → 纯 city 收入
     EconomySystem::accumulate(sim, 1);
-    // cityIncome = perLandIncome × cityBaseMult × (1^alpha + 4^alpha)；alpha=1（内置默认）
-    const double expected = cfg.economy.perLandIncome * cfg.economy.cityBaseMult * (1.0 + 4.0);
+    // cityIncome = perLandIncome × cityBaseMult × (1^alpha + 4^alpha)。
+    const double expected = cfg.economy.perLandIncome * cfg.economy.cityBaseMult
+                            * (std::pow(1.0, cfg.city.levelIncomeExponent)
+                               + std::pow(4.0, cfg.city.levelIncomeExponent));
     EXPECT_NEAR(f.economy, expected, 1e-9);
     EXPECT_NEAR(f.economyRate, expected, 1e-9);
 }
@@ -100,7 +102,9 @@ TEST(Economy, LandAndCityIncomeCombine) {
     f.capitalState.capitalCityId = -1;  // 无正式首都 → 纯 land+city 收入
     EconomySystem::accumulate(sim, 1);
     const double expected = cfg.economy.perLandIncome * 3
-                            + cfg.economy.perLandIncome * cfg.economy.cityBaseMult * (1.0 + 9.0);
+                            + cfg.economy.perLandIncome * cfg.economy.cityBaseMult
+                                  * (std::pow(1.0, cfg.city.levelIncomeExponent)
+                                     + std::pow(9.0, cfg.city.levelIncomeExponent));
     EXPECT_NEAR(f.economy, expected, 1e-9);
 }
 
@@ -128,7 +132,8 @@ TEST(Economy, DoubleCountingLandAndCitySeparateOwners) {
     f2.capitalState.capitalCityId = -1;
     EconomySystem::accumulate(sim, 1);  // 势力1：仅 city 收入（归 owner）
     EconomySystem::accumulate(sim, 2);  // 势力2：仅 land 收入（归 belongi）
-    EXPECT_NEAR(f1.economy, cfg.economy.perLandIncome * cfg.economy.cityBaseMult * 4.0, 1e-9);
+    EXPECT_NEAR(f1.economy, cfg.economy.perLandIncome * cfg.economy.cityBaseMult
+                              * std::pow(4.0, cfg.city.levelIncomeExponent), 1e-9);
     EXPECT_NEAR(f2.economy, cfg.economy.perLandIncome * 4, 1e-9);
 }
 
@@ -149,7 +154,7 @@ TEST(Economy, DeadFactionGetsZeroIncome) {
     EXPECT_DOUBLE_EQ(f.economyRate, 0.0);
 }
 
-TEST(Economy, EconomyGainMultMultiplies) {
+TEST(Economy, EconomyGainBuffMultiplies) {
     Config cfg = baseCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
@@ -172,9 +177,11 @@ TEST(Economy, CityEconomyRatePureFunction) {
     const int c1 = sim.map().addCity(1, 10, 10);
     const int c9 = sim.map().addCity(9, 20, 20);
     EXPECT_NEAR(EconomySystem::cityEconomyRate(cfg, sim.map().city(c1)),
-                cfg.economy.perLandIncome * cfg.economy.cityBaseMult * 1.0, 1e-12);
+                cfg.economy.perLandIncome * cfg.economy.cityBaseMult
+                    * std::pow(1.0, cfg.city.levelIncomeExponent), 1e-12);
     EXPECT_NEAR(EconomySystem::cityEconomyRate(cfg, sim.map().city(c9)),
-                cfg.economy.perLandIncome * cfg.economy.cityBaseMult * 9.0, 1e-12);
+                cfg.economy.perLandIncome * cfg.economy.cityBaseMult
+                    * std::pow(9.0, cfg.city.levelIncomeExponent), 1e-12);
     // alpha 变化：n 级城收入 = n^alpha × 1 级城。
     Config cfg2 = baseCfg();
     cfg2.city.levelIncomeExponent = 2.0;

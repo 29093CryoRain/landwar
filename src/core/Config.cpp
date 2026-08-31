@@ -6,6 +6,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <map>
 #include <stdexcept>
 #include <sstream>
@@ -21,6 +22,75 @@ namespace lw {
 namespace {
 
 using Json = nlohmann::json;
+
+// nlohmann::json deliberately parses strict JSON. Keep comments out of the
+// data model so _comment fields and JSONC comments have identical semantics.
+bool parseJsonc(const std::string& text, Json& out, std::string* error = nullptr) {
+    std::string stripped;
+    stripped.reserve(text.size());
+    bool inString = false;
+    bool escaped = false;
+    bool lineComment = false;
+    bool blockComment = false;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (lineComment) {
+            if (c == '\n') {
+                lineComment = false;
+                stripped.push_back(c);
+            } else {
+                stripped.push_back(' ');
+            }
+            continue;
+        }
+        if (blockComment) {
+            if (c == '*' && i + 1 < text.size() && text[i + 1] == '/') {
+                blockComment = false;
+                stripped += "  ";
+                ++i;
+            } else {
+                stripped.push_back(c == '\n' ? '\n' : ' ');
+            }
+            continue;
+        }
+        if (inString) {
+            stripped.push_back(c);
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (c == '"') {
+            inString = true;
+            stripped.push_back(c);
+        } else if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
+            lineComment = true;
+            stripped += "  ";
+            ++i;
+        } else if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+            blockComment = true;
+            stripped += "  ";
+            ++i;
+        } else {
+            stripped.push_back(c);
+        }
+    }
+    if (lineComment || blockComment) {
+        if (error) *error = "unterminated JSONC comment";
+        return false;
+    }
+    try {
+        out = Json::parse(stripped);
+    } catch (const std::exception& e) {
+        if (error) *error = e.what();
+        return false;
+    }
+    return true;
+}
 
 // 数值读取辅助：缺键/类型不符时返回默认值。
 double getNum(const Json& j, const char* key, double def) {
@@ -59,16 +129,28 @@ bool readJsonFile(const std::string& path, Json& out, const char* kind) {
         spdlog::warn("{} file '{}' not found", kind, path);
         return false;
     }
-    try {
-        ifs >> out;
-    } catch (const std::exception& e) {
-        spdlog::warn("{} file '{}' parse failed: {}", kind, path, e.what());
+    std::ostringstream text;
+    text << ifs.rdbuf();
+    std::string error;
+    if (!parseJsonc(text.str(), out, &error)) {
+        spdlog::warn("{} file '{}' parse failed: {}", kind, path, error);
         return false;
     }
     if (!out.is_object()) {
         spdlog::warn("{} file '{}' must contain a JSON object", kind, path);
         return false;
     }
+    return true;
+}
+
+bool readAssetWithDefault(const std::string& path, Json& out, const char* kind) {
+    if (readJsonFile(path, out, kind)) return true;
+    const std::string fallback = (std::filesystem::path(kConfigDefaultDir)
+                                  / std::filesystem::path(path).filename())
+                                     .string();
+    if (fallback == path) return false;
+    if (!readJsonFile(fallback, out, kind)) return false;
+    spdlog::warn("{} file '{}' unavailable; using default '{}'", kind, path, fallback);
     return true;
 }
 
@@ -128,44 +210,106 @@ PeriodicAction periodicFromName(const std::string& s) {
     return PeriodicAction::none;
 }
 
-// P8 科技：BuffType 枚举字符串映射（config JSON ↔ 枚举）。未知值回退 UnitSpeedMult（默认）。
+// BuffType 枚举字符串映射（config JSON ↔ 枚举）。未知值回退 UnitSpeedAdd（默认）。
 std::string buffTypeName(BuffType t) {
     switch (t) {
         case BuffType::UnitCostMult: return "UnitCostMult";
-        case BuffType::UnitSpeedMult: return "UnitSpeedMult";
+        case BuffType::UnitSpeedAdd: return "UnitSpeedAdd";
         case BuffType::SeaChanceMult: return "SeaChanceMult";
         case BuffType::BounceChanceMult: return "BounceChanceMult";
-        case BuffType::EconomyGainMult: return "EconomyGainMult";
-        case BuffType::BombRadiusMult: return "BombRadiusMult";
-        case BuffType::LaserDurationMult: return "LaserDurationMult";
-        case BuffType::LaserLengthMult: return "LaserLengthMult";
-        case BuffType::LaserWidthMult: return "LaserWidthMult";
+        case BuffType::EconomyGainAdd: return "EconomyGainAdd";
+        case BuffType::ExplosionRadiusAdd: return "ExplosionRadiusAdd";
+        case BuffType::BombExplosionRadiusAdd: return "BombExplosionRadiusAdd";
+        case BuffType::MineExplosionRadiusAdd: return "MineExplosionRadiusAdd";
+        case BuffType::LaserDurationAdd: return "LaserDurationAdd";
+        case BuffType::LaserLengthAdd: return "LaserLengthAdd";
+        case BuffType::LaserWidthAdd: return "LaserWidthAdd";
         case BuffType::LaserExtraBeams: return "LaserExtraBeams";
-        case BuffType::MineTimeoutMult: return "MineTimeoutMult";
+        case BuffType::MineTimeoutAdd: return "MineTimeoutAdd";
         case BuffType::FreeArmyChanceMult: return "FreeArmyChanceMult";
-        case BuffType::UnitActionRateMult: return "UnitActionRateMult";
+        case BuffType::FreeArmyChance: return "FreeArmyChance";
+        case BuffType::UnitActionRateAdd: return "UnitActionRateAdd";
         case BuffType::ProjectileCountExtra: return "ProjectileCountExtra";
-        case BuffType::TechGainMult: return "TechGainMult";
+        case BuffType::TechGainAdd: return "TechGainAdd";
     }
-    return "UnitSpeedMult";
+    return "UnitSpeedAdd";
 }
 BuffType buffTypeFromName(const std::string& s) {
     if (s == "UnitCostMult") return BuffType::UnitCostMult;
-    if (s == "UnitSpeedMult") return BuffType::UnitSpeedMult;
+    if (s == "UnitSpeedAdd") return BuffType::UnitSpeedAdd;
     if (s == "SeaChanceMult") return BuffType::SeaChanceMult;
     if (s == "BounceChanceMult") return BuffType::BounceChanceMult;
-    if (s == "EconomyGainMult") return BuffType::EconomyGainMult;
-    if (s == "BombRadiusMult") return BuffType::BombRadiusMult;
-    if (s == "LaserDurationMult") return BuffType::LaserDurationMult;
-    if (s == "LaserLengthMult") return BuffType::LaserLengthMult;
-    if (s == "LaserWidthMult") return BuffType::LaserWidthMult;
+    if (s == "EconomyGainAdd") return BuffType::EconomyGainAdd;
+    if (s == "ExplosionRadiusAdd") return BuffType::ExplosionRadiusAdd;
+    if (s == "BombExplosionRadiusAdd") return BuffType::BombExplosionRadiusAdd;
+    if (s == "MineExplosionRadiusAdd") return BuffType::MineExplosionRadiusAdd;
+    if (s == "LaserDurationAdd") return BuffType::LaserDurationAdd;
+    if (s == "LaserLengthAdd") return BuffType::LaserLengthAdd;
+    if (s == "LaserWidthAdd") return BuffType::LaserWidthAdd;
     if (s == "LaserExtraBeams") return BuffType::LaserExtraBeams;
-    if (s == "MineTimeoutMult") return BuffType::MineTimeoutMult;
+    if (s == "MineTimeoutAdd") return BuffType::MineTimeoutAdd;
     if (s == "FreeArmyChanceMult") return BuffType::FreeArmyChanceMult;
-    if (s == "UnitActionRateMult") return BuffType::UnitActionRateMult;
+    if (s == "FreeArmyChance") return BuffType::FreeArmyChance;
+    if (s == "UnitActionRateAdd") return BuffType::UnitActionRateAdd;
     if (s == "ProjectileCountExtra") return BuffType::ProjectileCountExtra;
-    if (s == "TechGainMult") return BuffType::TechGainMult;
-    return BuffType::UnitSpeedMult;
+    if (s == "TechGainAdd") return BuffType::TechGainAdd;
+    throw std::runtime_error("unknown buff type: " + s);
+}
+
+void parseBuffDefs(const Json& owner, const char* key, std::vector<BuffDef>& out) {
+    if (!owner.contains(key)) return;
+    if (!owner[key].is_array()) throw std::runtime_error(std::string(key) + " must be an array");
+    out.clear();
+    for (const auto& bj : owner[key]) {
+        if (!bj.is_object()) continue;
+        BuffDef buff;
+        buff.type = buffTypeFromName(getStr(bj, "type", ""));
+        if (bj.contains("param")) {
+            if (bj["param"].is_number_integer()) {
+                buff.param = bj["param"].get<int>();
+            } else {
+                const std::string param = getStr(bj, "param", "all");
+                buff.param = (param == "all") ? -1 : unitIndex(param);
+            }
+        }
+        buff.magnitude = getNum(bj, "magnitude", buff.magnitude);
+        out.push_back(buff);
+    }
+}
+
+void syncFactionLegacyFields(Config::Faction& faction) {
+    faction.speedMultAll = 1.0;
+    faction.seaMult = 1.0;
+    faction.bounceMultAll = 1.0;
+    faction.pioneerSpeedMult = 1.0;
+    faction.extraLaserBeams = 0;
+    faction.laserDurationMult = 1.0;
+    faction.laserLengthMult = 1.0;
+    faction.bombRadiusBonus = 0.0;
+    faction.mineTriggerBombRadiusBonus = 0.0;
+    faction.freeArmyChance = 0.0;
+    for (const auto& buff : faction.buffs) {
+        switch (buff.type) {
+            case BuffType::UnitSpeedAdd:
+                if (buff.param < 0) faction.speedMultAll = 1.0 + buff.magnitude;
+                else if (buff.param == static_cast<int>(ArmyType::pioneer))
+                    faction.pioneerSpeedMult = 1.0 + buff.magnitude;
+                break;
+            case BuffType::SeaChanceMult: faction.seaMult = buff.magnitude; break;
+            case BuffType::BounceChanceMult: faction.bounceMultAll = buff.magnitude; break;
+            case BuffType::LaserExtraBeams: faction.extraLaserBeams = static_cast<int>(buff.magnitude); break;
+            case BuffType::LaserDurationAdd: faction.laserDurationMult = 1.0 + buff.magnitude; break;
+            case BuffType::LaserLengthAdd: faction.laserLengthMult = 1.0 + buff.magnitude; break;
+            case BuffType::BombExplosionRadiusAdd:
+                faction.bombRadiusBonus += buff.magnitude;
+                break;
+            case BuffType::MineExplosionRadiusAdd:
+                faction.mineTriggerBombRadiusBonus += buff.magnitude;
+                break;
+            case BuffType::FreeArmyChance: faction.freeArmyChance += buff.magnitude; break;
+            default: break;
+        }
+    }
 }
 
 // 掩码 → 允许的基础格编号（升序），供 toJson 输出 anchorBases 数组。
@@ -176,7 +320,7 @@ std::vector<int> anchorMaskToBases(std::uint32_t v) {
     return bases;
 }
 
-// 解析单个密铺的等级/形状集（data/city_shapes.json 与 config.json 的
+// 解析单个密铺的等级/形状集（data/city_shapes.jsonc 与 config.jsonc 的
 // city.hex/tri/tilings 共用；shapes[].level → shapeLevelIndex 容差匹配推导）。
 void parseTilingSetJson(const Json& sub, Config::City::TilingSet& set) {
     if (sub.contains("levels") && sub["levels"].is_array()) {
@@ -242,25 +386,12 @@ void parseTilingSetJson(const Json& sub, Config::City::TilingSet& set) {
     }
 }
 
-// 加载 data/city_shapes.json：全部密铺（square/hex/tri + 半正/Laves）的城市形状表
+// 加载 data/city_shapes.jsonc：全部密铺（square/hex/tri + 半正/Laves）的城市形状表
 //（键 = tilingName，如 "square"、"hex"、"arch_3464"）。文件缺失/损坏时保留代码内置兜底，
 // 仅记警告不阻断。
 void loadCityShapesFile(Config::City& c) {
-    std::ifstream ifs(kCityShapesPath);
-    if (!ifs.is_open()) {
-        spdlog::warn("city shapes file '{}' not found; keeping built-in fallback",
-                     kCityShapesPath);
-        return;
-    }
-    std::ostringstream oss;
-    oss << ifs.rdbuf();
     Json root;
-    try {
-        root = Json::parse(oss.str());
-    } catch (const std::exception& e) {
-        spdlog::warn("city shapes file '{}' parse failed: {}", kCityShapesPath, e.what());
-        return;
-    }
+    if (!readAssetWithDefault(kCityShapesPath, root, "city shapes")) return;
     if (!root.is_object()) return;
     for (auto it = root.begin(); it != root.end(); ++it) {
         const TilingType tt = tilingFromName(it.key());
@@ -373,7 +504,7 @@ void initDefaultCity(Config::City& c) {
             set.levels = {1.0};
             set.shapes = {single()};
         }
-        // 完整城市形状表已外置到 data/city_shapes.json（2026-08-26；由
+        // 完整城市形状表已外置到 data/city_shapes.jsonc（2026-08-26；由
         // tools/gen_city_shapes_json.py 生成，改表可重跑该工具或直接编辑 JSON）。
         // 文件缺失/损坏时保留上面的兜底（仅记警告，不阻断）。
         loadCityShapesFile(c);
@@ -426,8 +557,8 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
     cyan.nameColors = {"primary"};
     cyan.color = {0, 255, 255};
     cyan.unitPreference[1] = 3.0;  // 先锋（特色）
-    cyan.speedMultAll = 1.5;
-    cyan.seaMult = 0.666;
+    cyan.buffs = {{BuffType::UnitSpeedAdd, -1, 0.5},
+                  {BuffType::SeaChanceMult, -1, 0.666}};
 
     auto& blue = v[4];
     blue.id = 4;
@@ -436,8 +567,8 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
     blue.color = {0, 85, 255};
     blue.unitPreference[2] = 3.0;  // 开拓（特色）
     blue.unitPreference[1] = 1.5;  // 先锋（用户增注）
-    blue.bounceMultAll = 0.6;
-    blue.pioneerSpeedMult = 2.0;
+    blue.buffs = {{BuffType::BounceChanceMult, -1, 0.6},
+                  {BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::pioneer), 1.0}};
 
     auto& green = v[5];
     green.id = 5;
@@ -445,9 +576,9 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
     green.nameColors = {"primary"};
     green.color = {0, 255, 0};
     green.unitPreference[3] = 3.0;  // 激光（特色）
-    green.extraLaserBeams = 2;
-    green.laserDurationMult = 1.5;
-    green.laserLengthMult = 1.5;
+    green.buffs = {{BuffType::LaserExtraBeams, -1, 2.0},
+                   {BuffType::LaserDurationAdd, -1, 0.5},
+                   {BuffType::LaserLengthAdd, -1, 0.5}};
 
     auto& orange = v[6];
     orange.id = 6;
@@ -455,7 +586,7 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
     orange.nameColors = {"primary"};
     orange.color = {255, 127, 0};
     orange.unitPreference[4] = 3.0;  // 炸弹（特色）
-    orange.bombRadiusBonus = 0.7;
+    orange.buffs = {{BuffType::BombExplosionRadiusAdd, static_cast<int>(ArmyType::bomb), 0.7}};
 
     auto& purple = v[7];
     purple.id = 7;
@@ -463,20 +594,21 @@ void initDefaultFactions(std::vector<Config::Faction>& v) {
     purple.nameColors = {"primary"};
     purple.color = {127, 0, 255};
     purple.unitPreference[5] = 3.0;  // 地雷（特色）
-    purple.mineTriggerBombRadiusBonus = 0.3;
+    purple.buffs = {{BuffType::MineExplosionRadiusAdd, static_cast<int>(ArmyType::mine), 0.3}};
 
     auto& magenta = v[8];
     magenta.id = 8;
     magenta.name = "品红";
     magenta.nameColors = {"primary", "primary"};
     magenta.color = {255, 0, 255};
-    magenta.freeArmyChance = 0.6;
+    magenta.buffs = {{BuffType::FreeArmyChance, static_cast<int>(ArmyType::normal), 0.6}};
+    for (auto& faction : v) syncFactionLegacyFields(faction);
 }
 
 }  // namespace
 
 // ---- 键名校验（2026-08 工程改进）----
-// 缺键回退默认是设计，但**打错的键名**同样静默回退——平衡性全在 config.json，
+// 缺键回退默认是设计，但**打错的键名**同样静默回退——平衡性全在 config.jsonc，
 // 一个 typo 就是"改了没生效"且毫无提示。以下在解析后整树校验：
 // 已知键集合外的键 → spdlog::warn（不阻断；'_' 前缀键如 _comment 视为注释，不告警）。
 // 维护：每增删 config 键，须同步更新下方列表与 toJson（键严格对称，单测往返锁定）。
@@ -593,10 +725,8 @@ void validateConfigKeys(const Json& root) {
                          "periodic",      "periodTicks",       "bulletSpeed",
                          "bulletSpeedJitter", "bulletCount",   "bulletLifespanTicks",
                          "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac"};
-     const V kFactionKeys = {"id", "name", "description", "nameColors", "color", "secondary", "unitPreference", "speedMultAll",
-                            "seaMult", "bounceMultAll", "pioneerSpeedMult", "extraLaserBeams",
-                            "laserDurationMult", "laserLengthMult", "bombRadiusBonus",
-                            "mineTriggerBombRadiusBonus", "freeArmyChance"};
+    const V kFactionKeys = {"id", "name", "description", "nameColors", "color", "secondary",
+                            "unitPreference", "buffs"};
     const V kTechKeys = {"id", "name", "desc", "levels", "preferenceUnits"};
     const V kLevelKeys = {"type", "param", "magnitude"};
     auto arrayOf = [&root](const char* name) -> const Json& {
@@ -607,8 +737,15 @@ void validateConfigKeys(const Json& root) {
     for (const auto& u : arrayOf("units"))
         warnUnknownKeys(u, kUnitKeys, "units[" + std::to_string(idx++) + "]");
     idx = 0;
-    for (const auto& f : arrayOf("factions"))
+    for (const auto& f : arrayOf("factions")) {
         warnUnknownKeys(f, kFactionKeys, "factions[" + std::to_string(idx++) + "]");
+        if (f.is_object() && f.contains("buffs") && f["buffs"].is_array()) {
+            int bi = 0;
+            for (const auto& b : f["buffs"])
+                warnUnknownKeys(b, kLevelKeys, "factions[" + std::to_string(idx - 1)
+                                                 + "].buffs[" + std::to_string(bi++) + "]");
+        }
+    }
     idx = 0;
     if (cityJ.contains("shapes") && cityJ["shapes"].is_array()) {
         for (const auto& s : cityJ["shapes"])
@@ -665,21 +802,105 @@ void validateConfigKeys(const Json& root) {
     }
 }
 
+void warnMissingKeys(const Json& obj, std::initializer_list<const char*> required,
+                     const std::string& path) {
+    if (!obj.is_object()) {
+        spdlog::warn("config: '{}' must be an object; required keys cannot be read", path);
+        return;
+    }
+    for (const char* key : required) {
+        if (!obj.contains(key))
+            spdlog::warn("config: missing key '{}.{}' (built-in default used)", path, key);
+    }
+}
+
+// These are the stable scalar portions of each JSONC file. Sparse arrays such
+// as faction preferences intentionally remain optional and keep their defaults.
+void warnMissingConfigKeys(const Json& root) {
+    warnMissingKeys(root, {"map", "army", "sea", "terrain", "units", "factions", "effect",
+                           "projectile", "economy", "city", "capital", "sim", "render", "ui",
+                           "tech"}, "<root>");
+    const auto object = [&root](const char* key) -> const Json& {
+        static const Json empty = Json::object();
+        return root.contains(key) && root[key].is_object() ? root[key] : empty;
+    };
+    warnMissingKeys(object("map"), {"blockSize", "panelWidth", "capitalMinDistance",
+                                     "cityMountainWeight", "forceCoastRangeMultiplier",
+                                     "forceCoastStrengthMultiplier", "tiling"}, "map");
+    warnMissingKeys(object("army"), {"baseSpeed", "baseSize", "bounceJitterRangeRad",
+                                      "spawnAngleStep"}, "army");
+    warnMissingKeys(object("sea"), {"initialGoSeaProbability", "goSeaIncrease", "goSeaChanceConst",
+                                     "goSeaChanceDenominator", "seaSpeedMult"}, "sea");
+    warnMissingKeys(object("terrain"), {"seaChannelMin", "probFloor", "probScale",
+                                         "mountainEnterChance", "mountainSpeedMult"}, "terrain");
+    warnMissingKeys(object("projectile"), {"drawSize", "mountainLifespanPenalty"}, "projectile");
+    warnMissingKeys(object("economy"), {"initialEconomy", "perLandIncome", "cityBaseMult",
+                                         "capitalBase"}, "economy");
+    warnMissingKeys(object("capital"), {"relocationDelayTicks"}, "capital");
+    warnMissingKeys(object("sim"), {"tickRate", "maxArmyGuard"}, "sim");
+    warnMissingKeys(object("ui"), {"messageMaxShown"}, "ui");
+    warnMissingKeys(object("city"), {"levelIncomeExponent", "levelRankExponent"}, "city");
+    warnMissingKeys(object("effect"), {"bomb", "mine", "laser"}, "effect");
+    warnMissingKeys(object("effect").value("bomb", Json::object()),
+                    {"lifetimeTicks", "conquerEveryTicks", "expansionRate", "baseRadius"},
+                    "effect.bomb");
+    warnMissingKeys(object("effect").value("mine", Json::object()),
+                    {"radius", "armTicks", "checkEveryTicks", "timeoutTicks", "triggerRadius",
+                     "triggerBombRadius"},
+                    "effect.mine");
+    warnMissingKeys(object("effect").value("laser", Json::object()),
+                    {"durationTicks", "length", "extendPerTick", "killExtraRadius",
+                     "beamSpreadPIFrac"},
+                    "effect.laser");
+    warnMissingKeys(object("render"), {"windowWidth", "windowHeight", "armyDrawSize", "tile",
+                                       "mountain", "city", "capital", "player"}, "render");
+    warnMissingKeys(object("render").value("tile", Json::object()),
+                    {"primary", "secondary", "white", "variation"}, "render.tile");
+    warnMissingKeys(object("render").value("mountain", Json::object()),
+                    {"sourceWidth", "sourceHeight", "strokeWidthPx", "areaReference", "segments",
+                     "colorDarken"},
+                    "render.mountain");
+    warnMissingKeys(object("render").value("city", Json::object()),
+                    {"lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "mix",
+                     "spawnArrow"},
+                    "render.city");
+    warnMissingKeys(object("render").value("capital", Json::object()),
+                    {"minIconSizePx", "lineThickness", "designatedAlpha"}, "render.capital");
+    warnMissingKeys(object("render").value("player", Json::object()),
+                    {"hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin",
+                     "markerArrowGap"},
+                    "render.player");
+    warnMissingKeys(object("tech"), {"thresholdBase", "thresholdStep", "pointsPerCityLevel",
+                                      "preferencePerLevel", "playerCandidateCount", "techs"}, "tech");
+    if (root.contains("units") && root["units"].is_array()) {
+        int i = 0;
+        for (const auto& unit : root["units"])
+            warnMissingKeys(unit, {"type"}, "units[" + std::to_string(i++) + "]");
+    }
+    if (root.contains("factions") && root["factions"].is_array()) {
+        int i = 0;
+        for (const auto& faction : root["factions"])
+            warnMissingKeys(faction, {"id", "name", "description", "nameColors", "color",
+                                      "secondary"},
+                            "factions[" + std::to_string(i++) + "]");
+    }
+}
+
 }  // namespace
 
 // 默认构造：内置全部密铺等级/形状表（P1.2 起 square/hex/tri/半正/Laves 统一），
 // 保证裸 City{} 即可用（Map::cityConfig_、单测直接构造等；Config 自身成员亦由本构造填充）。
 Config::City::City() { initDefaultCity(*this); }
 
-Config Config::loadFromJson(const std::string& jsonText) {
+Config loadConfigText(const std::string& jsonText, bool* loaded) {
+    if (loaded) *loaded = false;
     Config cfg;
     initDefaultFactions(cfg.factions);
 
     Json root;
-    try {
-        root = Json::parse(jsonText);
-    } catch (const std::exception& e) {
-        spdlog::warn("config.json parse failed ({}), using defaults", e.what());
+    std::string parseError;
+    if (!parseJsonc(jsonText, root, &parseError)) {
+        spdlog::warn("config JSONC parse failed ({}), using defaults", parseError);
         return cfg;
     }
 
@@ -827,20 +1048,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
                     }
                 }
             }
-            fdef.speedMultAll = getNum(factionJson, "speedMultAll", fdef.speedMultAll);
-            fdef.seaMult = getNum(factionJson, "seaMult", fdef.seaMult);
-            fdef.bounceMultAll = getNum(factionJson, "bounceMultAll", fdef.bounceMultAll);
-            fdef.pioneerSpeedMult =
-                getNum(factionJson, "pioneerSpeedMult", fdef.pioneerSpeedMult);
-            fdef.extraLaserBeams = getInt(factionJson, "extraLaserBeams", fdef.extraLaserBeams);
-            fdef.laserDurationMult =
-                getNum(factionJson, "laserDurationMult", fdef.laserDurationMult);
-            fdef.laserLengthMult = getNum(factionJson, "laserLengthMult", fdef.laserLengthMult);
-            fdef.bombRadiusBonus =
-                getNum(factionJson, "bombRadiusBonus", fdef.bombRadiusBonus);
-            fdef.mineTriggerBombRadiusBonus =
-                getNum(factionJson, "mineTriggerBombRadiusBonus", fdef.mineTriggerBombRadiusBonus);
-            fdef.freeArmyChance = getNum(factionJson, "freeArmyChance", fdef.freeArmyChance);
+            parseBuffDefs(factionJson, "buffs", fdef.buffs);
+            syncFactionLegacyFields(fdef);
         }
     }
 
@@ -912,7 +1121,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
         cfg.city.levelRankExponent =
             getNum(cityJson, "levelRankExponent", cfg.city.levelRankExponent);
         // 正方形 shapes 覆盖（可选）：P1.2 起仅支持泛化 [{level, cells:[dx,dy], ...}]，
-        // 不再兼容旧 [{level, w, h}]。缺省保持内置表/data/city_shapes.json。
+        // 不再兼容旧 [{level, w, h}]。缺省保持内置表/data/city_shapes.jsonc。
         if (cityJson.contains("shapes") && cityJson["shapes"].is_array()) {
             Json squareObj;
             squareObj["levels"] = cfg.city.square.levels;
@@ -920,7 +1129,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
             parseTilingSetJson(squareObj, cfg.city.square);
         }
         // P12：六/三角形状表（可选）。P1.2 起 cells 统一为 [dx, dy] 世界单位 U 偏移；
-        // 解析逻辑 = parseTilingSetJson（匿名命名空间，与 data/city_shapes.json 共用）。
+        // 解析逻辑 = parseTilingSetJson（匿名命名空间，与 data/city_shapes.jsonc 共用）。
         if (cityJson.contains("hex") && cityJson["hex"].is_object())
             parseTilingSetJson(cityJson["hex"], cfg.city.hex);
         if (cityJson.contains("tri") && cityJson["tri"].is_object())
@@ -1010,8 +1219,8 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 cfg.render.city.spawnArrow.areaDivisor =
                     getNum(arrow, "areaDivisor", cfg.render.city.spawnArrow.areaDivisor);
             }
-            // iconFitScale / iconFitOffsetY：已外置到 data/city_icon_fits.json（2026-08-26），
-            // 由 loadCityIconFits 加载，不再读 config.json。
+            // iconFitScale / iconFitOffsetY：已外置到 data/city_icon_fits.jsonc（2026-08-26），
+            // 由 loadCityIconFits 加载，不再读 config.jsonc。
         }
         // 双色系统（⑫）：地块格 主:副:白 混合比例（render.tile）。
         if (renderJson.contains("tile") && renderJson["tile"].is_object()) {
@@ -1071,17 +1280,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
                 def.id = getStr(tj, "id", "");
                 def.name = getStr(tj, "name", def.id);
                 def.desc = getStr(tj, "desc", "");
-                if (tj.contains("levels") && tj["levels"].is_array()) {
-                    for (const auto& lj : tj["levels"]) {
-                        if (!lj.is_object()) continue;
-                        Config::Tech::Level lv;
-                        lv.type = buffTypeFromName(getStr(lj, "type", ""));
-                        const std::string param = getStr(lj, "param", "all");
-                        lv.param = (param == "all") ? -1 : unitIndex(param);
-                        lv.magnitude = getNum(lj, "magnitude", lv.magnitude);
-                        def.levels.push_back(lv);
-                    }
-                }
+                parseBuffDefs(tj, "levels", def.levels);
                 if (tj.contains("preferenceUnits") && tj["preferenceUnits"].is_array()) {
                     for (const auto& u : tj["preferenceUnits"]) {
                         if (!u.is_string()) continue;
@@ -1102,6 +1301,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
         initDefaultFactions(fallback.factions);
         return fallback;
     }
+    if (loaded) *loaded = true;
     return cfg;
     } catch (const std::exception& e) {
         spdlog::error("config load failed: {}; using built-in defaults", e.what());
@@ -1111,68 +1311,123 @@ Config Config::loadFromJson(const std::string& jsonText) {
     }
 }
 
+Config Config::loadFromJson(const std::string& jsonText) {
+    bool loaded = false;
+    return loadConfigText(jsonText, &loaded);
+}
+
 Config Config::loadFromFile(const std::string& path) {
-    Json merged;
-    if (!readJsonFile(path, merged, "config")) {
-        spdlog::warn("config file '{}' unavailable, using built-in defaults", path);
+    const auto builtInDefaults = [] {
         Config cfg;
         initDefaultFactions(cfg.factions);
         return cfg;
+    };
+    const auto loadCandidate = [&](const std::string& candidate) -> std::pair<Config, bool> {
+        Json merged;
+        if (!readJsonFile(candidate, merged, "config")) return {builtInDefaults(), false};
+
+        // A/B 都只保留核心/模拟配置；同目录的四个片段按固定顺序覆盖对应顶层段。
+        // 导出时 B 及 B 的四个片段均从 A 的对应文件复制生成。
+        const std::filesystem::path parent = std::filesystem::path(candidate).parent_path();
+        const auto fragmentPath = [&parent](const char* name) {
+            return (parent / name).string();
+        };
+        const std::array<std::pair<const char*, const char*>, 4> fragments = {{
+            {"render", "render.jsonc"},
+            {"tech", "techs.jsonc"},
+            {"factions", "factions.jsonc"},
+            {"units", "units.jsonc"},
+        }};
+        for (const auto& [section, file] : fragments) {
+            Json fragment;
+            const std::string fragmentName = fragmentPath(file);
+            if (!readJsonFile(fragmentName, fragment, "config fragment")) {
+                const std::string defaultFragment =
+                    (std::filesystem::path(kConfigDefaultDir) / file).string();
+                if (defaultFragment == fragmentName
+                    || !readJsonFile(defaultFragment, fragment, "default config fragment"))
+                    continue;
+                spdlog::warn("config fragment '{}' unavailable; using default '{}'", fragmentName,
+                             defaultFragment);
+            }
+            if (!fragment.contains(section)) {
+                spdlog::warn("config fragment '{}' has no '{}' section; ignored", fragmentName, section);
+                continue;
+            }
+            for (auto it = fragment.begin(); it != fragment.end(); ++it) {
+                if (!it.key().empty() && it.key()[0] == '_') continue;
+                if (it.key() != section)
+                    spdlog::warn("config fragment '{}' has unexpected top-level key '{}' (ignored)",
+                                 fragmentName, it.key());
+            }
+            merged[section] = fragment[section];
+        }
+
+        bool loaded = false;
+        Config cfg = loadConfigText(merged.dump(), &loaded);
+        if (!loaded) return {builtInDefaults(), false};
+        warnMissingConfigKeys(merged);
+        loadCityIconFits(cfg);  // 城市贴图缩放/平移表外置于 data/city_icon_fits.jsonc
+        return {std::move(cfg), true};
+    };
+
+    auto result = loadCandidate(path);
+    if (result.second) return std::move(result.first);
+    if (path != kFallbackConfigPath) {
+        spdlog::warn("config file '{}' is invalid; trying release fallback '{}'", path,
+                     kFallbackConfigPath);
+        result = loadCandidate(kFallbackConfigPath);
+        if (result.second) return std::move(result.first);
+    }
+    spdlog::warn("no valid external config available; using built-in defaults");
+    return builtInDefaults();
+}
+
+bool Config::validateFile(const std::string& path, std::string* err) {
+    Json merged;
+    if (!readJsonFile(path, merged, "config")) {
+        if (err) *err = "cannot read or parse config file '" + path + "'";
+        return false;
     }
 
-    // config.json 只保留核心/模拟配置；同目录的四个片段按固定顺序覆盖对应顶层段。
-    // 片段使用 {"render": {...}} 这类带段名的对象，便于单独校验和人工编辑。
     const std::filesystem::path parent = std::filesystem::path(path).parent_path();
-    const auto fragmentPath = [&parent](const char* name) {
-        return (parent / name).string();
-    };
     const std::array<std::pair<const char*, const char*>, 4> fragments = {{
-        {"render", "render.json"},
-        {"tech", "techs.json"},
-        {"factions", "factions.json"},
-        {"units", "units.json"},
+        {"render", "render.jsonc"},
+        {"tech", "techs.jsonc"},
+        {"factions", "factions.jsonc"},
+        {"units", "units.jsonc"},
     }};
     for (const auto& [section, file] : fragments) {
+        const std::string fragmentPath = (parent / file).string();
+        if (!std::filesystem::exists(fragmentPath)) continue;
+
         Json fragment;
-        const std::string fragmentName = fragmentPath(file);
-        if (!readJsonFile(fragmentName, fragment, "config fragment")) continue;
-        if (!fragment.contains(section)) {
-            spdlog::warn("config fragment '{}' has no '{}' section; ignored", fragmentName, section);
-            continue;
+        if (!readJsonFile(fragmentPath, fragment, "config fragment")) {
+            if (err) *err = "cannot read or parse config fragment '" + fragmentPath + "'";
+            return false;
         }
-        for (auto it = fragment.begin(); it != fragment.end(); ++it) {
-            if (!it.key().empty() && it.key()[0] == '_') continue;
-            if (it.key() != section)
-                spdlog::warn("config fragment '{}' has unexpected top-level key '{}' (ignored)",
-                             fragmentName, it.key());
+        if (!fragment.contains(section)) {
+            if (err) *err = "config fragment '" + fragmentPath + "' has no '" + section + "' section";
+            return false;
         }
         merged[section] = fragment[section];
     }
 
-    Config cfg = loadFromJson(merged.dump());
-    loadCityIconFits(cfg);  // 城市贴图缩放/平移表外置于 data/city_icon_fits.json（2026-08-26）
-    return cfg;
+    bool loaded = false;
+    const Config cfg = loadConfigText(merged.dump(), &loaded);
+    if (!loaded) {
+        if (err) *err = "configuration failed runtime validation";
+        return false;
+    }
+    return cfg.validate(err);
 }
 
-// 加载外置城市贴图预计算表 data/city_icon_fits.json（render.city.iconFitScale + iconFitOffsetY）。
+// 加载外置城市贴图预计算表 data/city_icon_fits.jsonc（render.city.iconFitScale + iconFitOffsetY）。
 // 文件缺失/损坏 → 保留空表（任何密铺缺 fit 时按 1 倍缩放兜底，P1.2/P1.3）。
-// 注意：config.json 不再含这两块；本函数仅经 loadFromFile 与交互工具调用。
+// 注意：config.jsonc 不再含这两块；本函数仅经 loadFromFile 与交互工具调用。
 void Config::loadCityIconFits(Config& c) {
-    std::ifstream ifs(kCityIconFitsPath);
-    if (!ifs.is_open()) {
-        spdlog::warn("city icon fits file '{}' not found; iconFitScale/iconFitOffsetY empty",
-                     kCityIconFitsPath);
-        return;
-    }
-    std::ostringstream oss;
-    oss << ifs.rdbuf();
     Json root;
-    try {
-        root = Json::parse(oss.str());
-    } catch (const std::exception& e) {
-        spdlog::warn("city icon fits file '{}' parse failed: {}", kCityIconFitsPath, e.what());
-        return;
-    }
+    if (!readAssetWithDefault(kCityIconFitsPath, root, "city icon fits")) return;
     if (!root.is_object()) return;
     if (root.contains("iconFitScale") && root["iconFitScale"].is_object()) {
         c.render.city.iconFitScale.clear();
@@ -1273,6 +1528,19 @@ bool Config::validate(std::string* err) const {
             if (channel < 0 || channel > 255) return fail("faction secondary color out of range");
         for (double preference : f.unitPreference)
             if (!positive(preference)) return fail("unit preference must be positive");
+        for (const auto& buff : f.buffs) {
+            if (!finite(buff.magnitude) || buff.param < -1 || buff.param >= kArmyTypeCount)
+                return fail("faction buff is invalid");
+            if ((buff.type == BuffType::FreeArmyChance && buff.param < 0)
+                || (buff.type == BuffType::BombExplosionRadiusAdd
+                    && buff.param != static_cast<int>(ArmyType::bomb))
+                || (buff.type == BuffType::MineExplosionRadiusAdd
+                    && buff.param != static_cast<int>(ArmyType::mine)))
+                return fail("faction buff param is invalid");
+            if (buff.type == BuffType::FreeArmyChance
+                && (buff.magnitude < 0.0 || buff.magnitude > 1.0))
+                return fail("faction free army chance is invalid");
+        }
         if (!positive(f.speedMultAll) || !positive(f.seaMult) || !nonNegative(f.bounceMultAll)
             || !positive(f.pioneerSpeedMult) || f.extraLaserBeams < 0
             || !positive(f.laserDurationMult) || !positive(f.laserLengthMult)
@@ -1462,16 +1730,12 @@ std::string Config::toJson() const {
         for (int i = 0; i < kArmyTypeCount; ++i)
             up[unitName(i)] = f.unitPreference[static_cast<size_t>(i)];
         fj["unitPreference"] = std::move(up);
-        fj["speedMultAll"] = f.speedMultAll;
-        fj["seaMult"] = f.seaMult;
-        fj["bounceMultAll"] = f.bounceMultAll;
-        fj["pioneerSpeedMult"] = f.pioneerSpeedMult;
-        fj["extraLaserBeams"] = f.extraLaserBeams;
-        fj["laserDurationMult"] = f.laserDurationMult;
-        fj["laserLengthMult"] = f.laserLengthMult;
-        fj["bombRadiusBonus"] = f.bombRadiusBonus;
-        fj["mineTriggerBombRadiusBonus"] = f.mineTriggerBombRadiusBonus;
-        fj["freeArmyChance"] = f.freeArmyChance;
+        Json buffsJ = Json::array();
+        for (const auto& buff : f.buffs)
+            buffsJ.push_back({{"type", buffTypeName(buff.type)},
+                              {"param", buff.param < 0 ? "all" : unitName(buff.param)},
+                              {"magnitude", buff.magnitude}});
+        fj["buffs"] = std::move(buffsJ);
         j["factions"].push_back(std::move(fj));
     }
 
@@ -1579,7 +1843,7 @@ std::string Config::toJson() const {
                                 {"secondary", render.city.spawnArrow.secondary},
                                 {"black", render.city.spawnArrow.black},
                                 {"areaDivisor", render.city.spawnArrow.areaDivisor}};
-        // iconFitScale / iconFitOffsetY 已外置（2026-08-26）：不写回 config.json。
+        // iconFitScale / iconFitOffsetY 已外置（2026-08-26）：不写回 config.jsonc。
         renderJ["city"] = std::move(cityJ);
 
         Json capitalJ;

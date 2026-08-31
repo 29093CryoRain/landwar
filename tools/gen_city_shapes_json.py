@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """gen_city_shapes_json.py — 从 src/core/Config.cpp 的 initDefaultCity 内置表提取
-全部密铺（square/hex/tri + 半正/Laves）城市等级/形状表，生成 data/city_shapes.json。
+全部密铺（square/hex/tri + 半正/Laves）城市等级/形状表，生成 data/city_shapes.jsonc。
 
 - anchorBaseMask 数值（0x.. / 十进制 / constexpr 表达式）转为 '0'/'1' 串
  （MSB 在左，bit b = 允许 b 号基础格作锚），C++ 读入时按二进制还原为 uint32。
@@ -8,7 +8,7 @@
 
 用法：
     python tools/gen_city_shapes_json.py [源文件] [输出文件]
-默认：src/core/Config.cpp → data/city_shapes.json
+默认：src/core/Config.cpp → data/city_shapes.jsonc
 注意：2026-08-26 表外置后，当前 Config.cpp 只含 square/hex/tri 内置表；若要重新生成
 完整 arch/laves 表，须指向仍含 initDefaultCity 完整表的旧源（如 rubbish 中的备份）。
 """
@@ -17,7 +17,7 @@ import re
 import sys
 
 SRC_DEFAULT = "src/core/Config.cpp"
-OUT_DEFAULT = "data/city_shapes.json"
+OUT_DEFAULT = "data/city_shapes.jsonc"
 
 COMMENT_LINES = [
     "全部密铺（square/hex/tri/半正/Laves）城市等级/形状表（2026-08-27 P1.2 重写）。",

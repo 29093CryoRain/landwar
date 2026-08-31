@@ -192,7 +192,7 @@ TEST(Effect, PurpleMineTimeoutUsesTriggerRadius) {
     ASSERT_EQ(countEffects(sim, EffectType::bomb), 1);
     for (auto e : sim.registry().view<comp::EffectTypeId>()) {
         if (sim.registry().get<comp::EffectTypeId>(e).type == EffectType::bomb) {
-            EXPECT_DOUBLE_EQ(sim.registry().get<comp::EffectParams>(e).p0, 1.43);
+    EXPECT_DOUBLE_EQ(sim.registry().get<comp::EffectParams>(e).p0, 1.65);
         }
     }
 }

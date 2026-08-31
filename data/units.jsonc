@@ -1,12 +1,13 @@
+// 兵种配置：每项 type 唯一；速度、尺寸、成本等正值约束由 schema 和运行时校验共同保证；导出时本文件复制到 default/。
 {
-  "units": [
+  "units": [ // type 必须唯一且为已注册兵种；省略字段保留 Config.h 默认值。
     {
       "type": "normal",
-      "cost": 25,
-      "speedMult": 1.0,
-      "sizeMult": 1.0,
-      "bounceMult": 1.0,
-      "visualRadius": 12.0
+      "cost": 25, // 产兵成本，必须 > 0。
+      "speedMult": 1.0, // 兵种速度乘数，必须 > 0。
+      "sizeMult": 1.0, // 碰撞半径乘数，必须 > 0。
+      "bounceMult": 1.0, // 撞敌反弹概率乘数，必须 >= 0。
+      "visualRadius": 12.0 // 点选视觉半径（逻辑像素），必须 > 0。
     },
     {
       "type": "vanguard",

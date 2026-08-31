@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Landwar city_shapes.jsonc",
+  "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}, "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/tilingSet"}},
+  "$defs": {
+    "tilingSet": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["levels", "shapes"], "properties": {
+      "levels": {"type": "array", "minItems": 1, "items": {"type": "number", "exclusiveMinimum": 0}}, "iconLevels": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 10}},
+      "baseGroups": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 31}}},
+      "shapes": {"type": "array", "items": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["level", "cells"], "properties": {"level": {"type": "number", "exclusiveMinimum": 0}, "disabled": {"type": "boolean"}, "anchorBases": {"type": "array", "items": {"oneOf": [{"type": "integer", "minimum": 0, "maximum": 31}, {"type": "string"}]}}, "cells": {"type": "array", "minItems": 1, "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}}}}}
+    }}
+  }
+}

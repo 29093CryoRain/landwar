@@ -112,6 +112,7 @@ void Simulation::initFactions() {
     }
 
     // 回合顺序：初始为选入列表下标排列（原版 random_shuffle；新版用注入 Rng 的 Fisher-Yates）。
+    // 首都位置先按地图顺序生成，但在这里随机分配给势力，避免“后放置位置”固定对应某个势力。
     // 无论势力是否禁用都执行洗牌（消耗相同 RNG），保证确定性不受 options 影响。
     const int playerFactionCount = static_cast<int>(selectedFactionIds_.size());
     turnOrder_.resize(static_cast<size_t>(playerFactionCount));

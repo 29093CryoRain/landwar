@@ -1,0 +1,52 @@
+name: build-and-test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  IMGUI_VERSION: 1.91.6
+  ENTT_VERSION: 3.16.0
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ pkg-config curl \
+            libsdl2-dev libsdl2-image-dev nlohmann-json3-dev \
+            libspdlog-dev libgtest-dev
+
+      - name: Fetch pinned header-only dependencies
+        run: |
+          mkdir -p _deps/imgui-src _deps/entt/include /tmp/entt-src
+          curl --fail --location --silent --show-error \
+            "https://github.com/ocornut/imgui/archive/refs/tags/v${IMGUI_VERSION}.tar.gz" \
+            | tar -xz --strip-components=1 -C _deps/imgui-src
+          curl --fail --location --silent --show-error \
+            "https://github.com/skypjack/entt/archive/refs/tags/v${ENTT_VERSION}.tar.gz" \
+            | tar -xz --strip-components=1 -C /tmp/entt-src
+          cp -R /tmp/entt-src/src/entt _deps/entt/include/
+
+      - name: Configure
+        run: cmake --preset linux -DLANDWAR_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build --preset linux --parallel 2
+
+      - name: Unit tests
+        run: ctest --preset linux --output-on-failure
+
+      - name: Configuration validation
+        run: ./build-linux/landwar --validate-config
+
+      - name: Headless smoke test
+        run: ./build-linux/landwar --headless --seed 42 --ticks 1000 --summary

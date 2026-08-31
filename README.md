@@ -4,8 +4,8 @@
 （陆地/海洋/城市）上互相征战：产兵、移动、征服、战斗、激光/爆炸/地雷特效。逻辑与渲染完全
 解耦，60Hz 固定步长、确定性可复现。
 > 游戏概述见 `.docs/游戏概述.txt`。
-> 行为规格见 `.docs/翻新计划.md`；各阶段开发/完成记录见 `.docs/开发计划.md`。
-> 设计思路见 `.docs/开发思路.txt`。
+> 历史行为规格、开发计划和设计思路已归档到 `rubbish/docs/`；当前约定以本 README 与
+> `.docs/工程规范.md` 为准。
 > **工程规范（编码约定）见 `.docs/工程规范.md`**——新代码先读它（路径/CMake/确定性/
 > 文档规范: 不要更改.txt后缀的文本.
 > 临时的脚本放到tools/目录下.
@@ -14,7 +14,7 @@
 
 ## 构建
 
-环境：MSYS2 **UCRT64**（依赖见 `.docs/environment-setup.md`：SDL2、SDL2_image、nlohmann_json、
+环境：MSYS2 **UCRT64**（依赖见 [THIRD_PARTY.md](THIRD_PARTY.md)：SDL2、SDL2_image、nlohmann_json、
 spdlog、EnTT、gtest；ImGui 为本地 `_deps/imgui-src`）。编译器 g++ (MinGW UCRT64)。
 
 ```bash
@@ -26,6 +26,9 @@ ctest --preset release            # 单元测试
 > 构建预设见 `CMakePresets.json`；也可使用根目录 `编译landwar.bat`。
 > 若 CMake 找不到依赖，检查 `CMakePresets.json` 中 `CMAKE_PREFIX_PATH` 指向的 MSYS2 根。
 
+Linux CI 会自动下载锁定版本的 Dear ImGui 与 EnTT；本地 Windows 构建需要准备 `_deps/imgui-src` 和 EnTT，
+详见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+
 ## 运行
 
 **从项目根运行**（`data/` 相对路径解析；运行期产物写 `userdata/`，见下）：
@@ -35,7 +38,7 @@ ctest --preset release            # 单元测试
 ```
 
 > **数据目录约定（2026-08 工程改进）**：资产（只读，随源码分发）在 `data/`
-> （`map_*.bmp`、`army*.png`、`config.json` 等）；运行期产物（可写、可丢弃、不进版本库）统一在
+> （`map_*.bmp`、`army*.png`、`config.jsonc` 等）；运行期产物（可写、可丢弃、不进版本库）统一在
 > `userdata/`：`userdata/options.json`（菜单选项，开始游戏时保存）、
 > `userdata/maps/gen_*.bmp`（随机地图生成物，P6 确定性：同 seed+参数再生成同文件）、
 > `userdata/screenshots/`（F12 / QA 截图）。程序启动时自动创建 `userdata/` 子目录。
@@ -58,7 +61,7 @@ ctest --preset release            # 单元测试
 | `F12` | 截图 `userdata/screenshots/screenshot_N.png` |
 | 窗口关闭 | 退出（ESC 单击不退出） |
 
-> 交互系统细节（坐标空间、ImGui 补丁、点选原理）见 `.docs/交互系统.md`。
+> 交互系统的历史记录已归档到 `rubbish/docs/交互系统.md`。
 
 > **玩家模式（P2）**：菜单里把某势力 AI 选为「玩家」后，游戏中左键点自己的城市选产兵城
 > （鼠标接近己方城市显示四箭头指示，选中的城市有旋转环）；`1`-`6` 或面板图标栏选兵种、
@@ -119,7 +122,7 @@ ctest --preset release            # 单元测试
 ```
 landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--speed X]
         [--config PATH] [--map PATH] [--save PATH] [--load PATH] [--summary]
-         [--screenshot PATH] [--no-menu] [--tiling T]
+         [--screenshot PATH] [--no-menu] [--tiling T] [--validate-config]
 ```
 
 | 参数 | 说明 |
@@ -130,11 +133,12 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 | `--map-seed N` | 地图随机种子（P6；默认=主种子；驱动随机图生成与山/城骰子，独立于主种子） |
 | `--ticks N` | 逻辑帧数（默认 1000） |
 | `--speed X` | 倍速（无头忽略；窗口模式渲染节奏） |
-| `--config PATH` | config.json 路径（默认 `data/config.json`） |
+| `--config PATH` | config.jsonc 路径（默认 `data/config.jsonc`，损坏时回退 `data/default/config.jsonc`） |
 | `--map PATH` | 覆盖地图文件 |
 | `--save PATH` | 运行结束写存档快照 |
 | `--load PATH` | 从存档继续（自带 config/map/rng，忽略 `--seed/--config/--map`） |
 | `--summary` | 终局按势力打印 land/city/army/经济 + `state_hash` |
+| `--validate-config` | 严格校验 `--config` 指定配置及同目录分片，成功后退出；不会触发运行时回退 |
 | `--screenshot PATH` | 窗口模式：跑到 tick=`--ticks` 时截图保存并退出（QA 钩子） |
 | `--no-menu` | 窗口模式：跳过菜单直接开始（P1；`--load`/`--screenshot` 自动跳过菜单） |
 | `--tiling T` | 密铺（P12）：`square|hex|tri`（headless 用；非方自动生成随机 lwmap。窗口走菜单「随机地图」下拉，存 options.json） |
@@ -158,14 +162,44 @@ landwar [--headless] [--replay [SEED]] [--seed N] [--map-seed N] [--ticks N] [--
 ./build-release/landwar.exe --screenshot shot.png --ticks 1000           # 截图
 ./build-release/landwar.exe --save snap.json --ticks 1000 --seed 1       # 存档
 ./build-release/landwar.exe --load snap.json --summary                    # 读档续跑
+./build-release/landwar.exe --validate-config                             # 发布前配置检查
 ```
+
+## 配置扩展示例
+
+在 `data/factions.jsonc` 的 `factions` 数组末尾追加一个连续 ID 的势力。ID 0 保留给中立，
+可玩势力最多 63 个，不能跳号；`name`、`description`、`color`、`secondary` 是菜单和渲染所需的基本字段：
+
+```jsonc
+{
+  "id": 9,
+  "name": "新势力",
+  "description": "偏好先锋兵的测试势力。",
+  "nameColors": ["primary"],
+  "color": [240, 80, 80],
+  "secondary": [255, 220, 220],
+  "unitPreference": {"vanguard": 2.0},
+  "buffs": []
+}
+```
+
+修改配置后先运行 `--validate-config`，再运行单元测试和无头烟测。字段含义与合法范围见
+`.docs/配置说明.md`，结构约束见 `data/schema/`。
+
+## 贡献与反馈
+
+贡献流程和本地检查见 [CONTRIBUTING.md](CONTRIBUTING.md)。Bug 和功能建议请使用 GitHub issue 模板，
+并附上提交版本、运行模式、命令行、配置/地图信息和可复现步骤；日志中不要包含密钥或私人路径。
+
+已知限制：窗口模式当前依赖 Windows 系统中文字体；发行包不捆绑字体。运行时路径默认相对于项目或
+发行包根目录，随机地图和选项需要 `userdata/` 可写。快照版本严格匹配，跨版本读档不保证兼容。
 
 ## 目录结构
 
 ```
 new_project_landwar/
   CMakeLists.txt / CMakePresets.json / 编译landwar.bat
-  data/                map_*.bmp（地形基图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint）、ring.png/arrow.png（玩家标记美术图）、city.png（城市线条贴图）、tiling_specs_arch.json/tiling_specs_laves.json（密铺基础格几何）、config.json（核心配置）、render.json、techs.json、factions.json、units.json（配置分片）
+  data/                map_*.bmp（地形基图）、legacy_old_encoding/（转换前的旧编码原图备份）、army.png（源精灵表）、army_base.png（基础兵表，双色合成 tint）、ring.png/arrow.png（玩家标记美术图）、city.png（城市线条贴图）、tiling_specs_arch.json/tiling_specs_laves.json（密铺基础格几何）、config.jsonc、render.jsonc、techs.jsonc、factions.jsonc、units.jsonc（可编辑主配置）、default/*.jsonc（发行版回退副本）、schema/*.schema.json（Schema）
   userdata/            运行期产物（可写、可丢弃、不进版本库；启动自动创建）：
                        options.json（菜单选项，开始游戏时保存）、maps/gen_*.bmp + gen_*_hex|tri_*.lwmap
                        （随机地图生成物）、
@@ -211,9 +245,11 @@ new_project_landwar/
 
 ## 配置手册
 
-所有魔法数字外置在 `data/` 配置文件中：`config.json` 保存核心/模拟段，`render.json`、`techs.json`、
-`factions.json`、`units.json` 保存对应长段；由 `Config::loadFromFile` 合并（缺键回退内置默认）。
-`factions.json` 可追加连续 ID 的势力，主菜单会按配置动态生成势力列表。
+所有魔法数字外置在 `data/` 配置文件中：`config.jsonc` 保存核心/模拟段，`render.jsonc`、`techs.jsonc`、
+`factions.jsonc`、`units.jsonc` 保存对应长段；由 `Config::loadFromFile` 合并。配置缺失或损坏时先回退
+`data/default/config.jsonc`，最后才使用代码内置保险值。`.jsonc` 支持 `//` 和 `/* */` 注释；
+`schema/*.schema.json` 可供编辑器和 JSON Schema 工具校验各配置文件的类型、范围和未知键。
+`factions.jsonc` 可追加连续 ID 的势力，主菜单会按配置动态生成势力列表。
 **每个键的含义与出处**见
 `.docs/配置说明.md`。运行中按 `F5` 热加载（重建模拟）。
 **未知键校验（2026-08）**：打错的键名会在启动/重载时记警告（不再静默失效），详见

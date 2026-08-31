@@ -12,7 +12,7 @@
 //
 // 全部条目人工调整并保存后，运行：
 //     python3 tools/apply_city_icon_fit_scales.py
-// 该程序会对同一贴图等级下的所有已保存条目取最小值，并写回 data/config.json 的
+// 该程序会对同一贴图等级下的所有已保存条目取最小值，并写回 data/config.jsonc 的
 // render.city.iconFitScale。
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -45,6 +45,59 @@ namespace {
 
 using nlohmann::ordered_json;
 using nlohmann::json;
+
+bool parseJsonc(const std::string& text, json& out) {
+    std::string plain;
+    plain.reserve(text.size());
+    bool string = false;
+    bool escape = false;
+    bool line = false;
+    bool block = false;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (line) {
+            if (c == '\n') {
+                line = false;
+                plain.push_back(c);
+            } else {
+                plain.push_back(' ');
+            }
+        } else if (block) {
+            if (c == '*' && i + 1 < text.size() && text[i + 1] == '/') {
+                block = false;
+                plain += "  ";
+                ++i;
+            } else {
+                plain.push_back(c == '\n' ? '\n' : ' ');
+            }
+        } else if (string) {
+            plain.push_back(c);
+            if (escape) escape = false;
+            else if (c == '\\') escape = true;
+            else if (c == '"') string = false;
+        } else if (c == '"') {
+            string = true;
+            plain.push_back(c);
+        } else if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
+            line = true;
+            plain += "  ";
+            ++i;
+        } else if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+            block = true;
+            plain += "  ";
+            ++i;
+        } else {
+            plain.push_back(c);
+        }
+    }
+    if (line || block) return false;
+    try {
+        out = json::parse(plain);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
 
 constexpr int kLogicalW = 1500;
 constexpr int kLogicalH = 900;
@@ -80,7 +133,7 @@ struct Item {
 };
 
 // 锚基础格类别：一个 baseGroups 数组算一类（如 "n3ua":[2,11] = 一类）。每类一个条目，
-// anchor 取该类最小基础格。从 data/city_shapes.json 读回（Config 只留掩码、丢失组名）。
+// anchor 取该类最小基础格。从 data/city_shapes.jsonc 读回（Config 只留掩码、丢失组名）。
 struct AnchorClass {
     std::string name;  // 组名；纯数字锚无组时 = "base_<b>"
     int anchorB;
@@ -90,14 +143,12 @@ struct AnchorClass {
 std::unordered_map<std::string, std::vector<std::vector<AnchorClass>>> g_anchorClasses;
 
 void loadAnchorClasses() {
-    std::ifstream ifs("data/city_shapes.json");
+    std::ifstream ifs("data/city_shapes.jsonc");
     if (!ifs.is_open()) return;
+    std::ostringstream text;
+    text << ifs.rdbuf();
     json root;
-    try {
-        ifs >> root;
-    } catch (const std::exception&) {
-        return;
-    }
+    if (!parseJsonc(text.str(), root)) return;
     for (auto it = root.begin(); it != root.end(); ++it) {
         if (!it.value().is_object()) continue;
         const auto& tv = it.value();
@@ -431,9 +482,9 @@ void drawScene(SDL_Renderer* ren, const lw::TilingGeom& geom, const CurrentView&
 }  // namespace
 
 int main(int, char**) {
-    const std::string cfgText = readFile("data/config.json");
+    const std::string cfgText = readFile("data/config.jsonc");
     lw::Config cfg = lw::Config::loadFromJson(cfgText);
-    lw::Config::loadCityIconFits(cfg);  // iconFitScale/offsetY 已外置到 data/city_icon_fits.json
+    lw::Config::loadCityIconFits(cfg);  // iconFitScale/offsetY 已外置到 data/city_icon_fits.jsonc
     loadAnchorClasses();  // 生条目需 baseGroups 组名（Config 只留掩码）
 
     // 构建批次（密铺地图）与条目（城市等级/形状变体/锚朝向）。

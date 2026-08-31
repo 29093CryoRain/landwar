@@ -1,5 +1,5 @@
 // tools/measure_visual_radius.cpp — 量取 army.png 各兵种的视觉半径（Phase 8 点选用）。
-// 方案决策：视觉半径外置到 data/config.json 的 units[].visualRadius（数据驱动，与项目
+// 方案决策：视觉半径外置到 data/units.jsonc 的 units[].visualRadius（数据驱动，与项目
 // 魔法数字外置原则一致）；本工具是"开发时算一次"的程序化手段，保证量法可复现。
 // 用法（在 new_project_landwar/ 下）：
 //   g++ -o /tmp/mvr tools/measure_visual_radius.cpp -I$(MSYS2)/include/SDL2 -I$(MSYS2)/include \
@@ -8,7 +8,7 @@
 // 子图中心(16,16)的最大距离 × 绘制缩放(48/32=1.5) = 视觉半径（逻辑像素, zoom=1）。
 // 程序量得（2026-08）：普通12 / 先锋13 / 开拓16 / 激光25 / 爆炸22 / 地雷17（最远像素距离）。
 // 用户目测校准（略小于最远值）：普通12 / 先锋13 / 开拓15 / 激光20 / 爆炸21 / 地雷17 —— 以
-// 此为准写入 config.json。更新 army.png 后重跑本工具作参考，再按目测微调写回 config.json。
+// 此为准写入 units.jsonc。更新 army.png 后重跑本工具作参考，再按目测微调写回 units.jsonc。
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <SDL_image.h>

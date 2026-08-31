@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Landwar render.jsonc",
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": {"^_": {}},
+  "required": ["render"],
+  "properties": {
+    "render": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {"^_": {}},
+      "required": ["windowWidth", "windowHeight", "armyDrawSize", "tile", "mountain", "city", "capital", "player"],
+      "properties": {
+        "windowWidth": {"type": "integer", "exclusiveMinimum": 0},
+        "windowHeight": {"type": "integer", "exclusiveMinimum": 0},
+        "armyDrawSize": {"type": "integer", "exclusiveMinimum": 0},
+        "tile": {
+          "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}},
+          "required": ["primary", "secondary", "white", "variation"],
+          "properties": {"primary": {"type": "number", "minimum": 0}, "secondary": {"type": "number", "minimum": 0}, "white": {"type": "number", "minimum": 0}, "variation": {"type": "number", "minimum": 0}}
+        },
+        "mountain": {
+          "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}},
+          "required": ["sourceWidth", "sourceHeight", "strokeWidthPx", "areaReference", "segments", "colorDarken"],
+          "properties": {
+            "sourceWidth": {"type": "integer", "exclusiveMinimum": 0}, "sourceHeight": {"type": "integer", "exclusiveMinimum": 0},
+            "strokeWidthPx": {"type": "number", "exclusiveMinimum": 0}, "areaReference": {"type": "number", "exclusiveMinimum": 0},
+            "segments": {"type": "array", "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}},
+            "colorDarken": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        "city": {
+          "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}},
+          "required": ["lineMinCellPx", "lineThickness", "lineDarken", "iconDarken", "mix", "spawnArrow"],
+          "properties": {
+            "lineMinCellPx": {"type": "number", "exclusiveMinimum": 0}, "lineThickness": {"type": "number", "exclusiveMinimum": 0}, "lineDarken": {"type": "number", "minimum": 0, "maximum": 1}, "iconDarken": {"type": "number", "minimum": 0, "maximum": 1},
+            "mix": {"$ref": "#/$defs/rgbMix"}, "spawnArrow": {"$ref": "#/$defs/arrowMix"}
+          }
+        },
+        "capital": {
+          "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["minIconSizePx", "lineThickness", "designatedAlpha"],
+          "properties": {"minIconSizePx": {"type": "integer", "exclusiveMinimum": 0}, "lineThickness": {"type": "number", "exclusiveMinimum": 0}, "designatedAlpha": {"type": "number", "minimum": 0, "maximum": 1}}
+        },
+        "player": {
+          "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin", "markerArrowGap"],
+          "properties": {"hoverCityRadius": {"type": "number", "exclusiveMinimum": 0}, "markerAlpha": {"type": "number", "minimum": 0, "maximum": 1}, "markerRotateSpeed": {"type": "number"}, "markerRingMargin": {"type": "number", "minimum": 0}, "markerArrowGap": {"type": "number", "minimum": 0}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "rgbMix": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["primary", "secondary", "black"], "properties": {"primary": {"type": "number", "minimum": 0, "maximum": 1}, "secondary": {"type": "number", "minimum": 0, "maximum": 1}, "black": {"type": "number", "minimum": 0, "maximum": 1}}},
+    "arrowMix": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["primary", "secondary", "black", "areaDivisor"], "properties": {"primary": {"type": "number", "minimum": 0, "maximum": 1}, "secondary": {"type": "number", "minimum": 0, "maximum": 1}, "black": {"type": "number", "minimum": 0, "maximum": 1}, "areaDivisor": {"type": "number", "exclusiveMinimum": 0}}}
+  }
+}

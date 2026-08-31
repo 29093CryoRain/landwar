@@ -3,6 +3,7 @@
 /build-release/
 /build-linux/
 /build-*/
+/release/
 
 # 本地第三方源码 (FetchContent 本地源)
 /_deps/

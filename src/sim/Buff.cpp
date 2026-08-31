@@ -22,7 +22,7 @@ BuffKind kindOf(BuffType t) {
         case BuffType::ProjectileCountExtra:
             return BuffKind::Count;           // 条数：加和
         default:
-            return BuffKind::Additive;        // 增幅：1 + Σ(m-1)
+            return BuffKind::Additive;        // 增幅：1 + Σm
     }
 }
 
@@ -51,14 +51,14 @@ FactionMods computeMods(const std::vector<Buff>& buffs) {
                         m.costMult[static_cast<size_t>(t)] *= b.magnitude;
                     });
                     break;
-                case BuffType::UnitSpeedMult:  // 加算
+        case BuffType::UnitSpeedAdd:  // 加算
                     forParam(b.param, [&](int t) {
-                        m.speedMult[static_cast<size_t>(t)] += b.magnitude - 1.0;
+                        m.speedMult[static_cast<size_t>(t)] += b.magnitude;
                     });
                     break;
-                case BuffType::UnitActionRateMult:  // 加算（射速）
+                case BuffType::UnitActionRateAdd:  // 加算（射速）
                     forParam(b.param, [&](int t) {
-                        m.actionRateMult[static_cast<size_t>(t)] += b.magnitude - 1.0;
+                        m.actionRateMult[static_cast<size_t>(t)] += b.magnitude;
                     });
                     break;
                 case BuffType::ProjectileCountExtra:  // 条数
@@ -71,13 +71,23 @@ FactionMods computeMods(const std::vector<Buff>& buffs) {
                 case BuffType::SeaChanceMult: m.seaChanceMult *= b.magnitude; break;
                 case BuffType::BounceChanceMult: m.bounceChanceMult *= b.magnitude; break;
                 case BuffType::FreeArmyChanceMult: m.freeArmyChanceMult *= b.magnitude; break;
-                case BuffType::EconomyGainMult: m.economyGainMult += b.magnitude - 1.0; break;
-                case BuffType::BombRadiusMult: m.bombRadiusMult += b.magnitude - 1.0; break;
-                case BuffType::LaserDurationMult: m.laserDurationMult += b.magnitude - 1.0; break;
-                case BuffType::LaserLengthMult: m.laserLengthMult += b.magnitude - 1.0; break;
-                case BuffType::LaserWidthMult: m.laserWidthMult += b.magnitude - 1.0; break;
-                case BuffType::MineTimeoutMult: m.mineTimeoutMult += b.magnitude - 1.0; break;
-                case BuffType::TechGainMult: m.techGainMult += b.magnitude - 1.0; break;
+                case BuffType::FreeArmyChance:
+                    m.freeArmyChance += b.magnitude;
+                    if (b.param >= 0) m.freeArmyType = b.param;
+                    break;
+                case BuffType::EconomyGainAdd: m.economyGainMult += b.magnitude; break;
+                case BuffType::ExplosionRadiusAdd: m.explosionRadiusAdd += b.magnitude; break;
+                case BuffType::BombExplosionRadiusAdd:
+                    m.bombExplosionRadiusAdd += b.magnitude;
+                    break;
+                case BuffType::MineExplosionRadiusAdd:
+                    m.mineExplosionRadiusAdd += b.magnitude;
+                    break;
+                case BuffType::LaserDurationAdd: m.laserDurationMult += b.magnitude; break;
+                case BuffType::LaserLengthAdd: m.laserLengthMult += b.magnitude; break;
+                case BuffType::LaserWidthAdd: m.laserWidthMult += b.magnitude; break;
+                case BuffType::MineTimeoutAdd: m.mineTimeoutMult += b.magnitude; break;
+                case BuffType::TechGainAdd: m.techGainMult += b.magnitude; break;
                 case BuffType::LaserExtraBeams:
                     m.laserExtraBeams += static_cast<int>(b.magnitude);
                     break;
@@ -101,8 +111,8 @@ std::vector<Buff> techBuffs(const Config& cfg, const std::vector<int>& levels) {
     return out;
 }
 
-// 数值文案（科研弹窗/科技面板用）：加算/乘算 "+X%"/"-X%"（按累计幅度 (m-1)*100 取整，
-// 如 +30%、-10%），条数 "+N"（如 +2）。
+// 数值文案（科研弹窗/科技面板用）：加算按 m*100、乘算按 (m-1)*100 取整，
+// 如 +30%、-10%，条数 "+N"（如 +2）。
 std::string buffValueText(BuffType type, double magnitude) {
     char buf[32];
     switch (kindOf(type)) {
@@ -113,7 +123,8 @@ std::string buffValueText(BuffType type, double magnitude) {
         case BuffKind::Multiplicative:
         case BuffKind::Additive:
         default: {
-            const int pct = static_cast<int>(std::lround((magnitude - 1.0) * 100.0));
+            const double delta = buffKind(type) == BuffKind::Additive ? magnitude : magnitude - 1.0;
+            const int pct = static_cast<int>(std::lround(delta * 100.0));
             std::snprintf(buf, sizeof(buf), "%s%d%%", pct >= 0 ? "+" : "", pct);
             break;
         }
@@ -123,24 +134,9 @@ std::string buffValueText(BuffType type, double magnitude) {
 
 std::vector<Buff> initialFactionBuffs(const Config::Faction& def) {
     std::vector<Buff> out;
-    // 全兵修饰符在前、特定兵种在后（聚合时全局先乘、兵种后乘，与迁移前速度链顺序一致）。
-    if (def.speedMultAll != 1.0)
-        out.push_back(
-            {BuffType::UnitSpeedMult, -1, def.speedMultAll, 1, "faction"});
-    if (def.pioneerSpeedMult != 1.0)
-        out.push_back({BuffType::UnitSpeedMult, static_cast<int>(ArmyType::pioneer),
-                       def.pioneerSpeedMult, 1, "faction"});
-    if (def.seaMult != 1.0)
-        out.push_back({BuffType::SeaChanceMult, -1, def.seaMult, 1, "faction"});
-    if (def.bounceMultAll != 1.0)
-        out.push_back({BuffType::BounceChanceMult, -1, def.bounceMultAll, 1, "faction"});
-    if (def.extraLaserBeams != 0)
-        out.push_back({BuffType::LaserExtraBeams, -1,
-                       static_cast<double>(def.extraLaserBeams), 1, "faction"});
-    if (def.laserDurationMult != 1.0)
-        out.push_back({BuffType::LaserDurationMult, -1, def.laserDurationMult, 1, "faction"});
-    if (def.laserLengthMult != 1.0)
-        out.push_back({BuffType::LaserLengthMult, -1, def.laserLengthMult, 1, "faction"});
+    out.reserve(def.buffs.size());
+    for (const auto& b : def.buffs)
+        out.push_back({b.type, b.param, b.magnitude, 1, "faction"});
     return out;
 }
 

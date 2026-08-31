@@ -1,3 +1,5 @@
+// 城市等级必须为正数；cells 是相对锚格中心的有限 [dx, dy] 世界单位偏移。
+// levels 与 shapes[].level 必须对应；anchorBases 只能引用 baseGroups 或 0..31 的基础格。
 {
   "_comment": ["全部密铺（square/hex/tri/半正/Laves）城市等级/形状表（2026-08-27 P1.2 重写）；", "由 tools/gen_city_shapes_json.py 生成，改表请重跑该工具。", "baseGroups（每密铺，手动填写）：几何完全一致的基础格归为一组，组名任意。示例：", "  \"baseGroups\": { \"axis_square\": [2, 8], \"hex_flat\": [0, 3] }", "anchorBases（形状的锚限制）：组名或基础格编号的数组，可混用；缺省 = 不限锚。", "  示例：\"anchorBases\": [\"axis_square\"] 或 [2, 8] 或 [\"axis_square\", 5]。", "朝向参考基准：mask 非 0 取最小编号基础格，否则基础格 b=0。", "cells 每项 = [dx, dy]（相对锚格中心的世界偏移；三角正/反朝向由锚格奇偶在运行时镜像处理）。", "各密铺下 _byEdgeCount 键 = 按边数自动分组的建议数据（下划线键程序不读取），供填写参考。", "disabled键启用时, 该城市不生成"],
   "_unitComment": "cells 的 dx/dy 是世界单位 U 偏移；level 统一是基建区域面积 U²。每格面积为 1 U² 的密铺中，level 数值才恰好等于离散格数。",

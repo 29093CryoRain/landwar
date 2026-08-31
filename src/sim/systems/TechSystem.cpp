@@ -41,7 +41,7 @@ std::vector<int> sampleCandidates(Simulation& sim, Faction& f, const Config& cfg
     return candidates;
 }
 
-// 行军重缩放：科技 buff 为 UnitSpeedMult 时，把该势力现有兵（非子弹）的 Speed × (新/旧 mods)。
+// 行军重缩放：科技 buff 为 UnitSpeedAdd 时，把该势力现有兵（非子弹）的 Speed × (新/旧 mods)。
 // 每 tick 移动量在出生/下海/登陆时已含速度乘数 → 研究后按比率一次缩放即对已存兵即时生效。
 void rescaleExistingArmySpeed(Simulation& sim, int factionId, const Config::Tech::Level& lv,
                               const FactionMods& oldMods) {
@@ -131,7 +131,7 @@ void TechSystem::applyTech(Simulation& sim, int factionId, int techIndex) {
 
     // 3. 行军：重缩放现有兵 Speed（对已存兵即时生效）。
     const auto& lv = def.levels[static_cast<size_t>(newLevel - 1)];
-    if (lv.type == BuffType::UnitSpeedMult)
+    if (lv.type == BuffType::UnitSpeedAdd)
         rescaleExistingArmySpeed(sim, factionId, lv, oldMods);
 
     // 4. 事件（消息面板显示；data = 科技下标）。

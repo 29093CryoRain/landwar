@@ -12,7 +12,7 @@ namespace lw {
 std::string cliUsage() {
     return "usage: landwar [--headless] [--replay [SEED]] [--seed N] [--ticks N] [--speed X]\n"
            "              [--config PATH] [--map PATH] [--save PATH] [--load PATH] [--summary]\n"
-            "              [--screenshot PATH] [--map-seed N] [--tiling T]\n"
+            "              [--screenshot PATH] [--map-seed N] [--tiling T] [--validate-config]\n"
             "\n"
             "  --headless      无头运行（不创建窗口）\n"
             "  --replay [SEED] 回放：等价于 --headless --seed SEED 重跑（模拟完全确定）\n"
@@ -20,11 +20,12 @@ std::string cliUsage() {
             "  --map-seed N    地图种子（P6，默认 = 主种子；驱动随机图生成与山/城骰子）\n"
              "  --ticks N       逻辑帧数（默认 1000）\n"
             "  --speed X       倍速（无头忽略；窗口模式渲染节奏用）\n"
-            "  --config PATH   config.json 路径（默认 data/config.json）\n"
+            "  --config PATH   config.jsonc 路径（默认 data/config.jsonc）\n"
             "  --map PATH      覆盖地图文件（默认取 config；--tiling 非方时自动生成 lwmap）\n"
             "  --save PATH     运行结束写存档快照\n"
             "  --load PATH     从存档继续（存档自带 config/map/rng，忽略 --seed/--config/--map）\n"
-            "  --summary       终局按势力打印 land/city/army/经济 与 state_hash\n"
+             "  --summary       终局按势力打印 land/city/army/经济 与 state_hash\n"
+             "  --validate-config  校验 --config 指定的配置及同目录分片后退出\n"
             "  --screenshot PATH  窗口模式：跑到 tick=--ticks 时截图保存到 PATH 并退出（QA 钩子）\n"
             "  --no-menu          窗口模式：跳过菜单直接开始（P1）\n"
             "  --tiling T         密铺类型：square | hex | tri | arch_33336 | arch_33434 |\n"
@@ -113,6 +114,8 @@ CliOptions parseCli(int argc, char* argv[]) {
         } else if (a == "--summary") {
             o.summary = true;
             explicitSim = true;
+        } else if (a == "--validate-config") {
+            o.validateConfig = true;
         } else if (a == "--screenshot") {
             // 窗口模式 QA 钩子：不强制无头（需要窗口/渲染器截图）。
             o.screenshotPath = takeValue(i, a);

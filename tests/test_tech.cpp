@@ -49,26 +49,26 @@ Config techCfg() {
 
     auto& mv = cfg.tech.techs.emplace_back();
     mv.id = "march_vanguard"; mv.name = "行军·先锋"; mv.desc = "速度";
-    mv.levels = {L(BuffType::UnitSpeedMult, static_cast<int>(ArmyType::vanguard), 1.20),
-                 L(BuffType::UnitSpeedMult, static_cast<int>(ArmyType::vanguard), 1.40)};
+    mv.levels = {L(BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::vanguard), 0.20),
+                 L(BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::vanguard), 0.40)};
     mv.preferenceUnits = {static_cast<int>(ArmyType::vanguard)};
 
     auto& bb = cfg.tech.techs.emplace_back();
     bb.id = "big_bang"; bb.name = "大爆炸"; bb.desc = "爆炸半径";
-    bb.levels = {L(BuffType::BombRadiusMult, -1, 1.30)};
+    bb.levels = {L(BuffType::ExplosionRadiusAdd, -1, 0.30)};
     bb.preferenceUnits = {static_cast<int>(ArmyType::bomb), static_cast<int>(ArmyType::mine)};
 
     auto& eb = cfg.tech.techs.emplace_back();
     eb.id = "economy_boost"; eb.name = "经济振兴"; eb.desc = "经济";
-    eb.levels = {L(BuffType::EconomyGainMult, -1, 1.10)};
+    eb.levels = {L(BuffType::EconomyGainAdd, -1, 0.10)};
 
     auto& ob = cfg.tech.techs.emplace_back();
     ob.id = "observatory"; ob.name = "观星台"; ob.desc = "科技";
-    ob.levels = {L(BuffType::TechGainMult, -1, 1.10)};
+    ob.levels = {L(BuffType::TechGainAdd, -1, 0.10)};
 
     auto& rf = cfg.tech.techs.emplace_back();
     rf.id = "rapid_fire"; rf.name = "高速射击"; rf.desc = "攻击速度";
-    rf.levels = {L(BuffType::UnitActionRateMult, static_cast<int>(ArmyType::pistol), 1.30)};
+    rf.levels = {L(BuffType::UnitActionRateAdd, static_cast<int>(ArmyType::pistol), 0.30)};
     rf.preferenceUnits = {static_cast<int>(ArmyType::pistol)};
 
     auto& bg = cfg.tech.techs.emplace_back();
@@ -104,11 +104,11 @@ TEST(Tech, ConfigRoundTrip) {
 
 TEST(Tech, BuffValueText) {
     EXPECT_EQ(buffValueText(BuffType::UnitCostMult, 0.90), "-10%");
-    EXPECT_EQ(buffValueText(BuffType::UnitSpeedMult, 1.20), "+20%");
+    EXPECT_EQ(buffValueText(BuffType::UnitSpeedAdd, 0.20), "+20%");
     EXPECT_EQ(buffValueText(BuffType::ProjectileCountExtra, 2.0), "+2");
 }
 
-// 锁定真实 data/config.json 的首批科技表（思路"开发时第一批做的科技"）。
+// 锁定真实 data/config.jsonc 的首批科技表（思路"开发时第一批做的科技"）。
 // 21 个：节流×8 + 行军×6（**取消手枪/霰弹**，用户定夺 2026-08-08）+ 大爆炸/稳定激光/延长激光/
 // 高速射击/弹幕/经济振兴/观星台。
 TEST(Tech, RealConfigHasFirstBatchTechs) {
@@ -371,8 +371,8 @@ TEST(Tech, EconomyBoostAndBigBangMods) {
     ASSERT_TRUE(sim.init());
     TechSystem::applyTech(sim, 1, 3);  // 经济振兴 → economyGainMult 1.1
     EXPECT_DOUBLE_EQ(sim.faction(1).mods.economyGainMult, 1.10);
-    TechSystem::applyTech(sim, 1, 2);  // 大爆炸 → bombRadiusMult 1.3
-    EXPECT_DOUBLE_EQ(sim.faction(1).mods.bombRadiusMult, 1.30);
+    TechSystem::applyTech(sim, 1, 2);  // 大爆炸 → 通用爆炸效果半径增幅 1.3
+    EXPECT_DOUBLE_EQ(sim.faction(1).mods.explosionRadiusAdd, 1.30);
 }
 
 TEST(Tech, RapidFireAndBarrageMods) {

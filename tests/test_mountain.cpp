@@ -466,11 +466,11 @@ TEST(MountainMove, PioneerMountainNoSlow) {
 }
 
 TEST(MountainMove, PioneerMountainEnterChanceHigher) {
-    // 细节改进：开拓兵被山地阻挡概率降低（0.5×1.6=0.8）。
+    // 当前 data/units.jsonc 将开拓兵山地进入倍率设为 2，最终按 1.0 封顶。
     MountainWorld w;
     EXPECT_DOUBLE_EQ(lw::mountainEnterChanceFor(w.cfg, static_cast<int>(ArmyType::normal)), 0.5);
     EXPECT_DOUBLE_EQ(lw::mountainEnterChanceFor(w.cfg, static_cast<int>(ArmyType::vanguard)), 0.5);
-    EXPECT_DOUBLE_EQ(lw::mountainEnterChanceFor(w.cfg, static_cast<int>(ArmyType::pioneer)), 0.8);
+    EXPECT_DOUBLE_EQ(lw::mountainEnterChanceFor(w.cfg, static_cast<int>(ArmyType::pioneer)), 1.0);
 }
 
 TEST(MountainMove, VanguardCrossesEnemyMountainBothPass) {

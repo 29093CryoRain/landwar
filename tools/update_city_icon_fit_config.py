@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""把 iconFitScale / iconFitOffsetY JSON 片段合入 data/config.json 的 render.city。
+"""把 iconFitScale / iconFitOffsetY JSON 片段合入 data/config.jsonc 的 render.city。
 
 用法（独立使用）：
-    python3 tools/update_city_icon_fit_config.py <iconFitScale.json> <data/config.json>
+    python3 tools/update_city_icon_fit_config.py <iconFitScale.json> <data/config.jsonc>
 
 通常由 tools/apply_city_icon_fit_scales.py 调用 update_config()。
-只做最小文本插入（保留原 config.json 的缩进/注释/CRLF），并替换已存在的
+只做最小文本插入（保留原 config.jsonc 的缩进/注释/CRLF），并替换已存在的
 render.city.iconFitScale / render.city.iconFitOffsetY 块。
 """
 import json
@@ -79,7 +79,7 @@ def _strip_old_blocks(lines: list[str]) -> list[str]:
 
 def update_config(cfg_path: Path, scale_data: dict | None = None,
                   offset_data: dict | None = None) -> None:
-    """把 scale_data / offset_data 合入 config.json（最小文本插入，保留 CRLF/注释）。"""
+    """把 scale_data / offset_data 合入 config.jsonc（最小文本插入，保留 CRLF/注释）。"""
     scale_data = scale_data or {}
     offset_data = offset_data or {}
     if not scale_data and not offset_data:

@@ -32,9 +32,9 @@ void Faction::initFromDef(const Config::Faction& def, const Config& cfg) {
     economyRate = 0.0;
     techRate = 0.0;
     maxCityLevel = 0.0;
-    freeArmyChance = def.freeArmyChance;
-    bombRadiusBonus = def.bombRadiusBonus;
-    mineTriggerBombRadiusBonus = def.mineTriggerBombRadiusBonus;
+    freeArmyChance = 0.0;
+    bombRadiusBonus = 0.0;
+    mineTriggerBombRadiusBonus = 0.0;
     spawnAngle = 0.0;
     spawnAngleSet = false;
     for (int t = 0; t < kArmyTypeCount; ++t) {
@@ -52,6 +52,9 @@ void Faction::initFromDef(const Config::Faction& def, const Config& cfg) {
     tech.threshold = cfg.tech.thresholdBase;
     tech.levels.assign(cfg.tech.techs.size(), 0);
     recomputeMods();
+    freeArmyChance = mods.freeArmyChance;
+    bombRadiusBonus = mods.bombExplosionRadiusAdd - 1.0;
+    mineTriggerBombRadiusBonus = mods.mineExplosionRadiusAdd - 1.0;
 }
 
 void Faction::rebuildBuffsFromDef(const Config::Faction& def, const Config& cfg) {
@@ -61,6 +64,9 @@ void Faction::rebuildBuffsFromDef(const Config::Faction& def, const Config& cfg)
     buffs2.insert(buffs2.end(), tb.begin(), tb.end());
     buffs = std::move(buffs2);
     recomputeMods();
+    freeArmyChance = mods.freeArmyChance;
+    bombRadiusBonus = mods.bombExplosionRadiusAdd - 1.0;
+    mineTriggerBombRadiusBonus = mods.mineExplosionRadiusAdd - 1.0;
 }
 
 void Faction::recomputeMods() {
@@ -140,9 +146,10 @@ void Faction::conquerIndex(ConquerContext& ctx, int index) {
             // 任意定义了免费产兵概率的势力：整城易主一次免费产兵机会。
             // init 阶段（freeArmyEnabled=false）跳过 → 无"开局免费兵"（用户定夺 2026-08）。
             if (ctx.freeArmyEnabled && this->freeArmyChance > 0.0
-                && ctx.rng.chance(this->freeArmyChance * this->mods.freeArmyChanceMult)) {
+                && this->mods.freeArmyChance > 0.0
+                && ctx.rng.chance(this->mods.freeArmyChance * this->mods.freeArmyChanceMult)) {
                 ctx.pendingSpawns.push_back(
-                    PendingSpawn{0, this->id, city.centerX(), city.centerY()});
+                    PendingSpawn{this->mods.freeArmyType, this->id, city.centerX(), city.centerY()});
             }
         }
     }

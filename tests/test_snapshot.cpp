@@ -434,6 +434,13 @@ TEST(Cli, ScreenshotFlagStaysWindowed) {
     EXPECT_FALSE(o.headless);
 }
 
+TEST(Cli, ValidateConfigFlagIsAvailable) {
+    const char* argv[] = {"landwar", "--validate-config", "--config", "custom.jsonc"};
+    const auto o = parseCli(4, const_cast<char**>(argv));
+    EXPECT_TRUE(o.validateConfig);
+    EXPECT_EQ(o.configPath, "custom.jsonc");
+}
+
 // ---- headless 摘要确定性 + 端到端存档分支 ----
 
 TEST(Headless, SummaryDeterministic) {

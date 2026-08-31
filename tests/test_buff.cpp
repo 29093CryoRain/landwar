@@ -38,7 +38,7 @@ TEST(Buff, NoBuffsIdentity) {
     EXPECT_DOUBLE_EQ(m.seaChanceMult, 1.0);
     EXPECT_DOUBLE_EQ(m.bounceChanceMult, 1.0);
     EXPECT_DOUBLE_EQ(m.economyGainMult, 1.0);
-    EXPECT_DOUBLE_EQ(m.bombRadiusMult, 1.0);
+    EXPECT_DOUBLE_EQ(m.explosionRadiusAdd, 1.0);
     EXPECT_DOUBLE_EQ(m.laserDurationMult, 1.0);
     EXPECT_DOUBLE_EQ(m.laserLengthMult, 1.0);
     EXPECT_DOUBLE_EQ(m.laserWidthMult, 1.0);
@@ -48,14 +48,14 @@ TEST(Buff, NoBuffsIdentity) {
 }
 
 TEST(Buff, GlobalSpeedMultAppliesAllTypes) {
-    const FactionMods m = computeMods({{BuffType::UnitSpeedMult, -1, 1.5, 1, "t"}});
+    const FactionMods m = computeMods({{BuffType::UnitSpeedAdd, -1, 0.5, 1, "t"}});
     for (int t = 0; t < kArmyTypeCount; ++t)
         EXPECT_DOUBLE_EQ(m.speedMult[static_cast<size_t>(t)], 1.5);
 }
 
 TEST(Buff, PerTypeSpeedMultOnlyThatType) {
     const FactionMods m =
-        computeMods({{BuffType::UnitSpeedMult, static_cast<int>(ArmyType::pioneer), 2.0, 1, "t"}});
+        computeMods({{BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::pioneer), 1.0, 1, "t"}});
     for (int t = 0; t < kArmyTypeCount; ++t) {
         const double expect =
             (t == static_cast<int>(ArmyType::pioneer)) ? 2.0 : 1.0;
@@ -65,15 +65,15 @@ TEST(Buff, PerTypeSpeedMultOnlyThatType) {
 
 // P8 聚合规则（思路"科技细节"）：数值增加默认加算、数值减小默认乘算。
 TEST(Buff, StacksAppliedAdditiveForIncrease) {
-    // 增幅（速度）加算：1 + 3×(1.5-1) = 2.5（P7 纯乘算 1.5³=3.375 已按新规则废弃）。
-    const FactionMods m = computeMods({{BuffType::UnitSpeedMult, -1, 1.5, 3, "t"}});
+    // 增幅（速度）加算：1 + 3×0.5 = 2.5。
+    const FactionMods m = computeMods({{BuffType::UnitSpeedAdd, -1, 0.5, 3, "t"}});
     EXPECT_DOUBLE_EQ(m.speedMult[0], 2.5);
 }
 
 TEST(Buff, IncreaseTypesAdditive) {
-    // 两条增幅加算：1 + (1.5-1) + (1.2-1) = 1.7（P7 纯乘算 1.8 已按新规则废弃）。
-    const FactionMods m = computeMods({{BuffType::EconomyGainMult, -1, 1.5, 1, "a"},
-                                       {BuffType::EconomyGainMult, -1, 1.2, 1, "b"}});
+    // 两条增幅加算：1 + 0.5 + 0.2 = 1.7。
+    const FactionMods m = computeMods({{BuffType::EconomyGainAdd, -1, 0.5, 1, "a"},
+                                       {BuffType::EconomyGainAdd, -1, 0.2, 1, "b"}});
     EXPECT_DOUBLE_EQ(m.economyGainMult, 1.7);
 }
 
@@ -83,6 +83,18 @@ TEST(Buff, DecreaseTypesMultiplicative) {
                                        {BuffType::UnitCostMult, 0, 0.8, 1, "b"}});
     EXPECT_DOUBLE_EQ(m.costMult[0], 0.72);
     EXPECT_DOUBLE_EQ(m.costMult[1], 1.0);  // 其他兵种不受影响
+}
+
+TEST(Buff, ExplosionRadiusBonusesAreScoped) {
+    const FactionMods bomb = computeMods(
+        {{BuffType::BombExplosionRadiusAdd, static_cast<int>(ArmyType::bomb), 0.5, 1, "faction"}});
+    EXPECT_DOUBLE_EQ(bomb.bombExplosionRadiusAdd, 1.5);
+    EXPECT_DOUBLE_EQ(bomb.mineExplosionRadiusAdd, 1.0);
+
+    const FactionMods mine = computeMods(
+        {{BuffType::MineExplosionRadiusAdd, static_cast<int>(ArmyType::mine), 0.5, 1, "faction"}});
+    EXPECT_DOUBLE_EQ(mine.bombExplosionRadiusAdd, 1.0);
+    EXPECT_DOUBLE_EQ(mine.mineExplosionRadiusAdd, 1.5);
 }
 
 TEST(Buff, CountTypesSum) {
@@ -160,7 +172,7 @@ TEST(Buff, RecomputeModsAfterBuffChange) {
     Faction f;
     f.initFromDef(cfg.factions[1], cfg);  // 红无修饰符
     EXPECT_DOUBLE_EQ(f.mods.speedMult[0], 1.0);
-    f.buffs.push_back({BuffType::UnitSpeedMult, -1, 1.2, 1, "tech:t"});
+    f.buffs.push_back({BuffType::UnitSpeedAdd, -1, 0.2, 1, "tech:t"});
     f.recomputeMods();
     EXPECT_DOUBLE_EQ(f.mods.speedMult[0], 1.2);
 }
@@ -190,6 +202,7 @@ TEST(Buff, ConquerUsesFreeArmyChanceMult) {
     factions[8].conquer(ctx, 2, 2);
     EXPECT_DOUBLE_EQ(rng.lastP, 0.3);  // 0.6 × 0.5
     ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].type, static_cast<int>(ArmyType::normal));
 }
 
 // 读档路径：Snapshot 不序列化 buffs，读档后必须从定义重建（mods 与直跑一致）。
@@ -201,13 +214,13 @@ TEST(Buff, SnapshotReloadRebuildsBuffsAndMods) {
     Simulation loaded;
     ASSERT_TRUE(Snapshot::deserialize(loaded, json));
     // 青3 的 mods 在读档后恢复（buffs 从 config 定义重建）。
-    EXPECT_DOUBLE_EQ(loaded.faction(3).mods.speedMult[0], 1.5);
+    EXPECT_DOUBLE_EQ(loaded.faction(3).mods.speedMult[0], 1.2);
     EXPECT_DOUBLE_EQ(loaded.faction(3).mods.seaChanceMult, 0.666);
     EXPECT_DOUBLE_EQ(loaded.faction(5).mods.laserDurationMult, 1.5);
     EXPECT_EQ(loaded.faction(5).mods.laserExtraBeams, 2);
     EXPECT_EQ(loaded.faction(3).buffs.size(), 2u);
     // 蓝4 开拓速度仍在。
-    EXPECT_DOUBLE_EQ(loaded.faction(4).mods.speedMult[static_cast<size_t>(ArmyType::pioneer)], 2.0);
+    EXPECT_DOUBLE_EQ(loaded.faction(4).mods.speedMult[static_cast<size_t>(ArmyType::pioneer)], 1.5);
 }
 
 }  // namespace

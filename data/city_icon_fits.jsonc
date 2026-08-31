@@ -1,6 +1,8 @@
+// iconFitScale 的键为密铺和贴图等级 1..10，fitW 必须为正数（世界单位 U）。
+// iconFitOffsetY 按贴图等级、形状变体和基础格类匹配；variant/base 必须为非负整数，value 必须有限。
 {
   "_comment": [
-    "城市贴图预计算缩放/竖直平移表（外置于 config.json，2026-08-26）。",
+    "城市贴图预计算缩放/竖直平移表（外置于 config.jsonc，2026-08-26）。",
     "由 tools/city_icon_fit_tool 生成临时 data/city_icon_fit_scales.json，",
     "经 tools/apply_city_icon_fit_scales.py 去重写回本文件。",
     "iconFitScale 键 = tiling -> 贴图等级 -> fitW（世界单位 U 的宽度，不是无量纲倍率）；iconFitOffsetY 每项 =",

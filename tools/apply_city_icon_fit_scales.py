@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""读取交互工具临时数据 data/city_icon_fit_scales.json，写回外置表 data/city_icon_fits.json。
+"""读取交互工具临时数据 data/city_icon_fit_scales.json，写回外置表 data/city_icon_fits.jsonc。
 
-city_icon_fits.json = { "iconFitScale": {...}, "iconFitOffsetY": {...} }，取代原先写回
-config.json render.city 的两块（2026-08-26 外置）。
+city_icon_fits.jsonc = { "iconFitScale": {...}, "iconFitOffsetY": {...} }，取代原先写回
+config.jsonc render.city 的两块（2026-08-26 外置）。
 
 处理规则：
   1. scale：同一密铺 + 同一贴图等级（iconLevel）下多个已保存条目 → 取最小值作为该密铺
@@ -10,7 +10,7 @@ config.json render.city 的两块（2026-08-26 外置）。
   2. offsetY：按 "每个形状的每类锚基础格" 去重——类别 = baseGroups 的一个数组
      （city_shapes.json）。同类（同 tiling + iconLevel + variant + anchorClass）内有不同
      数值时取均值；每类一条，携带该类全部基础格 bases；写入 iconFitOffsetY。
-  3. 写 data/city_icon_fits.json（忽略 config.json；config.json 已不含这两块）。
+  3. 写 data/city_icon_fits.jsonc（忽略 config.jsonc；config.jsonc 已不含这两块）。
 
 用法：
     python3 tools/apply_city_icon_fit_scales.py
@@ -20,6 +20,8 @@ import json
 import sys
 from pathlib import Path
 
+from jsonc import load as load_jsonc
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -27,7 +29,7 @@ def _load(name, default=None):
     p = ROOT / "data" / name
     if not p.exists():
         return default
-    return json.loads(p.read_text(encoding="utf-8"))
+    return load_jsonc(p)
 
 
 def base_classes(tname, shapes_json):
@@ -47,11 +49,11 @@ def base_classes(tname, shapes_json):
 
 def main():
     src = ROOT / "data" / "city_icon_fit_scales.json"
-    cfg_path = ROOT / "data" / "config.json"
+    cfg_path = ROOT / "data" / "config.jsonc"
     if not src.exists():
         print(f"找不到临时数据文件: {src}", file=sys.stderr)
         return 1
-    shapes = _load("city_shapes.json", {})
+    shapes = _load("city_shapes.jsonc", {})
     records = json.loads(src.read_text(encoding="utf-8")).get("records", [])
     if not records:
         print("临时数据文件里没有 records", file=sys.stderr)
@@ -111,7 +113,7 @@ def main():
 
     out = {
         "_comment": [
-            "城市贴图预计算缩放/竖直平移表（外置于 config.json，2026-08-26）。",
+            "城市贴图预计算缩放/竖直平移表（外置于 config.jsonc，2026-08-26）。",
             "由 tools/city_icon_fit_tool 生成临时 data/city_icon_fit_scales.json，",
             "经 tools/apply_city_icon_fit_scales.py 去重写回本文件。",
             "iconFitScale 键 = tiling -> 贴图等级 -> fitW(世界单位)；iconFitOffsetY 每项 =",
@@ -120,7 +122,7 @@ def main():
         "iconFitScale": fit,
         "iconFitOffsetY": out_off,
     }
-    out_path = ROOT / "data" / "city_icon_fits.json"
+    out_path = ROOT / "data" / "city_icon_fits.jsonc"
     out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"已写回 {out_path}")
     print(f"  iconFitScale: {len(fit)} 种密铺")

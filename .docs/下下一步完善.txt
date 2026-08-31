@@ -1,4 +1,1 @@
-已处理：
-- 地雷使用独立世界长度 `triggerRadius`，爆炸使用 `triggerBombRadius`。
-- 玩家指示参数移入 `render.player`；`hoverCityRadius` 仍用于交互命中。
-- 橙/紫爆炸半径改为 `bombRadiusBonus` / `mineTriggerBombRadiusBonus` 加算。
+多个FreeArmyChance词条, 传入不同参数时, 可能只生效最后一个.

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Landwar units.jsonc",
+  "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["units"],
+  "properties": {
+    "units": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["type"], "properties": {
+      "type": {"type": "string", "enum": ["normal", "vanguard", "pioneer", "laser", "bomb", "mine", "pistol", "shotgun"]},
+      "cost": {"type": "number", "exclusiveMinimum": 0}, "speedMult": {"type": "number", "exclusiveMinimum": 0}, "sizeMult": {"type": "number", "exclusiveMinimum": 0}, "bounceMult": {"type": "number", "minimum": 0}, "visualRadius": {"type": "number", "exclusiveMinimum": 0},
+      "mountainEnterMult": {"type": "number", "minimum": 0}, "mountainNoSlow": {"type": "boolean"}, "deathEffect": {"type": "string", "enum": ["none", "laser", "bomb", "mine"]}, "periodic": {"type": "string", "enum": ["none", "pistol", "shotgun"]},
+      "periodTicks": {"type": "integer", "minimum": 0}, "bulletSpeed": {"type": "number", "minimum": 0}, "bulletSpeedJitter": {"type": "number", "minimum": 0}, "bulletCount": {"type": "integer", "exclusiveMinimum": 0}, "bulletLifespanTicks": {"type": "integer", "minimum": 0}, "bulletSize": {"type": "number", "exclusiveMinimum": 0}, "bulletSpreadPIFrac": {"type": "number", "minimum": 0}, "bulletSpreadJitterFrac": {"type": "number", "minimum": 0}
+    }}}
+  }
+}

@@ -101,9 +101,9 @@ TEST(Spawn, SpeedAndSizeChains) {
     const double speed = loadedCfg.army.baseSpeed;
     const std::vector<Case> cases = {
         {1, ArmyType::normal, speed, base},
-        {3, ArmyType::vanguard, speed * 1.5 * 2.0, base},  // 青：全速 ×1.5 + 先锋 ×2
-        {3, ArmyType::laser, speed * 1.5 * 0.6, base * 1.8},  // 青激光仍有 ×1.5
-        {4, ArmyType::pioneer, speed * 2.0, base},         // 蓝：开拓 ×2
+        {3, ArmyType::vanguard, speed * loadedCfg.factions[3].speedMultAll * 2.0, base},
+        {3, ArmyType::laser, speed * loadedCfg.factions[3].speedMultAll * 0.6, base * 1.8},
+        {4, ArmyType::pioneer, speed * loadedCfg.factions[4].pioneerSpeedMult, base},
         {5, ArmyType::laser, speed * 0.6, base * 1.8},     // 绿无全速 ×1.5
         {1, ArmyType::bomb, speed * 0.6, base * 1.8},
         {1, ArmyType::mine, speed * 0.6, base * 1.4},

@@ -1,5 +1,8 @@
-// test_config.cpp — Config 加载单测（翻新计划 §3.5）。验证默认值、JSON 覆盖与 data/config.json。
+// test_config.cpp — Config 加载单测（翻新计划 §3.5）。验证默认值、JSONC 覆盖与 data/config.jsonc。
 #include <gtest/gtest.h>
+
+#include <cstdio>
+#include <fstream>
 
 #include "core/Config.h"
 
@@ -136,6 +139,47 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(cfg.economy.capitalBase, 0.0, 1e-12);  // 未覆盖的保持默认
 }
 
+TEST(Config, JsoncCommentsAreAccepted) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"JSONC(
+        // JSONC line comment
+        { "army": { "baseSpeed": 0.42 /* inline block comment */ } }
+    )JSONC");
+    EXPECT_DOUBLE_EQ(cfg.army.baseSpeed, 0.42);
+}
+
+TEST(Config, ReleaseConfigPassesStrictValidation) {
+    std::string error;
+    EXPECT_TRUE(lw::Config::validateFile("data/config.jsonc", &error)) << error;
+}
+
+TEST(Config, FactionBuffsUseTechLevelFormat) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "factions": [{
+            "id": 1,
+            "buffs": [
+                {"type": "UnitSpeedAdd", "param": "pioneer", "magnitude": 0.25},
+                {"type": "ProjectileCountExtra", "param": 7, "magnitude": 2}
+            ]
+        }]
+    })");
+    ASSERT_EQ(cfg.factions[1].buffs.size(), 2u);
+    EXPECT_EQ(cfg.factions[1].buffs[0].param, static_cast<int>(lw::ArmyType::pioneer));
+    EXPECT_DOUBLE_EQ(cfg.factions[1].buffs[0].magnitude, 0.25);
+    EXPECT_EQ(cfg.factions[1].buffs[1].param, static_cast<int>(lw::ArmyType::shotgun));
+    EXPECT_DOUBLE_EQ(cfg.factions[1].buffs[1].magnitude, 2.0);
+}
+
+TEST(Config, FreeArmyChanceCarriesSpawnUnitParam) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "factions": [{
+            "id": 1,
+            "buffs": [{"type": "FreeArmyChance", "param": "normal", "magnitude": 0.5}]
+        }]
+    })");
+    ASSERT_EQ(cfg.factions[1].buffs.size(), 1u);
+    EXPECT_EQ(cfg.factions[1].buffs[0].param, static_cast<int>(lw::ArmyType::normal));
+}
+
 TEST(Config, AppendedFactionIsLoadedAndSerialized) {
     const lw::Config cfg = lw::Config::loadFromJson(R"({
         "factions": [{
@@ -144,7 +188,7 @@ TEST(Config, AppendedFactionIsLoadedAndSerialized) {
             "color": [255, 204, 181],
             "secondary": [168, 255, 89],
             "unitPreference": {"bomb": 3.0},
-            "bombRadiusBonus": 0.5
+            "buffs": [{"type": "BombExplosionRadiusAdd", "param": "bomb", "magnitude": 1.5}]
         }]
     })");
     ASSERT_EQ(cfg.factions.size(), 10u);
@@ -152,11 +196,13 @@ TEST(Config, AppendedFactionIsLoadedAndSerialized) {
     EXPECT_EQ(cfg.factions[9].color, (std::array<int, 3>{255, 204, 181}));
     EXPECT_EQ(cfg.factions[9].secondary, (std::array<int, 3>{168, 255, 89}));
     EXPECT_DOUBLE_EQ(cfg.factions[9].unitPreference[static_cast<int>(lw::ArmyType::bomb)], 3.0);
-    EXPECT_DOUBLE_EQ(cfg.factions[9].bombRadiusBonus, 0.5);
+    ASSERT_EQ(cfg.factions[9].buffs.size(), 1u);
+    EXPECT_EQ(cfg.factions[9].buffs[0].type, lw::BuffType::BombExplosionRadiusAdd);
+    EXPECT_EQ(cfg.factions[9].buffs[0].param, static_cast<int>(lw::ArmyType::bomb));
 
     const lw::Config roundTrip = lw::Config::loadFromJson(cfg.toJson());
     EXPECT_EQ(roundTrip.factions[9].name, "测试势力");
-    EXPECT_DOUBLE_EQ(roundTrip.factions[9].bombRadiusBonus, 0.5);
+    EXPECT_DOUBLE_EQ(roundTrip.factions[9].buffs[0].magnitude, 1.5);
 }
 
 TEST(Config, TwoToneDerivedColors) {
@@ -197,7 +243,7 @@ TEST(Config, TileVariationGradient) {
 
 TEST(Config, LoadsDataFile) {
     // 从项目根运行（ctest 的 WORKING_DIRECTORY 已设为源码根）。
-    const lw::Config cfg = lw::Config::loadFromFile("data/config.json");
+    const lw::Config cfg = lw::Config::loadFromFile("data/config.jsonc");
     EXPECT_EQ(cfg.map.width, 105);
     EXPECT_DOUBLE_EQ(cfg.map.forceCoastRangeMultiplier, 3.2);
     EXPECT_DOUBLE_EQ(cfg.map.forceCoastStrengthMultiplier, 1.0);
@@ -245,19 +291,34 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.5, 1e-9);
     EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.5, 1e-9);
     EXPECT_EQ(cfg.factions[9].name, "测试");
-    EXPECT_EQ(cfg.factions[9].description, "用于验证新增势力：炸弹兵偏好更高且爆炸范围增加。");
+    EXPECT_EQ(cfg.factions[9].description, "用于debug");
     ASSERT_EQ(cfg.factions[9].nameColors, (std::vector<std::string>{"primary", "secondary"}));
     EXPECT_EQ(cfg.factions[9].color, (std::array<int, 3>{255, 204, 181}));
     EXPECT_EQ(cfg.factions[9].secondary, (std::array<int, 3>{168, 255, 89}));
-    EXPECT_DOUBLE_EQ(cfg.factions[9].unitPreference[static_cast<int>(lw::ArmyType::bomb)], 3.0);
+    EXPECT_DOUBLE_EQ(cfg.factions[9].unitPreference[static_cast<int>(lw::ArmyType::bomb)], 2.0);
     EXPECT_DOUBLE_EQ(cfg.factions[9].bombRadiusBonus, 0.5);
     EXPECT_NEAR(cfg.units[7].bulletSpreadPIFrac, 2.0 / 9.0, 1e-5);  // 数据文件 0.222222 ≈ 2/9
 }
 
 TEST(Config, MissingFileFallsBackToDefaults) {
-    const lw::Config cfg = lw::Config::loadFromFile("data/no_such_config.json");
+    const lw::Config cfg = lw::Config::loadFromFile("data/no_such_config.jsonc");
     EXPECT_EQ(cfg.map.width, 105);
-    EXPECT_EQ(cfg.factions.size(), 9u);
+    // 文件级回退优先使用 data/default/config.jsonc，B 与对应片段副本合并。
+    EXPECT_EQ(cfg.factions.size(), 10u);
+    EXPECT_DOUBLE_EQ(cfg.army.baseSpeed, 0.15);
+}
+
+TEST(Config, InvalidFileFallsBackToReleaseConfig) {
+    const char* path = "build/_invalid_config.jsonc";
+    {
+        std::ofstream out(path);
+        ASSERT_TRUE(out.is_open());
+        out << "{\"map\": {";
+    }
+    const lw::Config cfg = lw::Config::loadFromFile(path);
+    std::remove(path);
+    EXPECT_DOUBLE_EQ(cfg.army.baseSpeed, 0.15);
+    EXPECT_EQ(cfg.factions.size(), 10u);
 }
 
 TEST(Config, InvalidNumericValuesFallBackToDefaults) {
@@ -315,7 +376,7 @@ TEST(Config, NewTilingCitySetsRoundTrip) {
 }
 
 TEST(Config, CityShapesFileProvidesSquareHexTri) {
-    // P1.2：square/hex/tri 形状表从 data/city_shapes.json 加载，cells 为世界单位 U 偏移。
+    // P1.2：square/hex/tri 形状表从 data/city_shapes.jsonc 加载，cells 为世界单位 U 偏移。
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     ASSERT_EQ(cfg.city.square.levels.size(), 5u);
     ASSERT_EQ(cfg.city.square.shapes.size(), 5u);

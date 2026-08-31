@@ -26,7 +26,7 @@ public:
 };
 
 inline lw::Config loadCfg() {
-    return lw::Config::loadFromFile("data/config.json");
+    return lw::Config::loadFromFile("data/config.jsonc");
 }
 
 // 写一张 105×95 地形基图测试 BMP（P5 改版编码）：

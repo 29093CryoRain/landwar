@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """preview_city_shape.py — 城市形状点图预览（交互式）。
 
-实时读取 data/city_shapes.json：输入密铺名 + 序号 n（shapes 数组中从上往下第 n 个，
+实时读取 data/city_shapes.jsonc：输入密铺名 + 序号 n（shapes 数组中从上往下第 n 个，
 1 起），把该形状的所有 cells 坐标画成点。每次查询都重新读文件，改完 JSON 直接回车重查。
 
 用法：
@@ -10,22 +10,22 @@
     密铺名   如 arch_31212（q / quit 退出）
     n        从上往下第几种城；直接回车 = 1
 """
-import json
 import os
 import sys
 
 import matplotlib.pyplot as plt
 
+from jsonc import load as load_jsonc
+
 try:
     _DIR = os.path.dirname(os.path.abspath(__file__))
 except NameError:  # exec 环境无 __file__
     _DIR = os.path.abspath(os.path.join(os.getcwd(), "tools"))
-PATH = os.path.join(_DIR, "..", "data", "city_shapes.json")
+PATH = os.path.join(_DIR, "..", "data", "city_shapes.jsonc")
 
 
 def load():
-    with open(PATH, encoding="utf-8") as f:
-        return json.load(f)
+    return load_jsonc(PATH)
 
 
 def ask(prompt):

@@ -39,11 +39,11 @@ void spawnDeathEffects(Simulation& sim, const DeathEvent& d) {
             break;
         }
         case DeathEffect::bomb: {
-            // 爆炸：基础半径 ×（1 + 势力定义加成）× 科技爆炸半径乘数。
+            // 爆炸兵死亡：基础半径 × 通用爆炸增幅 × 爆炸兵专属增幅。
             const double radius =
                 cfg.effect.bomb.baseRadius
-                * (1.0 + sim.faction(d.factionId).bombRadiusBonus)
-                * sim.faction(d.factionId).mods.bombRadiusMult;
+                * sim.faction(d.factionId).mods.explosionRadiusAdd
+                * sim.faction(d.factionId).mods.bombExplosionRadiusAdd;
             SpawnSystem::spawnEffect(sim, d.x, d.y, d.factionId, EffectType::bomb, radius, creator);
             break;
         }

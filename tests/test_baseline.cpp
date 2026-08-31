@@ -42,6 +42,9 @@
 // 2026-08-29 细节调整：开局立即初始化各势力角度；箭头中心按 sqrt(城市面积/areaDivisor) 前移；更新基线。
 // 2026-08-29 用户调参：spawnAngleStep=2.0；areaDivisor=2.0（后者为渲染参数）；更新基线。
 // 2026-08-29 Phase 3.6：整体速度 0.5 倍；更新基线。
+// 2026-08-31：当前 data 配置将城市收入指数/等级分布与兵种参数调至实验值，
+// 重新生成黄金地图并更新语义基线：square 0x1af2b9df177f5fc1、
+// hex 0x9f0e526b12255d7a、tri 0x03dd856c899e44d8。
 #include <gtest/gtest.h>
 
 #include <sstream>
@@ -99,15 +102,15 @@ std::uint64_t runRandomBaseline(lw::TilingType t, int ticks = 2500) {
 }
 
 TEST(Determinism, BaselineSeed42_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0x1e38727582a30b7full)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0x1af2b9df177f5fc1ull)
         << "square 随机图基线漂移";
 }
 
 // P12：六/三角各自基线（密铺几何 + 移动/特效路径独立于方形）。同随机图参数（种子 42）。
 TEST(Determinism, BaselineHexTri_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0x65bdd38e102899c2ull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0x9f0e526b12255d7aull)
         << "hex 随机图基线漂移";
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0x55c3c89f5bebf61bull)
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0x03dd856c899e44d8ull)
         << "tri 随机图基线漂移";
 }
 

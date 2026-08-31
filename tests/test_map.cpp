@@ -28,7 +28,7 @@ nlohmann::json loadGolden() {
 }
 
 lw::Config loadCfg() {
-    return lw::Config::loadFromFile("data/config.json");
+    return lw::Config::loadFromFile("data/config.jsonc");
 }
 
 // 读 24bit BMP 原始像素（r,g,b 数组，row-major 自底向上，j 行 = 图像底部行）。

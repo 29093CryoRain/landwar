@@ -1,7 +1,7 @@
 // Paths.h — 路径约定（2026-08 工程改进：资产与运行期产物分离）。
 //
 // 资产（只读、随源码分发，位于 data/）：
-//   map_*.bmp、army*.png、config.json 及其配置分片、towers.png 等。
+//   map_*.bmp、army*.png、config.jsonc 及其配置分片、towers.png 等。
 // 运行期产物（可写、可丢弃、不进版本库，位于 userdata/）：
 //   userdata/options.json        菜单选项（开始游戏时保存、启动读取）
 //   userdata/maps/gen_*.bmp      随机地图生成物（P6，确定性：seed+参数 → 同名文件）
@@ -22,17 +22,21 @@ constexpr const char* kGeneratedMapDir = "userdata/maps";  // 随机地图生成
 constexpr const char* kScreenshotDir = "userdata/screenshots";  // 截图
 
 // ---- 默认文件路径（散落各处的字面量收敛到此，避免改一处漏一处）----
-inline const std::string kDefaultConfigPath = "data/config.json";
+// A 是 data/ 下可编辑主配置；B 是 data/default/ 下随发行版提供的只读备用配置。
+inline const std::string kDefaultConfigPath = "data/config.jsonc";
+inline const std::string kFallbackConfigPath = "data/default/config.jsonc";
+inline const std::string kConfigDefaultDir = "data/default";
+inline const std::string kConfigSchemaDir = "data/schema";
 // Config 长段（由 Config::loadFromFile 按核心配置所在目录加载）。
-inline const std::string kRenderConfigPath = "data/render.json";
-inline const std::string kTechConfigPath = "data/techs.json";
-inline const std::string kFactionsConfigPath = "data/factions.json";
-inline const std::string kUnitsConfigPath = "data/units.json";
+inline const std::string kRenderConfigPath = "data/render.jsonc";
+inline const std::string kTechConfigPath = "data/techs.jsonc";
+inline const std::string kFactionsConfigPath = "data/factions.jsonc";
+inline const std::string kUnitsConfigPath = "data/units.jsonc";
 // 全部密铺城市等级/形状表（2026-08-26 起外置；P1.2 含 square/hex/tri；tools/gen_city_shapes_json.py 生成）。
-inline const std::string kCityShapesPath = "data/city_shapes.json";
-// 城市贴图预计算缩放/竖直平移表（2026-08-26 自 config.json render.city 外置；由
+inline const std::string kCityShapesPath = "data/city_shapes.jsonc";
+// 城市贴图预计算缩放/竖直平移表（2026-08-26 自 config.jsonc render.city 外置；由
 // tools/city_icon_fit_tool + tools/apply_city_icon_fit_scales.py 生成）。
-inline const std::string kCityIconFitsPath = "data/city_icon_fits.json";
+inline const std::string kCityIconFitsPath = "data/city_icon_fits.jsonc";
 inline const std::string kDefaultOptionsPath = "userdata/options.json";
 inline const std::string kDefaultMapFile = "data/map_bigIslands.bmp";  // 默认地图（资产）
 

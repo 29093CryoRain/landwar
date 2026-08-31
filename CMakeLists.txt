@@ -4,6 +4,8 @@ project(landwar LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(LANDWAR_WARNINGS_AS_ERRORS "Treat project compiler warnings as errors" OFF)
+
 # ---------------------------------------------------------------------------
 # 依赖 (MSYS2 UCRT64, docs/environment-setup.md 方案A A.1)
 # ---------------------------------------------------------------------------
@@ -54,8 +56,14 @@ target_link_libraries(imgui PUBLIC SDL2::SDL2)
 function(landwar_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4)
+        if(LANDWAR_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra)
+        if(LANDWAR_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
     endif()
 endfunction()
 

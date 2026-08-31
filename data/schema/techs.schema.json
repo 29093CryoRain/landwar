@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Landwar techs.jsonc",
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": {"^_": {}},
+  "required": ["tech"],
+  "properties": {
+    "tech": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {"^_": {}},
+      "required": ["thresholdBase", "thresholdStep", "pointsPerCityLevel", "preferencePerLevel", "playerCandidateCount", "techs"],
+      "properties": {
+        "thresholdBase": {"type": "number", "exclusiveMinimum": 0},
+        "thresholdStep": {"type": "number", "exclusiveMinimum": 0},
+        "pointsPerCityLevel": {"type": "number", "minimum": 0},
+        "preferencePerLevel": {"type": "number", "minimum": 0},
+        "playerCandidateCount": {"type": "integer", "exclusiveMinimum": 0},
+        "techs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "patternProperties": {"^_": {}},
+            "required": ["id", "name", "desc", "levels", "preferenceUnits"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "name": {"type": "string"},
+              "desc": {"type": "string"},
+              "preferenceUnits": {"type": "array", "items": {"type": "string"}},
+              "levels": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "patternProperties": {"^_": {}},
+                  "required": ["type", "param", "magnitude"],
+                  "properties": {
+                    "type": {"type": "string"},
+                    "param": {"oneOf": [{"type": "integer", "minimum": -1}, {"type": "string"}]},
+                    "magnitude": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

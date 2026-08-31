@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://landwar.local/config.schema.json",
+  "title": "Landwar config.jsonc",
+  "description": "Schema for the core config.jsonc file. The render, techs, factions and units fragments have their own schemas; runtime validation remains authoritative for cross-field rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": {"^_": {}},
+  "required": ["map", "army", "sea", "terrain", "effect", "projectile", "economy", "city", "capital", "sim", "ui"],
+  "$defs": {
+    "positive": {"type": "number", "exclusiveMinimum": 0},
+    "nonNegative": {"type": "number", "minimum": 0},
+    "unitInterval": {"type": "number", "minimum": 0, "maximum": 1},
+    "color": {"type": "array", "prefixItems": [{"type": "integer", "minimum": 0, "maximum": 255}, {"type": "integer", "minimum": 0, "maximum": 255}, {"type": "integer", "minimum": 0, "maximum": 255}], "minItems": 3, "maxItems": 3},
+    "map": {
+      "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}},
+      "required": ["blockSize", "panelWidth", "capitalMinDistance", "cityMountainWeight", "forceCoastRangeMultiplier", "forceCoastStrengthMultiplier", "tiling"],
+      "properties": {
+        "blockSize": {"type": "integer", "exclusiveMinimum": 0}, "panelWidth": {"type": "integer", "minimum": 0}, "capitalMinDistance": {"type": "integer", "minimum": 0},
+        "cityMountainWeight": {"$ref": "#/$defs/nonNegative"}, "forceCoastRangeMultiplier": {"$ref": "#/$defs/nonNegative"}, "forceCoastStrengthMultiplier": {"$ref": "#/$defs/nonNegative"},
+        "tiling": {"type": "string", "enum": ["square", "hex", "tri", "arch_33336", "arch_33434", "arch_3464", "arch_3636", "arch_31212", "arch_4612", "arch_488", "laves_3636", "laves_31212", "laves_4612", "laves_488", "laves_33434", "laves_33336", "laves_3464"]}
+      }
+    },
+    "army": {
+      "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["baseSpeed", "baseSize", "bounceJitterRangeRad", "spawnAngleStep"],
+      "properties": {"baseSpeed": {"$ref": "#/$defs/positive"}, "baseSize": {"$ref": "#/$defs/positive"}, "bounceJitterRangeRad": {"$ref": "#/$defs/nonNegative"}, "spawnAngleStep": {"type": "number"}}
+    },
+    "sea": {
+      "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["initialGoSeaProbability", "goSeaIncrease", "goSeaChanceConst", "goSeaChanceDenominator", "seaSpeedMult"],
+      "properties": {"initialGoSeaProbability": {"$ref": "#/$defs/unitInterval"}, "goSeaIncrease": {"$ref": "#/$defs/nonNegative"}, "goSeaChanceConst": {"$ref": "#/$defs/nonNegative"}, "goSeaChanceDenominator": {"$ref": "#/$defs/positive"}, "seaSpeedMult": {"$ref": "#/$defs/positive"}}
+    },
+    "terrain": {
+      "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["seaChannelMin", "probFloor", "probScale", "mountainEnterChance", "mountainSpeedMult"],
+      "properties": {"seaChannelMin": {"type": "integer", "minimum": 0, "maximum": 255}, "probFloor": {"type": "integer", "minimum": 0, "maximum": 255}, "probScale": {"type": "integer", "exclusiveMinimum": 0, "maximum": 255}, "mountainEnterChance": {"$ref": "#/$defs/unitInterval"}, "mountainSpeedMult": {"$ref": "#/$defs/positive"}}
+    },
+    "unit": {
+      "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["type"],
+      "properties": {
+        "type": {"type": "string", "enum": ["normal", "vanguard", "pioneer", "laser", "bomb", "mine", "pistol", "shotgun"]},
+        "cost": {"$ref": "#/$defs/positive"}, "speedMult": {"$ref": "#/$defs/positive"}, "sizeMult": {"$ref": "#/$defs/positive"}, "bounceMult": {"$ref": "#/$defs/nonNegative"}, "visualRadius": {"$ref": "#/$defs/positive"},
+        "mountainEnterMult": {"$ref": "#/$defs/nonNegative"}, "mountainNoSlow": {"type": "boolean"}, "deathEffect": {"type": "string", "enum": ["none", "laser", "bomb", "mine"]}, "periodic": {"type": "string", "enum": ["none", "pistol", "shotgun"]},
+        "periodTicks": {"type": "integer", "minimum": 0}, "bulletSpeed": {"$ref": "#/$defs/nonNegative"}, "bulletSpeedJitter": {"$ref": "#/$defs/nonNegative"}, "bulletCount": {"type": "integer", "exclusiveMinimum": 0}, "bulletLifespanTicks": {"type": "integer", "minimum": 0}, "bulletSize": {"$ref": "#/$defs/positive"}, "bulletSpreadPIFrac": {"$ref": "#/$defs/nonNegative"}, "bulletSpreadJitterFrac": {"$ref": "#/$defs/nonNegative"}
+      }
+    },
+    "buff": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["type", "magnitude"], "properties": {"type": {"type": "string"}, "param": {"oneOf": [{"type": "integer", "minimum": -1}, {"type": "string"}]}, "magnitude": {"type": "number"}}},
+    "faction": {
+      "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["id", "name", "description", "nameColors", "color", "secondary"],
+      "properties": {"id": {"type": "integer", "minimum": 0, "maximum": 63}, "name": {"type": "string", "minLength": 1}, "description": {"type": "string"}, "nameColors": {"type": "array", "items": {"type": "string", "enum": ["primary", "secondary"]}, "minItems": 1}, "color": {"$ref": "#/$defs/color"}, "secondary": {"$ref": "#/$defs/color"}, "unitPreference": {"type": "object", "additionalProperties": {"$ref": "#/$defs/positive"}}, "buffs": {"type": "array", "items": {"$ref": "#/$defs/buff"}}}
+    },
+    "effect": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["bomb", "mine", "laser"], "properties": {
+      "bomb": {"type": "object", "required": ["lifetimeTicks", "conquerEveryTicks", "expansionRate", "baseRadius"], "properties": {"lifetimeTicks": {"type": "integer", "exclusiveMinimum": 0}, "conquerEveryTicks": {"type": "integer", "exclusiveMinimum": 0}, "expansionRate": {"$ref": "#/$defs/positive"}, "baseRadius": {"$ref": "#/$defs/positive"}}, "additionalProperties": false},
+      "mine": {"type": "object", "required": ["radius", "armTicks", "checkEveryTicks", "timeoutTicks", "triggerRadius", "triggerBombRadius"], "properties": {"radius": {"$ref": "#/$defs/positive"}, "armTicks": {"type": "integer", "minimum": 0}, "checkEveryTicks": {"type": "integer", "exclusiveMinimum": 0}, "timeoutTicks": {"type": "integer", "exclusiveMinimum": 0}, "triggerRadius": {"$ref": "#/$defs/positive"}, "triggerBombRadius": {"$ref": "#/$defs/positive"}}, "additionalProperties": false},
+      "laser": {"type": "object", "required": ["durationTicks", "length", "extendPerTick", "killExtraRadius", "beamSpreadPIFrac"], "properties": {"durationTicks": {"type": "integer", "exclusiveMinimum": 0}, "length": {"$ref": "#/$defs/positive"}, "extendPerTick": {"type": "integer", "minimum": 0}, "killExtraRadius": {"$ref": "#/$defs/nonNegative"}, "beamSpreadPIFrac": {"$ref": "#/$defs/nonNegative"}}, "additionalProperties": false}
+    }},
+    "render": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["windowWidth", "windowHeight", "armyDrawSize", "tile", "mountain", "city", "capital", "player"], "properties": {
+      "windowWidth": {"type": "integer", "exclusiveMinimum": 0}, "windowHeight": {"type": "integer", "exclusiveMinimum": 0}, "armyDrawSize": {"type": "integer", "exclusiveMinimum": 0},
+      "tile": {"type": "object", "required": ["primary", "secondary", "white", "variation"], "properties": {"primary": {"$ref": "#/$defs/nonNegative"}, "secondary": {"$ref": "#/$defs/nonNegative"}, "white": {"$ref": "#/$defs/nonNegative"}, "variation": {"$ref": "#/$defs/nonNegative"}}, "additionalProperties": false},
+      "mountain": {"type": "object", "required": ["sourceWidth", "sourceHeight", "strokeWidthPx", "areaReference", "segments", "colorDarken"], "properties": {"sourceWidth": {"type": "integer", "exclusiveMinimum": 0}, "sourceHeight": {"type": "integer", "exclusiveMinimum": 0}, "strokeWidthPx": {"$ref": "#/$defs/positive"}, "areaReference": {"$ref": "#/$defs/positive"}, "segments": {"type": "array", "items": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}, {"type": "number"}], "minItems": 4, "maxItems": 4}}, "colorDarken": {"$ref": "#/$defs/unitInterval"}}, "additionalProperties": false},
+      "city": {"type": "object"}, "capital": {"type": "object"}, "player": {"type": "object"}
+    }}
+  },
+  "properties": {
+    "map": {"$ref": "#/$defs/map"}, "army": {"$ref": "#/$defs/army"}, "sea": {"$ref": "#/$defs/sea"}, "terrain": {"$ref": "#/$defs/terrain"},
+    "units": {"type": "array", "items": {"$ref": "#/$defs/unit"}}, "factions": {"type": "array", "minItems": 2, "maxItems": 64, "items": {"$ref": "#/$defs/faction"}},
+    "effect": {"$ref": "#/$defs/effect"}, "projectile": {"type": "object"}, "economy": {"type": "object"}, "city": {"type": "object"}, "capital": {"type": "object"}, "sim": {"type": "object"}, "render": {"$ref": "#/$defs/render"}, "ui": {"type": "object"}, "tech": {"type": "object"}
+  }
+}

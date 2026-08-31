@@ -1019,7 +1019,6 @@ int TilingGeom::gridPolygon(int index, double* gx, double* gy, int maxVerts) con
     if (cell.n > maxVerts) return 0;
     const double det = table_->wx * table_->hy - table_->wy * table_->hx;
     const double wx = table_->wx, wy = table_->wy, hx = table_->hx, hy = table_->hy;
-    const double ox = worldMinX(), oy = worldMinY();
     for (int i = 0; i < cell.n; ++i) {
         // 未平移世界顶点 = cell.v + c*W + r*H（-worldMin 已由 cellPolygon 抵消，这里用未平移帧）。
         const double ux = cell.v[static_cast<size_t>(i)][0] + static_cast<double>(c) * wx
@@ -1118,7 +1117,6 @@ int TilingGeom::worldToCell(double wx, double wy) const {
             // 候选行/列（round 最近），再 3×3 窗口验证包含（含右缘凸出列——奇数行右顶点
             // 贴 worldWidth、偶数行仅至 (N-1/2)·√3a，候选列可能 = cols 越界 → 扫描窗口内有效格）。
             const int r = static_cast<int>(std::lround((wy - 0.5 * kHexSide) / kHexRowSpacing));
-            const int c0 = static_cast<int>(std::lround(wx / kHexColSpacing - 0.5 * (r & 1)));
             // 包含判定：|dy| ≤ a 且 |dx| ≤ min(√3a/2, √3(a-|dy|))。
             const auto contains2 = [&](int rr, int cc) {
                 if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) return false;

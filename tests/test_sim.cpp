@@ -11,7 +11,7 @@
 namespace {
 
 lw::Config loadCfg() {
-    return lw::Config::loadFromFile("data/config.json");
+    return lw::Config::loadFromFile("data/config.jsonc");
 }
 
 TEST(Simulation, InitBuildsFactionsAndConquersCapitals) {

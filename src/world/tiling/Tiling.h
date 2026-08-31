@@ -31,6 +31,10 @@ namespace lw {
 struct TilingTable;
 
 struct TilingGeom {
+    TilingGeom() = default;
+    TilingGeom(TilingType tiling, int columnCount, int rowCount)
+        : type(tiling), cols(columnCount), rows(rowCount) {}
+
     TilingType type = TilingType::Square;
     int cols = 0;  // 列数（方 = width；六 = 每行列数；三 = 每行格对数）
     int rows = 0;  // 行数（六/三须为偶数——环绕闭合，见 P12 §2）
