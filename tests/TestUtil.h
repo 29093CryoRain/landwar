@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstddef>
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,6 +28,11 @@ public:
 
 inline lw::Config loadCfg() {
     return lw::Config::loadFromFile("data/config.jsonc");
+}
+
+// 测试生成的文件放到系统临时目录，不依赖构建目录名称（如 build/build-linux）。
+inline std::string testArtifactPath(const std::string& name) {
+    return (std::filesystem::temp_directory_path() / ("landwar_test_" + name)).string();
 }
 
 // 写一张 105×95 地形基图测试 BMP（P5 改版编码）：

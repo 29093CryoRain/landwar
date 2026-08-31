@@ -155,7 +155,7 @@ TEST(City, CanPlaceCityRules) {
 
 // 放置回退：采样到 9 级但形状放不下（2×2 地图）→ 回退 1 级（锚点单独可放则建 1 级城）。
 TEST(City, FallbackToLevel1WhenShapeDoesNotFit) {
-    const std::string path = "build/_city_fallback.bmp";
+    const std::string path = lwtest::testArtifactPath("city_fallback.bmp");
     // 2×2 全陆；仅 (0,0) 可成城（g=255）。
     writeBmp(path, 2, 2,
              {std::array<int, 3>{32, 255, 32}, std::array<int, 3>{32, 128, 32},
@@ -176,7 +176,7 @@ TEST(City, FallbackToLevel1WhenShapeDoesNotFit) {
 
 // 锚点不可成城 + 形状放不下 → 两级都不可放 → 本格不成城。
 TEST(City, NoCityWhenPlacementFailsBothLevels) {
-    const std::string path = "build/_city_none.bmp";
+    const std::string path = lwtest::testArtifactPath("city_none.bmp");
     // 1×1 全陆；锚点不可成城（g=128）。
     writeBmp(path, 1, 1, {std::array<int, 3>{32, 128, 32}});
     CityMap w(1, 1);
@@ -190,7 +190,7 @@ TEST(City, NoCityWhenPlacementFailsBothLevels) {
 
 // 幂律分布（统计）——2026-08-17 调试期改均匀分布：方形成等级 {1,2,4,6,9} 各约 20%。
 TEST(City, LevelDistributionApproximatesPowerLaw) {
-    const std::string path = "build/_city_powerlaw.bmp";
+    const std::string path = lwtest::testArtifactPath("city_powerlaw.bmp");
     std::vector<std::pair<int, int>> zones;
     for (int x = 4; x < 100; x += 4)
         for (int y = 4; y < 90; y += 4) zones.emplace_back(x, y);

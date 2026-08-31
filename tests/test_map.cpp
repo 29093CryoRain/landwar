@@ -171,7 +171,7 @@ TEST(Map, SeaLandDeterministicAcrossSeeds) {
 // P5 改版：山标记（r=255 → p=1）确定性；城概率（g>128）种子相关 → 不同种子城市布局不同。
 TEST(Map, DeterministicMountainProbabilisticCity) {
     // 自包含基图：全部陆地 + 3 个山标记 + 一批可产城格（g=200 → 城概率≈0.57）。
-    const std::string path = "build/_dt_mtn_city.bmp";
+    const std::string path = lwtest::testArtifactPath("dt_mtn_city.bmp");
     std::vector<std::pair<int, int>> zones;
     for (int x = 5; x < 100; x += 6)
         for (int y = 5; y < 90; y += 6) zones.emplace_back(x, y);
@@ -201,7 +201,7 @@ TEST(Map, DeterministicMountainProbabilisticCity) {
 
 // P5 改版修复：首都只落在"可产城"格（基图允许成城），不会在"必然无城"格上强行放城市。
 TEST(Map, CapitalsPreferCityAllowedCells) {
-    const std::string path = "build/_cap_ok.bmp";
+    const std::string path = lwtest::testArtifactPath("cap_ok.bmp");
     std::vector<std::pair<int, int>> zones;
     for (int x = 5; x < 100; x += 6)
         for (int y = 5; y < 90; y += 6) zones.emplace_back(x, y);  // ~150 可产城格
@@ -220,7 +220,7 @@ TEST(Map, CapitalsPreferCityAllowedCells) {
 
 // 地图完全没有可产城格时 → 首都回退到任意陆地，游戏仍可运行（8 首都）。
 TEST(Map, CapitalsFallbackWhenNoCityAllowed) {
-    const std::string path = "build/_cap_none.bmp";
+    const std::string path = lwtest::testArtifactPath("cap_none.bmp");
     lwtest::writeTestMapBmp(path, {}, {});  // 全普通陆（g=128 → 无可产城格）
     lw::Config cfg = loadCfg();
     cfg.map.file = path;

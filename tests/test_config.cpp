@@ -5,6 +5,7 @@
 #include <fstream>
 
 #include "core/Config.h"
+#include "TestUtil.h"
 
 namespace {
 
@@ -309,14 +310,14 @@ TEST(Config, MissingFileFallsBackToDefaults) {
 }
 
 TEST(Config, InvalidFileFallsBackToReleaseConfig) {
-    const char* path = "build/_invalid_config.jsonc";
+    const std::string path = lwtest::testArtifactPath("invalid_config.jsonc");
     {
         std::ofstream out(path);
         ASSERT_TRUE(out.is_open());
         out << "{\"map\": {";
     }
     const lw::Config cfg = lw::Config::loadFromFile(path);
-    std::remove(path);
+    std::remove(path.c_str());
     EXPECT_DOUBLE_EQ(cfg.army.baseSpeed, 0.15);
     EXPECT_EQ(cfg.factions.size(), 10u);
 }

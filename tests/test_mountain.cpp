@@ -49,7 +49,7 @@ TEST(Mountain, BaselineMapHasZeroMountains) {
 
 TEST(Mountain, DemoMapFlagsExactlyPaintedCells) {
     // 自包含基图：3 个 r=255 山标记（确定性山）+ 一片海。验证 r=255 → 恰成这些格的山。
-    const std::string path = "build/_mtn_demo.bmp";
+    const std::string path = lwtest::testArtifactPath("mtn_demo.bmp");
     lwtest::writeTestMapBmp(path, {{50, 50}, {30, 80}, {80, 30}}, {},
                             {{0, 0}, {0, 1}, {1, 0}});  // 角落海
     lw::Config cfg = lwtest::loadCfg();
@@ -162,9 +162,11 @@ struct TinyMap {
         map.setTerrain(cfg.terrain);
     }
     void write(const std::vector<std::array<int, 3>>& px) {
-        writeBmp("build/_tiny_map.bmp", cfg.map.width, cfg.map.height, px);
+        writeBmp(lwtest::testArtifactPath("tiny_map.bmp"), cfg.map.width, cfg.map.height, px);
     }
-    void load() { ASSERT_TRUE(map.loadFromBmp("build/_tiny_map.bmp", rng)); }
+    void load() {
+        ASSERT_TRUE(map.loadFromBmp(lwtest::testArtifactPath("tiny_map.bmp"), rng));
+    }
 };
 
 TEST(MountainEnc, SeaWhenAnyChannelBelow32) {
@@ -523,7 +525,7 @@ TEST(MountainMove, MountainToSeaRestoresBeforeGoingSea) {
 TEST(MountainMove, SpawnInMountainScalesSpeed) {
     // 产兵在山格 → inMountain=true 且速度按山地系数缩放（与 moveArmy 语义自洽）。
     // 自包含基图：1 个 r=255 山标记。
-    const std::string path = "build/_spawn_mtn.bmp";
+    const std::string path = lwtest::testArtifactPath("spawn_mtn.bmp");
     lwtest::writeTestMapBmp(path, {{52, 47}}, {});
     Config cfg = lwtest::loadCfg();
     cfg.map.file = path;
@@ -540,7 +542,7 @@ TEST(MountainMove, SpawnInMountainScalesSpeed) {
 
 TEST(MountainMove, PioneerSpawnInMountainNotSlowed) {
     // 细节改进：开拓兵出生在山格 → inMountain=true 但速度不缩放（山地不减速）。
-    const std::string path = "build/_spawn_pioneer_mtn.bmp";
+    const std::string path = lwtest::testArtifactPath("spawn_pioneer_mtn.bmp");
     lwtest::writeTestMapBmp(path, {{52, 47}}, {});
     Config cfg = lwtest::loadCfg();
     cfg.map.file = path;

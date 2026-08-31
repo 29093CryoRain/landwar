@@ -65,16 +65,20 @@ lw::Map loadGenerated(std::uint32_t seed, const lw::MapGenParams& p, const std::
 
 TEST(MapGen, DeterministicByteIdentical) {
     const lw::MapGenParams p{105, 95, 0.40, 0.08, 0.02};
-    ASSERT_TRUE(lw::MapGenerator::generate("build/_gen_a.bmp", 42, p));
-    ASSERT_TRUE(lw::MapGenerator::generate("build/_gen_b.bmp", 42, p));
-    EXPECT_EQ(readFile("build/_gen_a.bmp"), readFile("build/_gen_b.bmp"));
+    const std::string a = lwtest::testArtifactPath("gen_a.bmp");
+    const std::string b = lwtest::testArtifactPath("gen_b.bmp");
+    ASSERT_TRUE(lw::MapGenerator::generate(a, 42, p));
+    ASSERT_TRUE(lw::MapGenerator::generate(b, 42, p));
+    EXPECT_EQ(readFile(a), readFile(b));
 }
 
 TEST(MapGen, DifferentSeedDifferentMap) {
     const lw::MapGenParams p{105, 95, 0.40, 0.08, 0.02};
-    ASSERT_TRUE(lw::MapGenerator::generate("build/_gen_s1.bmp", 1, p));
-    ASSERT_TRUE(lw::MapGenerator::generate("build/_gen_s2.bmp", 2, p));
-    EXPECT_NE(readFile("build/_gen_s1.bmp"), readFile("build/_gen_s2.bmp"));
+    const std::string s1 = lwtest::testArtifactPath("gen_s1.bmp");
+    const std::string s2 = lwtest::testArtifactPath("gen_s2.bmp");
+    ASSERT_TRUE(lw::MapGenerator::generate(s1, 1, p));
+    ASSERT_TRUE(lw::MapGenerator::generate(s2, 2, p));
+    EXPECT_NE(readFile(s1), readFile(s2));
 }
 
 TEST(MapGen, CachePathIncludesAllGenerationParameters) {
@@ -97,7 +101,7 @@ TEST(MapGen, CachePathIncludesAllGenerationParameters) {
 }
 
 TEST(Bmp24, RoundTripUsesStandardStrideAndDimensions) {
-    const std::string path = "build/_bmp24_stride.bmp";
+    const std::string path = lwtest::testArtifactPath("bmp24_stride.bmp");
     const std::vector<std::array<unsigned char, 3>> pixels = {
         {1, 2, 3}, {4, 5, 6}, {7, 8, 9}, {10, 11, 12}, {13, 14, 15}, {16, 17, 18}};
     std::string err;
@@ -136,7 +140,7 @@ CoastStats coastStats(const lw::Map& map) {
 TEST(MapGen, ForceCoastAtZeroSeaIsExactlyRing) {
     // 陆地占比 100%（seaRatio=0）+ 强制边缘为海 → 只有最外一圈为海。
     const lw::MapGenParams p{48, 40, 0.0, 0.05, 0.02, 0.3, true};
-    const lw::Map map = loadGenerated(42, p, "build/_gen_coast0.bmp");
+    const lw::Map map = loadGenerated(42, p, lwtest::testArtifactPath("gen_coast0.bmp"));
     const CoastStats s = coastStats(map);
     EXPECT_EQ(s.ringSea, s.ring) << "最外一圈必须全海";
     EXPECT_EQ(s.sea, s.ring) << "陆地占比 100% 时只能有一圈海（实际海 " << s.sea
@@ -155,7 +159,7 @@ TEST(MapGen, ForceCoastAtZeroSeaIsExactlyRing) {
 TEST(MapGen, ForceCoastWithoutZeroKeepsRingAndRatio) {
     // 有海占比 + 强制边缘为海 → 最外一圈必海、海陆比仍符合参数。
     const lw::MapGenParams p{105, 95, 0.30, 0.08, 0.04, 0.3, true};
-    const lw::Map map = loadGenerated(42, p, "build/_gen_coast30.bmp");
+    const lw::Map map = loadGenerated(42, p, lwtest::testArtifactPath("gen_coast30.bmp"));
     const CoastStats s = coastStats(map);
     EXPECT_EQ(s.ringSea, s.ring) << "最外一圈必须全海";
     const double ratio = static_cast<double>(s.sea) / (map.width() * map.height());
@@ -167,8 +171,10 @@ TEST(MapGen, ForceCoastLowersInnerEdgeElevation) {
     // 这些格的海格比例应因海拔衰减而高于未启用强制海岸的同一张噪声图。
     const lw::MapGenParams noCoast{105, 95, 0.30, 0.08, 0.0, 0.3, false};
     const lw::MapGenParams coast{105, 95, 0.30, 0.08, 0.0, 0.3, true};
-    const lw::Map mapWithoutCoast = loadGenerated(42, noCoast, "build/_gen_no_coast.bmp");
-    const lw::Map mapWithCoast = loadGenerated(42, coast, "build/_gen_inner_coast.bmp");
+    const lw::Map mapWithoutCoast =
+        loadGenerated(42, noCoast, lwtest::testArtifactPath("gen_no_coast.bmp"));
+    const lw::Map mapWithCoast =
+        loadGenerated(42, coast, lwtest::testArtifactPath("gen_inner_coast.bmp"));
 
     int cells = 0;
     int seaWithoutCoast = 0;
@@ -192,14 +198,14 @@ TEST(MapGen, ForceCoastLowersInnerEdgeElevation) {
 TEST(MapGen, NoForceCoastAtZeroSeaIsAllLand) {
     // 不勾强制边缘为海、seaRatio=0 → 全陆地。
     const lw::MapGenParams p{40, 40, 0.0, 0.05, 0.02, 0.3, false};
-    const lw::Map map = loadGenerated(7, p, "build/_gen_allland.bmp");
+    const lw::Map map = loadGenerated(7, p, lwtest::testArtifactPath("gen_allland.bmp"));
     const CoastStats s = coastStats(map);
     EXPECT_EQ(s.sea, 0);
 }
 
 TEST(MapGen, LoadableAndParamsHeld) {
     const lw::MapGenParams p{105, 95, 0.45, 0.10, 0.05};
-    const std::string path = "build/_gen_load.bmp";
+    const std::string path = lwtest::testArtifactPath("gen_load.bmp");
     const lw::Map map = loadGenerated(42, p, path);
     const auto px = decodeBmp(path, p.width, p.height);
 
@@ -315,7 +321,7 @@ TEST(MapGen, TiledForceCoastUsesActualPointBoundary) {
     for (const lw::TilingType t : tilings) {
         for (const int sz : {48, 120}) {
             const lw::MapGenParams p{sz, sz, 0.0, 0.05, 0.02, 0.3, true, t};
-            const std::string path = std::string("build/_gen_fc_") +
+            const std::string path = lwtest::testArtifactPath("gen_fc_") +
                                      (t == lw::TilingType::Hex ? "hex" : "tri") + "_" +
                                      std::to_string(sz) + ".lwmap";
             const lw::Map map = loadGeneratedTiled(42, p, path);
@@ -344,7 +350,8 @@ TEST(MapGen, TiledForceCoastUsesActualPointBoundary) {
 TEST(MapGen, TableTilingForceCoastUsesActualPointBoundary) {
     const lw::MapGenParams p{48, 48, 0.0, 0.05, 0.02, 0.3, true,
                              lw::TilingType::Arch31212};
-    const lw::Map map = loadGeneratedTiled(42, p, "build/_gen_fc_arch31212.lwmap");
+    const lw::Map map =
+        loadGeneratedTiled(42, p, lwtest::testArtifactPath("gen_fc_arch31212.lwmap"));
     const lw::TilingGeom& g = map.geom();
     for (int idx = 0; idx < map.cellCount(); ++idx) {
         bool boundary = false;
@@ -359,7 +366,8 @@ TEST(MapGen, MixedAreaTilingGradientDoesNotFavorLargePolygons) {
     // 检查局部坡度排序不会因为多边形面积和邻居数量不同而偏向十二边形。
     const lw::MapGenParams p{96, 96, 0.0, 0.20, 0.0, 0.3, false,
                              lw::TilingType::Arch31212};
-    const lw::Map map = loadGeneratedTiled(42, p, "build/_gen_arch31212_gradient.lwmap");
+    const lw::Map map = loadGeneratedTiled(
+        42, p, lwtest::testArtifactPath("gen_arch31212_gradient.lwmap"));
     int triangles = 0, dodecagons = 0, triangleMountains = 0, dodecagonMountains = 0;
     for (int idx = 0; idx < map.cellCount(); ++idx) {
         const int sides = map.geom().neighborCount(idx);
