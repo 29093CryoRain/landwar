@@ -62,7 +62,7 @@ struct MenuState {
     PreviewCache previews;
 };
 
-// 枚举 data 目录下 *.landmap（排序），返回相对路径。
+// 枚举指定目录下 *.landmap（排序），返回相对路径。
 std::vector<std::string> enumerateMapFiles(const std::string& dataDir);
 
 // 每帧绘制菜单（在 beginImGuiFrame / renderImGui 之间调用一次）。ren 供预览纹理生成。

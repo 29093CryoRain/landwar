@@ -37,6 +37,10 @@ constexpr float kBaseMenuWidth = 620.0f;
 constexpr float kBaseMapSelectWidth = 800.0f;
 // 预览缩略图目标宽度（像素；实际纹理 = cell×宽 × cell×高）。
 constexpr int kPreviewW = 180;
+// 新增势力选择器的固定布局：候选项和简介各自滚动，内容数量/长度不改变外框尺寸。
+constexpr float kBaseFactionPickerWidth = 360.0f;
+constexpr float kBaseFactionListHeight = 150.0f;
+constexpr float kBaseFactionDetailHeight = 64.0f;
 
 // 文件名（去掉 data/ 前缀），用于预装图列表显示。
 const char* baseName(const std::string& path) {
@@ -256,8 +260,13 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
     ImGui::EndChild();
 
     // ---- 列表尾部固定的添加势力条 ----
-    if (ImGui::Button("添加势力", ImVec2(-1.0f, 0.0f))) ImGui::OpenPopup("##add-faction");
-    if (ImGui::BeginPopup("##add-faction")) {
+    if (ImGui::Button("添加势力", ImVec2(-1.0f, 0.0f)))
+        ImGui::OpenPopup("添加势力##add-faction");
+    // 选择器保持普通弹窗行为，不遮罩主界面；候选数量和简介长度只能增加子区域的滚动内容，
+    // 不能把弹窗本身撑大。
+    ImGui::SetNextWindowSize(ImVec2(scaled(kBaseFactionPickerWidth, uiScale), 0.0f),
+                             ImGuiCond_Appearing);
+    if (ImGui::BeginPopup("添加势力##add-faction")) {
         static int addFactionId = 0;
         static int addAiId = 0;
         const auto isSelected = [&](int id) {
@@ -273,36 +282,52 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
                 }
         }
         ImGui::TextUnformatted("选择势力");
-        if (ImGui::BeginTable("##available-factions", 3,
-                              ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV)) {
-            for (int id = 1; id <= factionCount; ++id) {
-                if (isSelected(id)) continue;
-                ImGui::TableNextColumn();
-                const auto& faction = cfg.factions[static_cast<size_t>(id)];
-                std::snprintf(buf, sizeof(buf), "##pick-faction-%d", id);
-                if (factionNameSelectable(faction, id == addFactionId, buf))
-                    addFactionId = id;
+        if (ImGui::BeginChild("##available-factions",
+                              ImVec2(0.0f, scaled(kBaseFactionListHeight, uiScale)), true)) {
+            bool hasAvailable = false;
+            if (ImGui::BeginTable("##available-factions-grid", 3,
+                                  ImGuiTableFlags_SizingStretchSame |
+                                      ImGuiTableFlags_BordersInnerV)) {
+                for (int id = 1; id <= factionCount; ++id) {
+                    if (isSelected(id)) continue;
+                    hasAvailable = true;
+                    ImGui::TableNextColumn();
+                    const auto& faction = cfg.factions[static_cast<size_t>(id)];
+                    std::snprintf(buf, sizeof(buf), "##pick-faction-%d", id);
+                    if (factionNameSelectable(faction, id == addFactionId, buf))
+                        addFactionId = id;
+                }
+                ImGui::EndTable();
             }
-            ImGui::EndTable();
-        } else {
-            ImGui::TextUnformatted("没有可添加的势力");
+            if (!hasAvailable) ImGui::TextUnformatted("没有可添加的势力");
         }
-        if (addFactionId > 0) {
-            const auto& faction = cfg.factions[static_cast<size_t>(addFactionId)];
-            ImGui::Separator();
-            drawFactionName(faction);
-            if (!faction.description.empty()) ImGui::TextWrapped("%s", faction.description.c_str());
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("势力简介");
+        if (ImGui::BeginChild("##faction-detail",
+                              ImVec2(0.0f, scaled(kBaseFactionDetailHeight, uiScale)), false)) {
+            if (addFactionId > 0) {
+                const auto& faction = cfg.factions[static_cast<size_t>(addFactionId)];
+                drawFactionName(faction);
+                if (!faction.description.empty())
+                    ImGui::TextWrapped("%s", faction.description.c_str());
+            }
         }
+        ImGui::EndChild();
+
         ImGui::SetNextItemWidth(aiWidth);
         ImGui::Combo("AI", &addAiId, aiItems, 2);
         ImGui::BeginDisabled(addFactionId <= 0);
-        if (ImGui::Button("确定")) {
+        const float actionWidth =
+            (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (ImGui::Button("确定", ImVec2(actionWidth, 0.0f))) {
             options.factions.push_back(FactionSlot{addFactionId, true, addAiId});
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("取消")) ImGui::CloseCurrentPopup();
+        if (ImGui::Button("取消", ImVec2(actionWidth, 0.0f))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 
@@ -368,7 +393,6 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         ImGui::BeginChild("##maplist", ImVec2(0.0f, 320.0f * uiScale), true);
         for (size_t i = 0; i < mapFiles.size(); ++i) {
             const std::string& file = mapFiles[i];
-            if (file.rfind("data/gen_", 0) == 0) continue;  // 过滤随机图生成物（旧路径遗留；生成物已迁 userdata/maps/）
             int tw = 0, th = 0;
             SDL_Texture* t = filePreview(st, ren, cfg, file, &tw, &th);
             if (t) {

@@ -2,6 +2,8 @@
 //
 // 资产（只读、随源码分发，位于 data/）：
 //   army*.png、config.jsonc 及其配置分片、towers.png 等。
+// 开发者地图（可编辑、随项目管理，位于 data/maps/）：
+//   data/maps/*.landmap
 // 运行期产物（可写、可丢弃、不进版本库，位于 userdata/）：
 //   userdata/options.json        菜单选项（开始游戏时保存、启动读取）
 //   userdata/screenshots/        F12 / QA 钩子截图
@@ -16,6 +18,7 @@ namespace lw {
 
 // ---- 目录 ----
 constexpr const char* kAssetDataDir = "data";              // 只读资产目录
+constexpr const char* kMapDataDir = "data/maps";           // 原生 .landmap 地图目录
 constexpr const char* kUserDataDir = "userdata";           // 运行期产物根目录
 constexpr const char* kGeneratedMapDir = "userdata/maps";  // 随机地图生成物
 constexpr const char* kScreenshotDir = "userdata/screenshots";  // 截图
@@ -23,6 +26,7 @@ constexpr const char* kScreenshotDir = "userdata/screenshots";  // 截图
 // ---- 默认文件路径（散落各处的字面量收敛到此，避免改一处漏一处）----
 // A 是 data/ 下可编辑主配置；B 是 data/default/ 下随发行版提供的只读备用配置。
 inline const std::string kDefaultConfigPath = "data/config.jsonc";
+inline const std::string kDefaultEditorMapPath = "data/maps/edited.landmap";
 inline const std::string kFallbackConfigPath = "data/default/config.jsonc";
 inline const std::string kConfigDefaultDir = "data/default";
 inline const std::string kConfigSchemaDir = "data/schema";

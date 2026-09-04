@@ -106,7 +106,10 @@ int main(int argc, char** argv) {
     lw::editor::MapEditorModel model;
     model.setCityConfig(config.city);
     std::string error;
-    const std::string inputPath = argc > 1 ? argv[1] : config.map.file;
+    const std::string inputPath = argc > 1
+                                      ? argv[1]
+                                      : (!config.map.file.empty() ? config.map.file
+                                                                   : lw::kDefaultEditorMapPath);
     if (!model.loadFromFile(inputPath, &error)) {
         spdlog::warn("map_editor: {}", error);
         int cols = config.map.width;
@@ -129,6 +132,9 @@ int main(int argc, char** argv) {
         spdlog::critical("IMG_Init PNG failed: {}", IMG_GetError());
         SDL_Quit();
         return 1;
+    }
+    if (!lw::ensureDirExists(lw::kMapDataDir)) {
+        spdlog::warn("map_editor: map directory '{}' is unavailable", lw::kMapDataDir);
     }
     SDL_Window* window = SDL_CreateWindow("领土战争地图编辑器", SDL_WINDOWPOS_CENTERED,
                                           SDL_WINDOWPOS_CENTERED, kWindowWidth, kWindowHeight,
@@ -198,7 +204,8 @@ int main(int argc, char** argv) {
         bool largeOperationPopup = false;
         bool saveResult = false;
         std::string saveError;
-        char savePath[512] = "edited.landmap";
+        char savePath[512] = {};
+        std::strncpy(savePath, lw::kDefaultEditorMapPath.c_str(), sizeof(savePath) - 1);
         char loadPath[512] = {};
         std::strncpy(loadPath, inputPath.c_str(), sizeof(loadPath) - 1);
 

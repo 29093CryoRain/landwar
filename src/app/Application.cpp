@@ -908,7 +908,7 @@ int Application::run() {
 }
 
 bool Application::runMenu() {
-    mapFiles_ = ui::enumerateMapFiles("data");
+    mapFiles_ = ui::enumerateMapFiles(kMapDataDir);
     spdlog::info("menu: {} map file(s) found", mapFiles_.size());
     // P6：菜单跨帧状态（二级选图屏/草稿/预览缓存）。局部持有 → 返回前析构（释放预览纹理，
     // ren_ 尚存活）。预览纹理随菜单结束清理，游戏阶段不占内存。

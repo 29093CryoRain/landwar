@@ -17,7 +17,9 @@ TEST(MapGen, SameSeedProducesIdenticalNativeDefinition) {
     ASSERT_TRUE(lw::MapGenerator::generate(42, params, a, cfg.city));
     ASSERT_TRUE(lw::MapGenerator::generate(42, params, b, cfg.city));
     EXPECT_EQ(a.toJson(), b.toJson());
-    EXPECT_TRUE(lw::MapGenerator::defaultPath(42, params).ends_with(".landmap"));
+    const std::string defaultPath = lw::MapGenerator::defaultPath(42, params);
+    EXPECT_TRUE(defaultPath.starts_with(std::string(lw::kMapDataDir) + "/"));
+    EXPECT_TRUE(defaultPath.ends_with(".landmap"));
 }
 
 TEST(MapGen, DifferentSeedChangesNativeDefinition) {

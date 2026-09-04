@@ -148,7 +148,7 @@ private:
     bool menuStarted_ = false;         // 菜单已点「开始游戏」
     bool prebuilt_ = false;            // 经 setPrebuilt 注入（--load）
     bool simReady_ = false;            // sim_ 已构建/注入
-    std::vector<std::string> mapFiles_;  // data/ 下地图文件列表（菜单）
+    std::vector<std::string> mapFiles_;  // data/maps/ 下地图文件列表（菜单）
     app::InputManager input_;
     app::Selection selection_;
     ui::DebugCounts counts_;

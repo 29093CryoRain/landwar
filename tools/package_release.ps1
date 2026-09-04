@@ -70,6 +70,7 @@ foreach ($file in $configFiles) {
 foreach ($file in $configFiles) {
     Copy-RequiredFile (Join-Path "data" (Join-Path "default" $file))
 }
+New-Item -ItemType Directory -Path (Join-Path $OutputDir "data\maps") -Force | Out-Null
 $schemaFiles = @(
     "config.schema.json", "render.schema.json", "techs.schema.json", "factions.schema.json",
     "units.schema.json", "city_shapes.schema.json", "city_icon_fits.schema.json"

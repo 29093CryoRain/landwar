@@ -241,7 +241,7 @@ MapGenParams normalizedParams(const MapGenParams& raw) {
 std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p) {
     const MapGenParams n = normalizedParams(p);
     std::ostringstream key;
-    key << kGeneratedMapDir << "/gen_" << seed << "_" << tilingName(n.tiling) << "_"
+    key << kMapDataDir << "/gen_" << seed << "_" << tilingName(n.tiling) << "_"
         << n.width << "x" << n.height << "_sea" << std::fixed << std::setprecision(9)
          << n.seaRatio << "_mtn" << n.mountainDensity << "_city" << n.cityDensity
          << "_coast" << (n.forceCoast ? 1 : 0)
