@@ -4,6 +4,7 @@
 
 #include "editor/MapEditorModel.h"
 #include "TestUtil.h"
+#include "world/Map.h"
 
 namespace {
 
@@ -80,6 +81,28 @@ TEST(MapEditorModel, UnresolvedCityMarksRemainCityOnExport) {
     ASSERT_TRUE(model.setCityMark(0));
     ASSERT_TRUE(model.hasUnresolvedMarks());
     EXPECT_EQ(model.toDefinition().terrain[0], lw::MapTerrain::City);
+}
+
+TEST(MapEditorModel, CityAndMountainShareCellAndSurviveExport) {
+    const lw::Config cfg = lwtest::loadCfg();
+    lw::editor::MapEditorModel model(lw::TilingType::Square, 2, 2, cfg.city);
+    ASSERT_TRUE(model.paintCell(0, lw::MapTerrain::Mountain));
+    ASSERT_TRUE(model.setCityMark(0));
+    EXPECT_EQ(model.terrainAt(0), lw::MapTerrain::City);
+    EXPECT_TRUE(model.mountainMarked(0));
+    ASSERT_GE(model.resolvedCityIdAt(0), 0);
+
+    const lw::MapDefinition definition = model.toDefinition();
+    EXPECT_EQ(definition.terrain[0], lw::MapTerrain::Mountain);
+    ASSERT_EQ(definition.cities.size(), 1u);
+
+    lw::Map map;
+    map.configureCanonical(lw::TilingType::Square, 2, 2);
+    map.setCityConfig(cfg.city);
+    std::string error;
+    ASSERT_TRUE(map.loadFromDefinition(definition, &error)) << error;
+    EXPECT_TRUE(map.atIndex(0).mountain);
+    EXPECT_GE(map.atIndex(0).cityId, 0);
 }
 
 }  // namespace

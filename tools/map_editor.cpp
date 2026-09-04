@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -198,6 +199,8 @@ int main(int argc, char** argv) {
         bool saveResult = false;
         std::string saveError;
         char savePath[512] = "edited.landmap";
+        char loadPath[512] = {};
+        std::strncpy(loadPath, inputPath.c_str(), sizeof(loadPath) - 1);
 
         const auto resetCameraForModel = [&]() {
             transform.mapHeight = model.geometry().worldHeight();
@@ -242,6 +245,19 @@ int main(int argc, char** argv) {
             }
             resetCameraForModel();
         };
+        std::string loadError;
+        const auto load = [&]() {
+            loadError.clear();
+            std::string error;
+            if (!model.loadFromFile(loadPath, &error)) {
+                loadError = error;
+                return;
+            }
+            inputLength = model.cols();
+            inputWidth = model.rows();
+            saveError.clear();
+            resetCameraForModel();
+        };
         const auto updatePreview = [&]() {
             const lw::MapDefinition definition = model.toDefinition();
             previewMap.configureCanonical(definition.tiling, definition.cols, definition.rows);
@@ -252,17 +268,25 @@ int main(int argc, char** argv) {
                 spdlog::warn("map_editor preview: {}", previewError);
             for (int index = 0; index < previewMap.cellCount(); ++index) {
                 auto& cell = previewMap.atIndex(index);
-                switch (definition.terrain[static_cast<std::size_t>(index)]) {
+                switch (model.terrainAt(index)) {
                     case lw::MapTerrain::Sea:
+                        cell.land = false;
+                        cell.mountain = false;
                         cell.belongi = 0;
                         break;
                     case lw::MapTerrain::Land:
+                        cell.land = true;
+                        cell.mountain = false;
                         cell.belongi = 1;
                         break;
                     case lw::MapTerrain::Mountain:
+                        cell.land = true;
+                        cell.mountain = true;
                         cell.belongi = 2;
                         break;
                     case lw::MapTerrain::City:
+                        cell.land = true;
+                        cell.mountain = model.mountainMarked(index);
                         cell.belongi = 3;
                         break;
                 }
@@ -296,7 +320,7 @@ int main(int argc, char** argv) {
                     break;
                 case lw::MapTerrain::City:
                     cell.land = true;
-                    cell.mountain = false;
+                    cell.mountain = model.mountainMarked(index);
                     cell.cityId = -1;
                     cell.belongi = 3;
                     break;
@@ -316,13 +340,11 @@ int main(int argc, char** argv) {
                 [&](int cell) { return model.cityMarked(cell); });
             bool changed = false;
             if (cityEdit) {
-                const lw::MapTerrain target = eraseCityMarks ? lw::MapTerrain::Land
-                                                               : lw::MapTerrain::City;
                 if (brushMode == 1) {
-                    changed = model.floodFillTerrain(index, target);
+                    changed = model.floodFillCityMarks(index, !eraseCityMarks);
                 } else {
                     for (const int cell : brushCells(model, index, brushSize))
-                        if (model.paintCell(cell, target)) changed = true;
+                        if (model.setCityMark(cell, !eraseCityMarks)) changed = true;
                 }
             } else {
                 if (brushMode == 1) {
@@ -483,6 +505,10 @@ int main(int argc, char** argv) {
                 ImGui::Text("临海山地：%d", model.mountainCoastViolationCount());
                 ImGui::PopStyleColor();
             }
+            ImGui::Separator();
+            ImGui::InputText("读取路径", loadPath, sizeof(loadPath));
+            if (ImGui::Button("读取地图")) load();
+            if (!loadError.empty()) ImGui::TextWrapped("读取失败：%s", loadError.c_str());
             ImGui::Separator();
             ImGui::InputText("保存路径", savePath, sizeof(savePath));
             if (ImGui::Button("保存地图")) {

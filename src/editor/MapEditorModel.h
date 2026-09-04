@@ -13,6 +13,9 @@ namespace lw::editor {
 // derived records for preview/export and never become runtime Map ids.
 struct MapEditorCell {
     MapTerrain terrain = MapTerrain::Sea;
+    bool mountain = false;
+
+    bool operator==(const MapEditorCell&) const = default;
 };
 
 class MapEditorModel {
@@ -38,6 +41,7 @@ public:
     const MapEditorCell& cell(int index) const;
     MapTerrain terrainAt(int index) const;
     bool cityMarked(int index) const;
+    bool mountainMarked(int index) const;
     int resolvedCityIdAt(int index) const;
     const std::vector<MapCityDefinition>& resolvedCities() const { return resolvedCities_; }
     const std::vector<std::string>& warnings() const { return warnings_; }
@@ -109,10 +113,14 @@ private:
     };
 
     bool validIndex(int index) const;
+    bool applyCell(int index, const MapEditorCell& next);
     State snapshot() const;
     void restore(State state);
     void beginOperation(const State& before);
     void rebuildResolution();
+    void rebuildResolution(const std::vector<int>& changedIndices);
+    ResolvedComponent resolveComponent(const std::vector<int>& component) const;
+    void rebuildResolvedViews();
     void rebuildMountainCoastViolations() const;
     void ensureMountainCoastViolations() const;
     std::vector<int> markedComponent(int start, std::vector<bool>& seen) const;
