@@ -22,12 +22,17 @@ public:
     // 以屏幕变换 + 逻辑视口尺寸 + 地图尺寸（世界单位）初始化。
     // P12：mapWidth/mapHeight 为世界范围（六/三角非整数；方 = 格数），环绕 span/剔除用。
     void configure(const math::ScreenTransform& tf, int windowW, int windowH, double mapWidth,
-                   double mapHeight) {
+                   double mapHeight, int viewportX = 0, int viewportY = 0,
+                   int viewportW = -1, int viewportH = -1) {
         tf_ = tf;
         windowW_ = windowW;
         windowH_ = windowH;
         mapW_ = mapWidth;
         mapH_ = mapHeight;
+        viewportX_ = viewportX;
+        viewportY_ = viewportY;
+        viewportW_ = viewportW < 0 ? windowW : viewportW;
+        viewportH_ = viewportH < 0 ? windowH : viewportH;
         clampPan();
     }
 
@@ -62,10 +67,12 @@ public:
     }
 
     // 可见世界坐标范围（剔除用）。屏幕 y=0 = 顶 = 世界 y=mapHeight。
-    double viewWorldX0() const { return toWorldX(0.0); }
-    double viewWorldX1() const { return toWorldX(windowW_); }
-    double viewWorldY0() const { return toWorldY(windowH_); }  // 屏幕底（世界 y 小）
-    double viewWorldY1() const { return toWorldY(0.0); }       // 屏幕顶（世界 y 大）
+    double viewWorldX0() const { return toWorldX(static_cast<double>(viewportX_)); }
+    double viewWorldX1() const { return toWorldX(static_cast<double>(viewportX_ + viewportW_)); }
+    double viewWorldY0() const {
+        return toWorldY(static_cast<double>(viewportY_ + viewportH_));  // 屏幕底（世界 y 小）
+    }
+    double viewWorldY1() const { return toWorldY(static_cast<double>(viewportY_)); }  // 屏幕顶
 
     // 每世界单位 U 的逻辑屏幕像素 = blockSize*zoom（特效半径/光束高度等世界几何用）。
     double cellPx() const { return tf_.blockSize * zoom_; }
@@ -96,6 +103,10 @@ public:
     double panY() const { return panY_; }
     int windowWidth() const { return windowW_; }
     int windowHeight() const { return windowH_; }
+    int viewportX() const { return viewportX_; }
+    int viewportY() const { return viewportY_; }
+    int viewportWidth() const { return viewportW_; }
+    int viewportHeight() const { return viewportH_; }
     // P10：地图世界范围（渲染器/点选算环绕副本的屏幕跨度用；世界单位）。
     double mapWidth() const { return mapW_; }
     double mapHeight() const { return mapH_; }
@@ -109,19 +120,21 @@ private:
         const double mapLeft = tf_.toXf(0.0);             // = panelWidth
         const double mapRight = tf_.toXf(mapW_);
         const double mapBottom = tf_.toYf(0.0);           // = mapH*blockSize
-        // X：视口与地图需有重叠 → 地图右缘 ≥ 0 且地图左缘 ≤ windowW。
-        const double minPanX = -mapRight * zoom_;
-        const double maxPanX = windowW_ - mapLeft * zoom_;
+        const double viewRight = static_cast<double>(viewportX_ + viewportW_);
+        const double viewBottom = static_cast<double>(viewportY_ + viewportH_);
+        // X：地图与视口需有重叠，不能滑到视口之外。
+        const double minPanX = viewportX_ - mapRight * zoom_;
+        const double maxPanX = viewRight - mapLeft * zoom_;
         if (minPanX > maxPanX) {
-            panX_ = (windowW_ - (mapLeft + mapRight) * zoom_) / 2.0;  // 地图比视口窄 → 居中
+            panX_ = (viewportX_ + viewRight - (mapLeft + mapRight) * zoom_) / 2.0;
         } else {
             panX_ = std::clamp(panX_, minPanX, maxPanX);
         }
-        // Y：地图底缘 ≥ 0 且地图顶缘 ≤ windowH（屏幕顶 y=0 = 世界顶）。
-        const double minPanY = -mapBottom * zoom_;
-        const double maxPanY = windowH_;
+        // Y：地图底缘 ≥ viewportY 且地图顶缘 ≤ viewportY+viewportH。
+        const double minPanY = viewportY_ - mapBottom * zoom_;
+        const double maxPanY = viewBottom;
         if (minPanY > maxPanY) {
-            panY_ = (windowH_ - mapBottom * zoom_) / 2.0;
+            panY_ = (viewportY_ + viewBottom - mapBottom * zoom_) / 2.0;
         } else {
             panY_ = std::clamp(panY_, minPanY, maxPanY);
         }
@@ -132,6 +145,10 @@ private:
     int windowH_ = 1425;
     double mapW_ = 105.0;   // P12：世界宽（六/三角非整数；方 = 列数）
     double mapH_ = 95.0;    // P12：世界高
+    int viewportX_ = 0;
+    int viewportY_ = 0;
+    int viewportW_ = 2175;
+    int viewportH_ = 1425;
     double zoom_ = 1.0;
     double panX_ = 0.0;
     double panY_ = 0.0;

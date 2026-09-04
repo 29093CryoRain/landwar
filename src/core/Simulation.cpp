@@ -10,7 +10,7 @@
 #include "sim/systems/CapitalSystem.h"
 #include "sim/systems/DeathSystem.h"
 #include "sim/systems/EconomySystem.h"
-#include "sim/systems/EffectSystem.h"
+#include "sim/systems/CombatEffectSystem.h"
 #include "sim/systems/MovementSystem.h"
 #include "sim/systems/ProductionSystem.h"
 #include "sim/systems/ProjectileSystem.h"
@@ -18,6 +18,7 @@
 #include "sim/systems/TechSystem.h"
 #include "sim/systems/UnitActionSystem.h"
 #include "core/MathUtil.h"
+#include "world/MapGenerator.h"
 
 namespace lw {
 
@@ -49,13 +50,44 @@ bool Simulation::init() {
     map_.configure(config_.map);
     map_.setTerrain(config_.terrain);  // 山地参数（P5）：亮度带 + 邻海修正
     map_.setCityConfig(config_.city);  // 城市等级形状表（P13，思路 9.1）
-    // P6 RNG 分离：山/城骰子走 mapRng_（地图种子）；首都与后续走 rng_（主种子）。
-    mapRng_ = std::make_unique<Rng>(mapSeed_);
-    // P12：正方形走 BMP（预装图/现状）；六/三角走 lwmap（随机图生成器产出）。
-    const bool mapOk = (config_.map.tilingType() == TilingType::Square)
-                           ? map_.loadFromBmp(config_.map.file, *mapRng_)
-                           : map_.loadFromLwmap(config_.map.file, *mapRng_);
-    if (!mapOk) return false;  // 每陆地格 2 次 chance
+    MapDefinition definition;
+    if (mapDefinition_) {
+        definition = *mapDefinition_;
+    } else if (options_.map.kind == MapSelection::Kind::Random && config_.map.file.empty()) {
+        const MapGenParams params{options_.map.width,
+                                  options_.map.height,
+                                  options_.map.seaRatio,
+                                  options_.map.mountainDensity,
+                                  options_.map.cityDensity,
+                                  config_.map.cityMountainWeight,
+                                  options_.map.forceCoast,
+                                  tilingFromName(options_.map.tiling),
+                                  config_.map.forceCoastRangeMultiplier,
+                                  config_.map.forceCoastStrengthMultiplier};
+        if (!MapGenerator::generate(mapSeed_, params, definition, config_.city)) {
+            spdlog::error("random map generation failed");
+            return false;
+        }
+    } else {
+        std::string error;
+        if (!MapDefinition::loadFromFile(config_.map.file, definition, &error)) {
+            spdlog::error("map definition load failed: {}", error);
+            return false;
+        }
+    }
+    // Native maps own the canonical geometry. Keep config in sync so replay,
+    // camera setup, and snapshots all describe the actual map.
+    config_.map.width = definition.cols;
+    config_.map.height = definition.rows;
+    config_.map.tiling = tilingName(definition.tiling);
+    map_.configure(config_.map);
+    map_.setTerrain(config_.terrain);
+    map_.setCityConfig(config_.city);
+    std::string mapError;
+    if (!map_.loadFromDefinition(definition, &mapError)) {
+        spdlog::error("map definition rejected: {}", mapError);
+        return false;
+    }
     int selectedCount = 0;
     std::vector<bool> selected(static_cast<size_t>(config_.factions.size()), false);
     for (size_t i = 0; i < options_.factions.size(); ++i) {
@@ -139,7 +171,7 @@ void Simulation::initFactions() {
         Faction& f = factions_[static_cast<size_t>(fid)];
         const int capCityId = map_.atIndex(capCell).cityId;
         f.capitalState.capitalCityId = capCityId;
-        // 回归（用户反馈）：初始首都是**多格城**（锚点落在既有 2/4/6/9 级城）时，单格征服只改
+        // 回归：初始首都是**多格城**（锚点落在既有 2/4/6/9 级城）时，单格征服只改
         // 一格 belongi → 城市不整块转移（其余基建格仍中立）→ 势力 cityCount=0 → 立即灭亡。
         // 修复：把首都城其余基建格也逐格征服（末格触发整城转移，ownerId 归本势力、
         // lastCapturedTick=0）。init 阶段 freeArmyEnabled=false → 这些征服**不消耗 RNG**，
@@ -241,7 +273,7 @@ void Simulation::tick() {
     stage(SimStage::Projectile, [&] { ProjectileSystem::update(*this); });   // P9：子弹移动/命中/占领/超时
     stage(SimStage::Economy, [&] { EconomySystem::update(*this); });
     stage(SimStage::Production, [&] { ProductionSystem::update(*this); });
-    stage(SimStage::Effect, [&] { EffectSystem::update(*this); });
+    stage(SimStage::CombatEffect, [&] { CombatEffectSystem::update(*this); });
     stage(SimStage::Death, [&] { DeathSystem::flush(*this); });
     stage(SimStage::Capital, [&] { CapitalSystem::update(*this); });  // P15：迁都状态机（纯逻辑、无 RNG；先于灭亡检测，顺序固定）
     stage(SimStage::Tech, [&] { TechSystem::update(*this); });     // P8：科技（点累积 + 阈值科研；AI 消耗 RNG，确定性）
@@ -290,10 +322,10 @@ int Simulation::countArmies(int factionId) const {
 }
 
 int Simulation::countEffects(int factionId) const {
-    // 特效带 EffectTypeId；特效销毁直接 reg.destroy（无 Dead 标记）。
+    // CombatEffect entities carry CombatEffectTypeId; destruction is direct (no Dead marker).
     const auto& reg = registry_;
     int n = 0;
-    for (auto e : reg.view<comp::FactionId, comp::EffectTypeId>()) {
+    for (auto e : reg.view<comp::FactionId, comp::CombatEffectTypeId>()) {
         if (reg.get<comp::FactionId>(e).value == factionId) ++n;
     }
     return n;

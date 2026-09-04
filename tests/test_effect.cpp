@@ -39,18 +39,29 @@ void clearArmies(Simulation& sim) {
     for (auto e : all) reg.destroy(e);
 }
 
-int countEffects(Simulation& sim, EffectType type) {
+int countEffects(Simulation& sim, CombatEffectType type) {
     int n = 0;
-    for (auto e : sim.registry().view<comp::EffectTypeId>())
-        if (sim.registry().get<comp::EffectTypeId>(e).type == type) ++n;
+    for (auto e : sim.registry().view<comp::CombatEffectTypeId>())
+        if (sim.registry().get<comp::CombatEffectTypeId>(e).type == type) ++n;
     return n;
 }
 
 Config baseCfg() { return lwtest::loadCfg(); }
 
 // 放置一枚特效（角标创建者快照 = 自身位置/势力）。
-void placeEffect(Simulation& sim, double x, double y, int fid, EffectType type, double p0) {
-    SpawnSystem::spawnEffect(sim, x, y, fid, type, p0, comp::Creator{x, y, fid});
+void placeEffect(Simulation& sim, double x, double y, int fid, CombatEffectType type, double p0) {
+    SpawnSystem::spawnCombatEffect(sim, x, y, fid, type, p0, comp::Creator{x, y, fid});
+}
+
+TEST(CombatEffect, UsesCombatEntityTaxonomy) {
+    Simulation sim(baseCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    const auto effect = SpawnSystem::spawnCombatEffect(
+        sim, 10.5, 10.5, 1, CombatEffectType::bomb, 1.0, comp::Creator{10.5, 10.5, 1});
+    ASSERT_TRUE(effect != entt::null);
+    EXPECT_TRUE(sim.registry().all_of<comp::CombatEntity>(effect));
+    EXPECT_TRUE(sim.registry().all_of<comp::CombatEffect>(effect));
+    EXPECT_FALSE(sim.registry().all_of<comp::Projectile>(effect));
 }
 
 // ---- 爆炸 ----
@@ -61,7 +72,7 @@ TEST(Effect, BombConquersCircleAndExpires) {
     clearToLand(sim, 0);  // 全中立陆地
     clearArmies(sim);
 
-    placeEffect(sim, 20.5, 20.5, 1, EffectType::bomb, 2.4);
+    placeEffect(sim, 20.5, 20.5, 1, CombatEffectType::bomb, 2.4);
     sim.tick();  // tt=0：r = sqrt(1)*2.4 = 2.4，0%4==0 → 征服
     EXPECT_EQ(sim.map().at(20, 20).belongi, 1);  // 圆心格
     EXPECT_EQ(sim.map().at(19, 20).belongi, 1);  // 距离 1.0 < 2.4
@@ -75,7 +86,7 @@ TEST(Effect, BombConquersCircleAndExpires) {
     EXPECT_EQ(sim.map().at(22, 22).belongi, 1);
 
     for (int t = 0; t < 16; ++t) sim.tick();  // 超过 tt=16 后消亡
-    EXPECT_EQ(countEffects(sim, EffectType::bomb), 0);
+    EXPECT_EQ(countEffects(sim, CombatEffectType::bomb), 0);
 }
 
 TEST(Effect, BombKillsEnemiesInRadius) {
@@ -84,7 +95,7 @@ TEST(Effect, BombKillsEnemiesInRadius) {
     clearToLand(sim, 0);
     clearArmies(sim);
 
-    placeEffect(sim, 30.5, 30.5, 1, EffectType::bomb, 2.4);
+    placeEffect(sim, 30.5, 30.5, 1, CombatEffectType::bomb, 2.4);
     auto enemy = SpawnSystem::spawnArmy(sim, 30.5, 30.5, 2, ArmyType::normal);
     ASSERT_TRUE(enemy != entt::null);
 
@@ -106,13 +117,13 @@ TEST(Effect, MineTriggersAndExplodes) {
     clearToLand(sim, 0);
     clearArmies(sim);
 
-    placeEffect(sim, 10.5, 10.5, 1, EffectType::mine, 0.0);
+    placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::mine, 0.0);
     auto enemy = SpawnSystem::spawnArmy(sim, 10.5, 10.5, 2, ArmyType::normal);
     ASSERT_TRUE(enemy != entt::null);
 
     sim.tick();  // tt=0：探测到敌兵 → 引爆 → 生成爆炸特效 + 地雷消亡
-    EXPECT_EQ(countEffects(sim, EffectType::mine), 0);
-    EXPECT_EQ(countEffects(sim, EffectType::bomb), 1);
+    EXPECT_EQ(countEffects(sim, CombatEffectType::mine), 0);
+    EXPECT_EQ(countEffects(sim, CombatEffectType::bomb), 1);
 
     sim.tick();  // 爆炸 tt=1：击杀（敌兵移动仍在范围内）
     EXPECT_FALSE(sim.registry().valid(enemy));
@@ -127,15 +138,15 @@ TEST(Effect, MineTimeoutExplodes) {
     clearToLand(sim, 0);
     clearArmies(sim);
 
-    placeEffect(sim, 10.5, 10.5, 1, EffectType::mine, 0.0);
+    placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::mine, 0.0);
     sim.tick();  // tt=0：未超时 → 地雷存活
-    EXPECT_EQ(countEffects(sim, EffectType::mine), 1);
+    EXPECT_EQ(countEffects(sim, CombatEffectType::mine), 1);
     sim.tick();  // tt=1：超时 → 生成爆炸特效（统一为引爆半径 1.1）+ 地雷消亡
-    EXPECT_EQ(countEffects(sim, EffectType::mine), 0);
-    ASSERT_EQ(countEffects(sim, EffectType::bomb), 1);
-    for (auto e : sim.registry().view<comp::EffectTypeId>()) {
-        if (sim.registry().get<comp::EffectTypeId>(e).type == EffectType::bomb) {
-            EXPECT_DOUBLE_EQ(sim.registry().get<comp::EffectParams>(e).p0, 1.1);
+    EXPECT_EQ(countEffects(sim, CombatEffectType::mine), 0);
+    ASSERT_EQ(countEffects(sim, CombatEffectType::bomb), 1);
+    for (auto e : sim.registry().view<comp::CombatEffectTypeId>()) {
+        if (sim.registry().get<comp::CombatEffectTypeId>(e).type == CombatEffectType::bomb) {
+            EXPECT_DOUBLE_EQ(sim.registry().get<comp::CombatEffectParams>(e).p0, 1.1);
         }
     }
 }
@@ -150,10 +161,10 @@ TEST(Effect, MineTriggerAtTimeoutExplodesOnlyOnce) {
     clearToLand(sim, 0);
     clearArmies(sim);
 
-    placeEffect(sim, 10.5, 10.5, 1, EffectType::mine, 0.0);
+    placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::mine, 0.0);
     SpawnSystem::spawnArmy(sim, 10.5, 10.5, 2, ArmyType::normal);
     for (int i = 0; i < 13; ++i) sim.tick();  // elapsedTicks=12：探测和超时同 tick
-    EXPECT_EQ(countEffects(sim, EffectType::bomb), 1);
+    EXPECT_EQ(countEffects(sim, CombatEffectType::bomb), 1);
 }
 
 TEST(Effect, MineTriggersOnceWithMultipleEnemies) {
@@ -167,14 +178,14 @@ TEST(Effect, MineTriggersOnceWithMultipleEnemies) {
     clearToLand(sim, 0);
     clearArmies(sim);
 
-    placeEffect(sim, 10.5, 10.5, 1, EffectType::mine, 0.0);
+    placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::mine, 0.0);
     SpawnSystem::spawnArmy(sim, 10.5, 10.5, 2, ArmyType::normal);
     SpawnSystem::spawnArmy(sim, 10.4, 10.5, 2, ArmyType::normal);
     SpawnSystem::spawnArmy(sim, 10.5, 10.6, 2, ArmyType::normal);  // 三个敌兵都在雷上
 
     sim.tick();  // tt=0 探测 → 首个命中即爆（break）
-    EXPECT_EQ(countEffects(sim, EffectType::mine), 0);
-    EXPECT_EQ(countEffects(sim, EffectType::bomb), 1);  // 只爆一次
+    EXPECT_EQ(countEffects(sim, CombatEffectType::mine), 0);
+    EXPECT_EQ(countEffects(sim, CombatEffectType::bomb), 1);  // 只爆一次
 }
 
 TEST(Effect, PurpleMineTimeoutUsesTriggerRadius) {
@@ -186,13 +197,13 @@ TEST(Effect, PurpleMineTimeoutUsesTriggerRadius) {
     clearToLand(sim, 0);
     clearArmies(sim);
 
-    placeEffect(sim, 10.5, 10.5, 7, EffectType::mine, 0.0);
+    placeEffect(sim, 10.5, 10.5, 7, CombatEffectType::mine, 0.0);
     sim.tick();
     sim.tick();  // 紫7 超时爆炸半径统一为引爆半径 = 1.43（2026-08；原版 1.95）
-    ASSERT_EQ(countEffects(sim, EffectType::bomb), 1);
-    for (auto e : sim.registry().view<comp::EffectTypeId>()) {
-        if (sim.registry().get<comp::EffectTypeId>(e).type == EffectType::bomb) {
-    EXPECT_DOUBLE_EQ(sim.registry().get<comp::EffectParams>(e).p0, 1.65);
+    ASSERT_EQ(countEffects(sim, CombatEffectType::bomb), 1);
+    for (auto e : sim.registry().view<comp::CombatEffectTypeId>()) {
+        if (sim.registry().get<comp::CombatEffectTypeId>(e).type == CombatEffectType::bomb) {
+        EXPECT_DOUBLE_EQ(sim.registry().get<comp::CombatEffectParams>(e).p0, 1.65);
         }
     }
 }
@@ -206,7 +217,7 @@ TEST(Effect, LaserKillsAlongBeam) {
     clearArmies(sim);
 
     // 光束沿 +x 从 (10.5,10.5) 发射，普通激光长 30 → 终点 (40.5,10.5)。
-    placeEffect(sim, 10.5, 10.5, 1, EffectType::laser, 0.0);
+    placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::laser, 0.0);
     auto enemy = SpawnSystem::spawnArmy(sim, 20.5, 10.5, 2, ArmyType::normal);
     ASSERT_TRUE(enemy != entt::null);
 
@@ -221,7 +232,7 @@ TEST(Effect, LaserStopsAtEnemyTerritory) {
     clearArmies(sim);
     sim.map().at(12, 10).belongi = 2;  // 敌领土：激光停在 (12,10) 边界
 
-    placeEffect(sim, 10.5, 10.5, 1, EffectType::laser, 0.0);
+    placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::laser, 0.0);
     auto enemy = SpawnSystem::spawnArmy(sim, 20.5, 10.5, 2, ArmyType::normal);
     ASSERT_TRUE(enemy != entt::null);
 
@@ -238,7 +249,7 @@ TEST(Effect, NormalLaserRangeLimit) {
     clearArmies(sim);
 
     // 普通激光长 30：44.5 处敌兵打不到（距端点 ~4.0 > size+0.1）。
-    placeEffect(sim, 10.5, 10.5, 1, EffectType::laser, 0.0);
+    placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::laser, 0.0);
     auto enemy = SpawnSystem::spawnArmy(sim, 44.5, 10.5, 2, ArmyType::normal);
     ASSERT_TRUE(enemy != entt::null);
     sim.tick();
@@ -253,7 +264,7 @@ TEST(Effect, GreenLaserLongerThanNormal) {
     clearArmies(sim);
 
     // 绿5 激光长 45（×1.5）：够到 44.5 处敌兵。
-    placeEffect(sim, 10.5, 10.5, 5, EffectType::laser, 0.0);
+    placeEffect(sim, 10.5, 10.5, 5, CombatEffectType::laser, 0.0);
     auto enemy = SpawnSystem::spawnArmy(sim, 44.5, 10.5, 2, ArmyType::normal);
     ASSERT_TRUE(enemy != entt::null);
     sim.tick();
@@ -268,7 +279,7 @@ TEST(Effect, LaserHugsMapBoundary) {
     clearArmies(sim);
 
     // (a) 贴顶部边界 (y≈0.5) 沿 +x：击杀线上兵，束外兵（距线 2.0 > size+0.1）不杀。
-    placeEffect(sim, 1.5, 0.5, 1, EffectType::laser, 0.0);
+    placeEffect(sim, 1.5, 0.5, 1, CombatEffectType::laser, 0.0);
     auto onBeam = SpawnSystem::spawnArmy(sim, 6.5, 0.5, 2, ArmyType::normal);
     auto offBeam = SpawnSystem::spawnArmy(sim, 6.5, 2.5, 2, ArmyType::normal);
     ASSERT_TRUE(onBeam != entt::null && offBeam != entt::null);
@@ -277,7 +288,7 @@ TEST(Effect, LaserHugsMapBoundary) {
     EXPECT_TRUE(sim.registry().valid(offBeam));
 
     // (b) 竖直射向顶部边界：光束在 y=0 停（length≈2.5 不越界），击杀边界内线上兵。
-    placeEffect(sim, 12.5, 2.5, 1, EffectType::laser, -kPi / 2);
+    placeEffect(sim, 12.5, 2.5, 1, CombatEffectType::laser, -kPi / 2);
     auto nearTop = SpawnSystem::spawnArmy(sim, 12.5, 1.0, 2, ArmyType::normal);
     ASSERT_TRUE(nearTop != entt::null);
     sim.tick();
@@ -285,7 +296,7 @@ TEST(Effect, LaserHugsMapBoundary) {
 
     // 生命周期内（44 tick）贴界推进不崩溃。
     for (int t = 0; t < sim.config().effect.laser.durationTicks + 2; ++t) sim.tick();
-    EXPECT_EQ(countEffects(sim, EffectType::laser), 0);  // 寿命结束全部消亡
+    EXPECT_EQ(countEffects(sim, CombatEffectType::laser), 0);  // 寿命结束全部消亡
 }
 
 // ---- 无头 2000 tick 冒烟 + 确定性 ----
@@ -313,7 +324,7 @@ TEST(Effect, Headless2000TicksDeterministic) {
         int maxEffects = 0;
         for (int t = 0; t < 2000; ++t) {
             sim.tick();
-            auto ev = sim.registry().view<comp::EffectTypeId>();
+            auto ev = sim.registry().view<comp::CombatEffectTypeId>();
             maxEffects = std::max(maxEffects, static_cast<int>(std::distance(ev.begin(), ev.end())));
         }
         for (int id = 1; id <= 8; ++id) s.land += sim.factions()[static_cast<size_t>(id)].landCount;

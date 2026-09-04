@@ -1,6 +1,5 @@
 // MapGenerator.h — 随机地图生成（开发计划 P6 + P12 异种密铺）。
-// C++ 实现：菜单内实时生成 → 落盘地形基图（方 = BMP，走现有 Map::loadFromBmp；
-// 六/三角 = lwmap 自描述格式，走 Map::loadFromLwmap）→ 单一加载路径。
+// C++ 实现：菜单/无头模式直接生成 fully-resolved MapDefinition；文件输出是显式导出路径。
 // 两段式结构：① 海拔场（value-noise fBm）→ ② 阈值切海陆 + 编码 R/G 概率通道。
 // 确定性：(seed, params) 唯一决定生成的字节；生成器持独立 Rng(seed)，与局种子完全独立。
 #pragma once
@@ -9,6 +8,8 @@
 #include <string>
 
 #include "core/GameDefs.h"
+#include "core/Config.h"
+#include "world/MapDefinition.h"
 
 namespace lw {
 
@@ -29,13 +30,16 @@ struct MapGenParams {
 
 class MapGenerator {
 public:
-    // 生成地形基图到 path。返回 false 表示写盘失败（参数非法自动 clamp，不构成失败）。
-    // 方 = BMP（与 Map::loadFromBmp 逐字节对齐：54 头 + 每行 width*3 像素 BGR + 1 字节填充）；
-    // 六/三 = lwmap（magic "LWMP" + ver1 + tiling + cols + rows + 逐格 BGR 通道）。
+    // Generate a resolved map in memory. No filesystem or RNG is needed by Map
+    // when this definition is later loaded.
+    static bool generate(std::uint32_t seed, const MapGenParams& params,
+                         MapDefinition& out, const Config::City& cityConfig = Config::City{});
+
+    // Explicit native export API. Runtime random-map initialization does not
+    // use this overload.
     static bool generate(const std::string& path, std::uint32_t seed, const MapGenParams& p);
 
-    // 默认生成路径：userdata/maps/gen_<seed>_<w>x<h>_<sea>_<mtn>_<city>.bmp（方）；
-    // gen_<seed>_<tiling>_<w>x<h>_...lwmap（六/三）。自我描述、确定性。
+    // Default native export path, ending in .landmap.
     static std::string defaultPath(std::uint32_t seed, const MapGenParams& p);
 };
 

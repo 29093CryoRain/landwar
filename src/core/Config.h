@@ -38,7 +38,7 @@ inline std::array<int, 3> weightedMix3(const std::array<int, 3>& a, const std::a
 
 struct Config {
     struct Map {
-        std::string file = kDefaultMapFile;  // 基线地图（2026-08-02 用户定夺；资产在 data/）
+        std::string file;  // optional explicit native map path; empty means random generation
         int width = 105;
         int height = 95;
         int blockSize = 15; // 正方形单格边长（逻辑屏幕像素）；其他密铺按平均面积归一化

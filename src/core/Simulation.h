@@ -7,6 +7,8 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include <entt/entt.hpp>
@@ -64,7 +66,7 @@ enum class SimStage : int {
     Projectile,     // ProjectileSystem::update
     Economy,        // EconomySystem::update
     Production,     // ProductionSystem::update
-    Effect,         // EffectSystem::update
+    CombatEffect,   // CombatEffectSystem::update
     Death,          // DeathSystem::flush
     Capital,        // CapitalSystem::update
     Tech,           // TechSystem::update
@@ -106,8 +108,8 @@ class Simulation {
 public:
     Simulation();
     explicit Simulation(const Config& config, std::uint32_t seed);
-    // P6 RNG 分离：mapSeed 驱动地图生成（山/城骰子，loadFromBmp）；seed（主种子）驱动
-    // 首都放置与之后一切。旧两参构造等价 mapSeed=seed（headless/CLI 兼容）。
+    // P6 RNG 分离：mapSeed identifies the generated map; seed drives
+    // capitals and the simulation. The two-argument constructor uses seed for both.
     Simulation(const Config& config, std::uint32_t seed, std::uint32_t mapSeed);
 
     // 加载地图 -> 放置首都 -> 清理统计 -> 建势力（含回合顺序 shuffle 与征服首都）。
@@ -118,6 +120,9 @@ public:
     // 等价 init() + 设置 options_；禁用势力不征服首都（首都保持中立）。RNG 序列与全启用一致
     // （init 阶段 conquer 的 freeArmyEnabled=false，不消耗 Rng），确定性键 = (seed, config, map, options)。
     bool init(const Options& options);
+
+    // Inject a generated native definition before init.
+    void setMapDefinition(MapDefinition definition) { mapDefinition_ = std::move(definition); }
 
     // 单步推进模拟（60Hz 逻辑帧）。顺序见翻新计划 §2.10。
     void tick();
@@ -214,7 +219,7 @@ private:
     Options options_;            // 菜单选项（P1；headless/默认 = 全启用 aiId=0）
     PlayerIntent playerIntent_;  // 玩家产兵意图（P2；不进快照）
     std::unique_ptr<Rng> rng_;   // 主种子（首都放置 + 一切后续）
-    std::unique_ptr<Rng> mapRng_;  // 地图种子（P6：仅 init 时 loadFromBmp 的山/城骰子用）
+    std::optional<MapDefinition> mapDefinition_;
     std::uint32_t mapSeed_ = 0;    // 地图种子值（显示/快照用）
     Map map_;
     std::vector<Faction> factions_;

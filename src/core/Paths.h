@@ -1,10 +1,9 @@
 // Paths.h — 路径约定（2026-08 工程改进：资产与运行期产物分离）。
 //
 // 资产（只读、随源码分发，位于 data/）：
-//   map_*.bmp、army*.png、config.jsonc 及其配置分片、towers.png 等。
+//   army*.png、config.jsonc 及其配置分片、towers.png 等。
 // 运行期产物（可写、可丢弃、不进版本库，位于 userdata/）：
 //   userdata/options.json        菜单选项（开始游戏时保存、启动读取）
-//   userdata/maps/gen_*.bmp      随机地图生成物（P6，确定性：seed+参数 → 同名文件）
 //   userdata/screenshots/        F12 / QA 钩子截图
 //
 // 约定：从项目根运行（data/ 相对 CWD 解析）是既定约束（见 README）。
@@ -38,7 +37,6 @@ inline const std::string kCityShapesPath = "data/city_shapes.jsonc";
 // tools/city_icon_fit_tool + tools/apply_city_icon_fit_scales.py 生成）。
 inline const std::string kCityIconFitsPath = "data/city_icon_fits.jsonc";
 inline const std::string kDefaultOptionsPath = "userdata/options.json";
-inline const std::string kDefaultMapFile = "data/map_bigIslands.bmp";  // 默认地图（资产）
 
 // 确保目录存在（按 '/' 或 '\\' 逐级创建；已存在视为成功）。失败返回 false。
 bool ensureDirExists(const std::string& path);

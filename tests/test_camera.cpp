@@ -118,3 +118,13 @@ TEST(Camera, CellRectGaplessWhenZoomed) {
     EXPECT_GT(r.w, 0);
     EXPECT_GT(r.h, 0);
 }
+
+TEST(Camera, ViewportClampsMapAwayFromSidePanel) {
+    lw::math::ScreenTransform tf{10.0, 300, 20.0};
+    lw::render::Camera camera;
+    camera.configure(tf, 1200, 800, 40.0, 20.0, 300, 0, 900, 800);
+    camera.pan(-10000.0, 0.0);
+    EXPECT_GE(camera.toScreenX(40.0), 300.0);
+    camera.pan(10000.0, 0.0);
+    EXPECT_LE(camera.toScreenX(0.0), 1200.0);
+}

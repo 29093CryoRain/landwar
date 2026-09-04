@@ -99,51 +99,60 @@ void initDrafts(MenuState& st, const Options& options) {
 
 // 加载预装地图预览（缓存 key = file + seed；未缓存才读盘 + 掷骰 + 渲染）。失败返回 nullptr。
 SDL_Texture* filePreview(MenuState& st, SDL_Renderer* ren, const Config& cfg,
-                         const std::string& file, int* outW, int* outH) {
+                          const std::string& file, int* outW, int* outH) {
     const std::string key = file + "#" + std::to_string(st.draftSeed);
     if (SDL_Texture* cached = st.previews.lookup(key, outW, outH)) return cached;
+    MapDefinition definition;
+    std::string error;
+    if (!MapDefinition::loadFromFile(file, definition, &error)) {
+        spdlog::warn("menu preview: load '{}' failed: {}", file, error);
+        return nullptr;
+    }
     Config c = cfg;
-    c.map.file = file;
+    c.map.width = definition.cols;
+    c.map.height = definition.rows;
+    c.map.tiling = tilingName(definition.tiling);
     Map map;
     map.configure(c.map);
     map.setTerrain(c.terrain);
-    Rng r(st.draftSeed);  // 山/城骰子用当前地图种子（预览即所见）
-    if (!map.loadFromBmp(file, r)) {
-        spdlog::warn("menu preview: load '{}' failed", file);
+    map.setCityConfig(c.city);
+    if (!map.loadFromDefinition(definition, &error)) {
+        spdlog::warn("menu preview: load '{}' failed: {}", file, error);
         return nullptr;
     }
     return st.previews.get(ren, key, map, kPreviewW, outW, outH);
 }
 
-// 生成随机图（确定性：seed+params；方 = BMP，六/三 = lwmap）；成功返回 true。
+// 生成随机图（确定性：seed+params）并直接预览内存定义。
 bool generateRandomMap(MenuState& st, const Config& cfg, SDL_Renderer* ren) {
     const MapGenParams p{st.randW, st.randH, st.seaRatio, st.mtnDensity, st.cityDensity,
                          cfg.map.cityMountainWeight, st.forceCoast, st.tiling,
                          cfg.map.forceCoastRangeMultiplier, cfg.map.forceCoastStrengthMultiplier};
-    st.genPath = MapGenerator::defaultPath(st.draftSeed, p);
+    st.genKey = "random:" + std::to_string(st.draftSeed) + ":" + tilingName(st.tiling) + ":" +
+                std::to_string(st.randW) + "x" + std::to_string(st.randH) + ":" +
+                std::to_string(st.seaRatio) + ":" + std::to_string(st.mtnDensity) + ":" +
+                std::to_string(st.cityDensity) + ":" + (st.forceCoast ? "1" : "0");
     st.genError.clear();
-    if (!MapGenerator::generate(st.genPath, st.draftSeed, p)) {
-        st.genError = "随机图生成失败（写盘错误）";
+    MapDefinition definition;
+    if (!MapGenerator::generate(st.draftSeed, p, definition, cfg.city)) {
+        st.genError = "随机图生成失败";
         return false;
     }
     Config c = cfg;
-    c.map.width = st.randW;
-    c.map.height = st.randH;
-    c.map.tiling = tilingName(st.tiling);  // P12：密铺（load 分发 + 预览几何）
-    c.map.file = st.genPath;
+    c.map.width = definition.cols;
+    c.map.height = definition.rows;
+    c.map.tiling = tilingName(definition.tiling);
     Map map;
     map.configure(c.map);
     map.setTerrain(c.terrain);
-    Rng r(st.draftSeed);
-    const bool ok = (st.tiling == TilingType::Square)
-                        ? map.loadFromBmp(st.genPath, r)
-                        : map.loadFromLwmap(st.genPath, r);
-    if (!ok) {
-        st.genError = "随机图加载失败";
+    map.setCityConfig(c.city);
+    std::string error;
+    if (!map.loadFromDefinition(definition, &error)) {
+        st.genError = "随机图加载失败: " + error;
         return false;
     }
     int tw = 0, th = 0;
-    if (!st.previews.get(ren, st.genPath, map, kPreviewW, &tw, &th)) {
+    if (!st.previews.get(ren, st.genKey, map, kPreviewW, &tw, &th)) {
         st.genError = "随机图预览渲染失败";
         return false;
     }
@@ -465,7 +474,7 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         if (ImGui::Button("生成并预览")) generateRandomMap(st, cfg, ren);
 
         int tw = 0, th = 0;
-        if (SDL_Texture* t = st.previews.lookup(st.genPath, &tw, &th)) {
+        if (SDL_Texture* t = st.previews.lookup(st.genKey, &tw, &th)) {
             // 预览随 UI 缩放（2026-08 修：此前恒按纹理原生尺寸显示）。
             ImGui::Image(reinterpret_cast<ImTextureID>(t),
                          ImVec2(static_cast<float>(tw) * uiScale, static_cast<float>(th) * uiScale));
@@ -478,7 +487,6 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
             ImGui::TextUnformatted(st.genError.c_str());
             ImGui::PopStyleColor();
         }
-        if (!st.genPath.empty()) ImGui::TextUnformatted(st.genPath.c_str());
     }
 
     ImGui::Separator();
@@ -547,7 +555,7 @@ SDL_Texture* PreviewCache::lookup(const std::string& key, int* outW, int* outH) 
 std::vector<std::string> enumerateMapFiles(const std::string& dataDir) {
     std::vector<std::string> out;
 #ifdef _WIN32
-    const std::string pattern = dataDir + "/*.bmp";
+    const std::string pattern = dataDir + "/*.landmap";
     WIN32_FIND_DATAA fd;
     HANDLE hFind = FindFirstFileA(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) {
@@ -556,7 +564,7 @@ std::vector<std::string> enumerateMapFiles(const std::string& dataDir) {
     }
     do {
         if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            // 统一正斜杠（与 config.json 的 map.file 一致，如 data/map_bigIslands.bmp）。
+            // 统一正斜杠。
             out.push_back(dataDir + "/" + fd.cFileName);
         }
     } while (FindNextFileA(hFind, &fd) != 0);
@@ -569,7 +577,7 @@ std::vector<std::string> enumerateMapFiles(const std::string& dataDir) {
     for (; it != end && !ec; it.increment(ec)) {
         const auto& entry = *it;
         if (!entry.is_regular_file(ec) && !ec) continue;
-        if (entry.path().extension() == ".bmp")
+        if (entry.path().extension() == ".landmap")
             out.push_back(dataDir + "/" + entry.path().filename().string());
     }
     if (ec)

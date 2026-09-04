@@ -179,7 +179,7 @@ TEST(OptionsPanels, JsonRoundTripPreservesLayout) {
     EXPECT_FALSE(b.panels[1].visible);
 
     // 未设置的其他选项字段保持默认（往返无损）。
-    EXPECT_EQ(b.map.file, "data/map_bigIslands.bmp");
+    EXPECT_TRUE(b.map.file.empty());
     EXPECT_TRUE(b.factions[0].enabled);
 }
 

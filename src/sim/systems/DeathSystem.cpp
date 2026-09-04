@@ -31,11 +31,11 @@ void spawnDeathEffects(Simulation& sim, const DeathEvent& d) {
                 const double spread = kPi * cfg.effect.laser.beamSpreadPIFrac;
                 for (int i = 0; i < mods.laserExtraBeams; ++i) {
                     const double s = (i % 2 == 0) ? -spread : spread;
-                    SpawnSystem::spawnEffect(sim, d.x, d.y, d.factionId, EffectType::laser,
+                    SpawnSystem::spawnCombatEffect(sim, d.x, d.y, d.factionId, CombatEffectType::laser,
                                              angle + s, creator);
                 }
             }
-            SpawnSystem::spawnEffect(sim, d.x, d.y, d.factionId, EffectType::laser, angle, creator);
+            SpawnSystem::spawnCombatEffect(sim, d.x, d.y, d.factionId, CombatEffectType::laser, angle, creator);
             break;
         }
         case DeathEffect::bomb: {
@@ -44,11 +44,11 @@ void spawnDeathEffects(Simulation& sim, const DeathEvent& d) {
                 cfg.effect.bomb.baseRadius
                 * sim.faction(d.factionId).mods.explosionRadiusAdd
                 * sim.faction(d.factionId).mods.bombExplosionRadiusAdd;
-            SpawnSystem::spawnEffect(sim, d.x, d.y, d.factionId, EffectType::bomb, radius, creator);
+            SpawnSystem::spawnCombatEffect(sim, d.x, d.y, d.factionId, CombatEffectType::bomb, radius, creator);
             break;
         }
         case DeathEffect::mine:
-            SpawnSystem::spawnEffect(sim, d.x, d.y, d.factionId, EffectType::mine, 0.0, creator);
+            SpawnSystem::spawnCombatEffect(sim, d.x, d.y, d.factionId, CombatEffectType::mine, 0.0, creator);
             break;
         case DeathEffect::none:
             break;

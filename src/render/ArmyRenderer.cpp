@@ -40,7 +40,7 @@ void ArmyRenderer::draw(const Simulation& sim) {
         SDL_Texture* tex = sheet_.texture(fid - 1);
         // P9（2026-08-07）：手枪/霰弹兵贴图随运动方向旋转——枪管（图中朝上）朝前。
         // 子弹与其他兵不旋转（drawSpriteCentered）。公式：朝上贴图 = 激光朝下贴图公式 +180°
-        //（激光角 = -angle-π/2，见 EffectRenderer；up 贴图反向即 +π）。
+        //（激光角 = -angle-π/2，见 CombatEffectRenderer；up 贴图反向即 +π）。
         const bool rotated =
             (type == static_cast<int>(ArmyType::pistol) || type == static_cast<int>(ArmyType::shotgun));
         const double angleDeg = rotated

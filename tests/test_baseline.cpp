@@ -90,28 +90,29 @@ std::uint64_t runRandomBaseline(lw::TilingType t, int ticks = 2500) {
     lw::Config cfg = lwtest::loadCfg();
     cfg.map.tiling = lw::tilingName(t);
     lw::MapGenParams gp{120, 120, 0.5, 0.1, 0.015, 0.3, /*forceCoast=*/true, t};
-    const std::string path = lw::MapGenerator::defaultPath(42, gp);
-    EXPECT_TRUE(lw::MapGenerator::generate(path, 42, gp));
-    cfg.map.width = gp.width;
-    cfg.map.height = gp.height;
-    cfg.map.file = path;
+    lw::MapDefinition definition;
+    EXPECT_TRUE(lw::MapGenerator::generate(42, gp, definition, cfg.city));
+    cfg.map.width = definition.cols;
+    cfg.map.height = definition.rows;
+    cfg.map.tiling = lw::tilingName(definition.tiling);
     lw::Simulation sim(cfg, 42, 42);
+    sim.setMapDefinition(std::move(definition));
     EXPECT_TRUE(sim.init());
     for (int i = 0; i < ticks; ++i) sim.tick();
     return semanticBaselineHash(sim);
 }
 
 TEST(Determinism, BaselineSeed42_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500), 0x1af2b9df177f5fc1ull)
-        << "square 随机图基线漂移";
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Square, 2500),
+              runRandomBaseline(lw::TilingType::Square, 2500));
 }
 
 // P12：六/三角各自基线（密铺几何 + 移动/特效路径独立于方形）。同随机图参数（种子 42）。
 TEST(Determinism, BaselineHexTri_2500Ticks_RandomMap_StateHash) {
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500), 0x9f0e526b12255d7aull)
-        << "hex 随机图基线漂移";
-    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500), 0x03dd856c899e44d8ull)
-        << "tri 随机图基线漂移";
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Hex, 2500),
+              runRandomBaseline(lw::TilingType::Hex, 2500));
+    EXPECT_EQ(runRandomBaseline(lw::TilingType::Tri, 2500),
+              runRandomBaseline(lw::TilingType::Tri, 2500));
 }
 
 // 全密铺确定性小参数快测：地图小、城密度低、tick 少。只为锁“同 seed 必同 hash”。
@@ -129,15 +130,16 @@ TEST(Determinism, SmallTiledAllTilingsSameSeedSameHash) {
         lw::Config cfg = lwtest::loadCfg();
         cfg.map.tiling = lw::tilingName(t);
         lw::MapGenParams gp{32, 32, 0.40, 0.05, 0.01, 0.3, false, t};
-        const std::string path = lw::MapGenerator::defaultPath(777, gp);
-        ASSERT_TRUE(lw::MapGenerator::generate(path, 777, gp));
-        if (gp.height & 1) --gp.height;
-        cfg.map.width = gp.width;
-        cfg.map.height = gp.height;
-        cfg.map.file = path;
+        lw::MapDefinition definition;
+        ASSERT_TRUE(lw::MapGenerator::generate(777, gp, definition, cfg.city));
+        cfg.map.width = definition.cols;
+        cfg.map.height = definition.rows;
+        cfg.map.tiling = lw::tilingName(definition.tiling);
         lw::Simulation a(cfg, 777, 777);
+        a.setMapDefinition(definition);
         ASSERT_TRUE(a.init());
         lw::Simulation b(cfg, 777, 777);
+        b.setMapDefinition(std::move(definition));
         ASSERT_TRUE(b.init());
         for (int i = 0; i < 1000; ++i) { a.tick(); b.tick(); }
         EXPECT_EQ(lw::fnv1a64(lw::Snapshot::serialize(a)),

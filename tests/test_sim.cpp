@@ -2,11 +2,14 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <utility>
 #include <vector>
 
 #include "core/Config.h"
 #include "core/Simulation.h"
+#include "world/MapGenerator.h"
+#include "TestUtil.h"
 
 namespace {
 
@@ -140,19 +143,30 @@ TEST(Simulation, MapSeedDrivesTerrainMainSeedDrivesCapitals) {
     EXPECT_TRUE(capDiff);  // 首都用主种子，两局几乎必然不同
 }
 
-TEST(Simulation, DifferentMapSeedChangesTerrain) {
-    // 同主种子、不同地图种子 → 城骰子不同 → 城市布局不同（海/陆仍确定，由 BMP）。
-    lw::Simulation a(loadCfg(), 7, 1);
-    lw::Simulation b(loadCfg(), 7, 2);
+TEST(Simulation, NativeFileMapDoesNotConsumeMapSeed) {
+    // A resolved file map is independent of the map seed.
+    const lw::Config base = loadCfg();
+    const lw::MapGenParams params{48, 40, 0.35, 0.08, 0.03};
+    lw::MapDefinition definition;
+    ASSERT_TRUE(lw::MapGenerator::generate(42, params, definition, base.city));
+    const std::string path = lwtest::testArtifactPath("sim_native_file.landmap");
+    ASSERT_TRUE(definition.saveToFile(path));
+    lw::Config cfgA = base;
+    lw::Config cfgB = base;
+    cfgA.map.file = path;
+    cfgB.map.file = path;
+    lw::Simulation a(cfgA, 7, 1);
+    lw::Simulation b(cfgB, 7, 2);
     ASSERT_TRUE(a.init());
     ASSERT_TRUE(b.init());
-    // 海/陆确定性不受地图种子影响（由 BMP 决定）。
+    // Terrain and city records are fixed by the native file.
     for (int y = 0; y < a.map().height(); ++y) {
         for (int x = 0; x < a.map().width(); ++x) {
             EXPECT_EQ(a.map().at(x, y).land, b.map().at(x, y).land) << "(" << x << "," << y << ")";
         }
     }
-    EXPECT_TRUE(anyCityDiff(a.map(), b.map()));  // 城骰子不同 → 布局几乎必然不同
+    EXPECT_FALSE(anyCityDiff(a.map(), b.map()));
+    std::remove(path.c_str());
 }
 
 TEST(Simulation, TwoArgCtorDefaultsMapSeedToSeed) {

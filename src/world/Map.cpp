@@ -4,13 +4,12 @@
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <functional>
 #include <map>
+#include <unordered_set>
 
 #include "core/MathUtil.h"
-#include "world/Bmp24.h"
-#include "world/TerrainCodec.h"
+#include "world/MapDefinition.h"
 
 namespace lw {
 
@@ -103,105 +102,128 @@ void Map::configure(const Config::Map& cfg) {
     clear();
 }
 
-bool Map::loadFromBmp(const std::string& path, Rng& rng) {
-    Bmp24Image image;
-    std::string error;
-    if (!readBmp24(path, image, &error)) {
-        spdlog::error("map file '{}': {}", path, error);
-        return false;
-    }
-    if (image.width != width_ || image.height != height_) {
-        spdlog::error("map file '{}': size mismatch ({}x{} vs {}x{})", path, image.width,
-                      image.height, width_, height_);
-        return false;
-    }
+void Map::configureCanonical(TilingType tiling, int cols, int rows) {
+    width_ = std::max(1, cols);
+    height_ = std::max(1, rows);
+    geom_ = TilingGeom{tiling, width_, height_};
+    clear();
+}
 
-    // P13 第一遍：读全图通道 → 确定海/陆（确定性，不掷骰）。城市形状占用后续格，须先全图
-    // 海陆已知才能做放置检查（第二遍），故拆两遍。
-    std::vector<CellChannels> ch(static_cast<size_t>(cellCount()));
-    for (int j = 0; j < height_; ++j) {
-        for (int i = 0; i < width_; ++i) {
-            const auto& rgb = image.pixels[static_cast<size_t>(j) * width_ + i];
-            const bool sea = terrain::isSea(rgb[0], rgb[1], rgb[2], terrain_);
-            // P13 关键：第一遍即确定全图海陆（置 cell.land）。否则第二遍逐格时才设 land，
-            // 多格形状要检查的"未来格"（同行右侧/下方行）land 仍是 clear 默认 false，
-            // 放置恒失败回退 1 级（2026-08-07 修：测试暴露多格城市全部塌缩为 1 级）。
-            at(i, j).land = !sea;
-            ch[static_cast<size_t>(j) * width_ + i] = {sea, rgb[1], rgb[0]};
+bool Map::loadFromDefinition(const MapDefinition& definition, std::string* err) {
+    if (!definition.validate(err)) return false;
+    if (definition.tiling != geom_.type || definition.cols != geom_.cols ||
+        definition.rows != geom_.rows) {
+        // A native file stores canonical domain dimensions. Do not pass them
+        // through configure(), which interprets dimensions as user-facing
+        // dimensions and applies table-domain normalization again.
+        configureCanonical(definition.tiling, definition.cols, definition.rows);
+    }
+    if (definition.terrain.size() != static_cast<size_t>(cellCount())) {
+        if (err) *err = "map definition terrain size does not match geometry";
+        return false;
+    }
+    clear();
+    for (int idx = 0; idx < cellCount(); ++idx) {
+        MapCell& cell = atIndex(idx);
+        const MapTerrain value = definition.terrain[static_cast<size_t>(idx)];
+        cell.land = value != MapTerrain::Sea;
+        cell.mountain = value == MapTerrain::Mountain;
+        if (value == MapTerrain::City) cell.mountain = false;
+        cell.cityAllowed = cell.land;
+    }
+    for (const auto& record : definition.cities) {
+        if (record.baseIndex < 0 || record.baseIndex >= cellCount()) {
+            if (err) *err = "map definition city baseIndex is out of range";
+            return false;
         }
+        const auto& set = cityConfig_.setFor(geom_.type);
+        const Config::City::Shape* shape = set.shapeFor(record.level, record.shapeVariant);
+        if (!shape) {
+            if (err) *err = "map definition city level or shapeVariant is unknown";
+            return false;
+        }
+        const std::vector<int> occupied = shapeCells(record.level, record.baseIndex,
+                                                      record.shapeVariant);
+        std::unordered_set<int> unique;
+        if (occupied.size() != shape->cells.size()) {
+            if (err) *err = "map definition city shape is incomplete";
+            return false;
+        }
+        for (int idx : occupied) {
+            if (idx < 0 || !unique.insert(idx).second || !atIndex(idx).land ||
+                atIndex(idx).cityId != -1) {
+                if (err) *err = "map definition city occupied cells are invalid";
+                return false;
+            }
+        }
+        City city;
+        city.id = static_cast<int>(cities_.size());
+        city.level = record.level;
+        city.area = record.level;
+        city.baseIndex = record.baseIndex;
+        city.shapeVariant = record.shapeVariant;
+        int row = 0, col = 0, base = 0;
+        geom_.indexToRowCol(record.baseIndex, row, col, base);
+        city.baseX = col;
+        city.baseY = row;
+        for (int idx : occupied) atIndex(idx).cityId = city.id;
+        cities_.push_back(std::move(city));
+        updateCityGeometry(cities_.back());
     }
-
-    finishTerrain(ch, rng);  // 第二遍：掷山/城骰 + 放置城市（方 = 原 y 先行后列序 ≡ 下标序）
     return true;
 }
 
-// P12：lwmap 加载（六/三角地形基图；自描述格式，见 MapGenerator）。通道语义与 BMP 一致
-// （任一分量 < seaChannelMin → 海；山 R / 城 G 概率通道）→ 与 loadFromBmp 共用第二遍。
-bool Map::loadFromLwmap(const std::string& path, Rng& rng) {
-    std::ifstream ifs(path, std::ios::binary);
-    if (!ifs.is_open()) {
-        spdlog::error("lwmap file '{}' not found", path);
-        return false;
-    }
-    char magic[4];
-    ifs.read(magic, 4);
-    if (ifs.gcount() != 4 || magic[0] != 'L' || magic[1] != 'W' || magic[2] != 'M' ||
-        magic[3] != 'P') {
-        spdlog::error("lwmap file '{}': bad magic", path);
-        return false;
-    }
-    unsigned char ver = 0;
-    ifs.read(reinterpret_cast<char*>(&ver), 1);
-    if (ver != 1) {
-        spdlog::error("lwmap file '{}': unsupported version {}", path, static_cast<int>(ver));
-        return false;
-    }
-    unsigned char tilingByte = 0;
-    ifs.read(reinterpret_cast<char*>(&tilingByte), 1);
-    int cw = 0, rh = 0;
-    ifs.read(reinterpret_cast<char*>(&cw), 4);
-    ifs.read(reinterpret_cast<char*>(&rh), 4);
-    if (ifs.eof() || cw <= 0 || rh <= 0 || cw > 100000 || rh > 100000) {
-        spdlog::error("lwmap file '{}': bad header", path);
-        return false;
-    }
-    // P12 旧格式：1=hex、2=tri。2026-08-16 起 tilingByte = TilingType 枚举值（0..16）。
-    TilingType fileTiling = TilingType::Square;
-    if (tilingByte < kTilingTypeCount)
-        fileTiling = static_cast<TilingType>(tilingByte);
-    else
-        fileTiling = TilingType::Square;
-    if (fileTiling != geom_.type) {
-        spdlog::error("lwmap file '{}': tiling mismatch (file {}, map {})", path,
-                      tilingName(fileTiling), tilingName(geom_.type));
-        return false;
-    }
-    // 尺寸须与 configure 一致（几何由 Map 决定，文件只载通道）。
-    if (cw != geom_.cols || rh != geom_.rows) {
-        spdlog::error("lwmap file '{}': size mismatch ({}x{} vs {}x{})", path, cw, rh, geom_.cols,
-                      geom_.rows);
-        return false;
-    }
-
-    // 第一遍：读全图通道 → 海/陆（与 BMP 同语义：任一分量 < seaChannelMin → 海）。
-    std::vector<CellChannels> ch(static_cast<size_t>(cellCount()));
-    for (int idx = 0; idx < cellCount(); ++idx) {
-        unsigned char bgr[3];
-        ifs.read(reinterpret_cast<char*>(bgr), 3);
-        if (ifs.gcount() != 3) {
-            spdlog::error("lwmap file '{}': data truncated at cell {}", path, idx);
-            return false;
-        }
-        const bool sea = terrain::isSea(bgr[2], bgr[1], bgr[0], terrain_);
-        atIndex(idx).land = !sea;
-        ch[static_cast<size_t>(idx)] = {sea, bgr[1], bgr[2]};
-    }
-    finishTerrain(ch, rng);  // 第二遍：掷山/城骰 + 放置城市（RNG 顺序 = 格下标序）
-    return true;
+bool Map::loadFromLandmap(const std::string& path, std::string* err) {
+    MapDefinition definition;
+    if (!MapDefinition::loadFromFile(path, definition, err)) return false;
+    return loadFromDefinition(definition, err);
 }
 
 // 第二遍（方/六/三/表驱动共用）：按随机顺序处理山地/建城许可；然后按城市密度与
 // 幂律采样出目标等级列表，优先从大到小随机安置城市（见文件头注）。
+void Map::populateRandomCities(Rng& rng, double cityDensity, double mountainWeight) {
+    const auto& set = cityConfig_.setFor(geom_.type);
+    if (set.levels.empty()) return;
+    std::vector<int> landCells;
+    std::vector<double> weights;
+    for (int idx = 0; idx < cellCount(); ++idx) {
+        const MapCell& cell = atIndex(idx);
+        if (!cell.land) continue;
+        landCells.push_back(idx);
+        weights.push_back(cell.mountain ? std::max(0.0, mountainWeight) : 1.0);
+    }
+    if (landCells.empty()) return;
+    const int target = std::clamp(static_cast<int>(std::lround(
+                                       std::clamp(cityDensity, 0.0, 1.0) * landCells.size())),
+                                  0, static_cast<int>(landCells.size()));
+    std::vector<double> levels;
+    levels.reserve(static_cast<size_t>(target));
+    for (int i = 0; i < target; ++i) levels.push_back(sampleCityLevel(cityConfig_, set, rng));
+    std::sort(levels.begin(), levels.end(), std::greater<double>());
+
+    for (double level : levels) {
+        const int candidateCount = static_cast<int>(landCells.size());
+        bool placed = false;
+        for (int tries = 0; tries < 200 && tries < candidateCount; ++tries) {
+            const int pos = rng.get(candidateCount - 1);
+            const int idx = landCells[static_cast<size_t>(pos)];
+            if (weights[static_cast<size_t>(pos)] <= 0.0 || !canPlaceCity(level, idx)) continue;
+            addCity(level, idx, &rng);
+            placed = true;
+            break;
+        }
+        if (placed) continue;
+        for (int pos = 0; pos < candidateCount; ++pos) {
+            const int idx = landCells[static_cast<size_t>(pos)];
+            if (weights[static_cast<size_t>(pos)] > 0.0 && canPlaceCity(level, idx)) {
+                addCity(level, idx, &rng);
+                break;
+            }
+        }
+    }
+}
+
+/*
 void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
     const int n = cellCount();
 
@@ -348,6 +370,7 @@ void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
         // 放不下就丢弃该次采样（保持目标等级列表中的大城优先；小城稍后仍有自己的采样）。
     }
 }
+*/
 
 void Map::correctMountainCoast() {
     if (geom_.type == TilingType::Square) {
@@ -566,7 +589,7 @@ bool Map::placeCapitals(Rng& rng, int factionCount) {
             break;
         }
     }
-    // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册 1 级城
+    // An existing city at the capital cell becomes the capital; otherwise a 1-level city is registered
     //（方/六/三最小等级均为 1，即文档存在的单格城）。
     for (int i = 0; i < factionCount; ++i) {
         const int cx = capitalX_[static_cast<size_t>(i)];
@@ -760,9 +783,10 @@ std::vector<int> Map::placeableVariants(double level, int index, bool requireAll
         }
         // 用统一解析器逐变体解析形状格（shapeCells 也走同一 helper）。
         const std::vector<int> cells = resolveShapeCells(*sh, index);
+        std::unordered_set<int> unique;
         bool ok = true;
         for (int idx : cells) {
-            if (idx < 0) { ok = false; break; }  // 界内（含环绕图不跨接缝）
+            if (idx < 0 || !unique.insert(idx).second) { ok = false; break; }
             const MapCell& c = atIndex(idx);
             if (!c.land || c.cityId != -1) { ok = false; break; }  // 陆地且无重叠
         }

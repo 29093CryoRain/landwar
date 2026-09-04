@@ -24,7 +24,7 @@ struct CliOptions {
     std::string loadPath;     // 从存档继续（覆盖 seed/config/map）
     std::string screenshotPath;  // 窗口模式：跑到 tick=--ticks 时截图并退出（QA/视觉对拍钩子）
     bool noMenu = false;         // 窗口模式：跳过菜单直接开始（P1）
-    std::string tiling;          // P12：--tiling square|hex|tri（tilingSet=true 时生效；非方自动生成 lwmap）
+    std::string tiling;          // P12：--tiling square|hex|tri（tilingSet=true 时生效）
     bool tilingSet = false;      // 是否显式指定 --tiling
 };
 

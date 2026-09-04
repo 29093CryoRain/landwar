@@ -8,8 +8,7 @@ rights to third-party assets or libraries.
 
 | Asset | Current status |
 |---|---|
-| `data/map_*.bmp` | Hand-drawn project maps. The project author confirmed that these maps may be redistributed with the project. |
-| `data/army*.png`, `data/tower/*.png`, `data/mountain.png`, `data/city.png`, `data/ring.png`, `data/arrow*.png` | Attribution or author permission is not recorded in this repository yet. Do not mark a public release complete until this row is confirmed. |
+| `data/army*.png`, `data/tower/*.png`, `data/mountain.png`, `data/ring.png`, `data/arrow*.png` | Attribution or author permission is not recorded in this repository yet. Do not mark a public release complete until this row is confirmed. |
 | CJK fonts | Not bundled. Windows system fonts are probed at runtime; users must obtain and license those fonts independently. |
 
 ## Review Rule

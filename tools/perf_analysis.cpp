@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -48,7 +49,7 @@ const char* stageName(lw::SimStage s) {
         case lw::SimStage::Projectile: return "Projectile";
         case lw::SimStage::Economy: return "Economy";
         case lw::SimStage::Production: return "Production";
-        case lw::SimStage::Effect: return "Effect";
+        case lw::SimStage::CombatEffect: return "CombatEffect";
         case lw::SimStage::Death: return "Death";
         case lw::SimStage::Capital: return "Capital";
         case lw::SimStage::Tech: return "Tech";
@@ -65,7 +66,7 @@ int main(int argc, char* argv[]) {
     const Opts o = parse(argc, argv);
     const auto tiling = lw::tilingFromName(o.tiling);
 
-    // 生成 ~o.w×o.h 随机地图（方=BMP、六/三=lwmap）；与 Headless 同参数集。
+    // Generate ~o.w×o.h random map directly in memory.
     lw::MapGenParams gp;
     gp.width = o.w;
     gp.height = o.h;
@@ -76,23 +77,23 @@ int main(int argc, char* argv[]) {
 
     lw::Config cfg = lw::Config::loadFromFile(lw::kDefaultConfigPath);
     cfg.map.tiling = o.tiling;
-    // 生成器内部 clamp（六/三偶数行、三列减半），这里把"视觉宽高"原样交给 generate/configure，
-    // 两者用同一公式推导实际 cols/rows（lwmap 头尺寸对齐）。只保证偶数行（偶数输入恒不改）。
+    // The generator applies the same canonical-domain normalization as Map.
     gp.width = std::clamp(gp.width, 32, 200);
     gp.height = std::clamp(gp.height, 32, 200);
     if ((tiling == lw::TilingType::Hex || tiling == lw::TilingType::Tri) && (gp.height & 1))
         --gp.height;
 
-    const std::string mpath = lw::MapGenerator::defaultPath(o.seed, gp);
-    if (!lw::MapGenerator::generate(mpath, o.seed, gp)) {
-        spdlog::error("map generate failed: {}", mpath);
+    lw::MapDefinition definition;
+    if (!lw::MapGenerator::generate(o.seed, gp, definition, cfg.city)) {
+        spdlog::error("map generate failed");
         return 1;
     }
-    cfg.map.width = gp.width;
-    cfg.map.height = gp.height;
-    cfg.map.file = mpath;
+    cfg.map.width = definition.cols;
+    cfg.map.height = definition.rows;
+    cfg.map.tiling = lw::tilingName(definition.tiling);
 
     lw::Simulation sim(cfg, o.seed, o.seed);
+    sim.setMapDefinition(std::move(definition));
     if (!sim.init()) {
         spdlog::error("simulation init failed");
         return 1;

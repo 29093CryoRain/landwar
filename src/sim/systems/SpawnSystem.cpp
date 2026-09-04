@@ -88,6 +88,7 @@ entt::entity SpawnSystem::spawnProjectile(Simulation& sim, double x, double y, i
     const bool inMountain = inMountainCell >= 0 && map.atIndex(inMountainCell).mountain;
 
     reg.emplace<comp::Position>(e, x, y);
+    reg.emplace<comp::CombatEntity>(e);
     reg.emplace<comp::Velocity>(e, angle);
     reg.emplace<comp::Speed>(e, speed);
     reg.emplace<comp::FactionId>(e, factionId);
@@ -97,8 +98,9 @@ entt::entity SpawnSystem::spawnProjectile(Simulation& sim, double x, double y, i
     return e;
 }
 
-entt::entity SpawnSystem::spawnEffect(Simulation& sim, double x, double y, int factionId,
-                                      EffectType type, double p0, const comp::Creator& creator) {
+entt::entity SpawnSystem::spawnCombatEffect(Simulation& sim, double x, double y, int factionId,
+                                            CombatEffectType type, double p0,
+                                            const comp::Creator& creator) {
     auto& reg = sim.registry();
     const auto& map = sim.map();
     entt::entity e = sim.createEntity();  // 单调 id
@@ -110,10 +112,12 @@ entt::entity SpawnSystem::spawnEffect(Simulation& sim, double x, double y, int f
                           ? static_cast<double>(map.height())
                           : map.worldHeight();
     reg.emplace<comp::Position>(e, std::clamp(x, 0.0, ex), std::clamp(y, 0.0, ey));
+    reg.emplace<comp::CombatEntity>(e);
+    reg.emplace<comp::CombatEffect>(e);
     reg.emplace<comp::FactionId>(e, factionId);
-    reg.emplace<comp::EffectTypeId>(e, type);
-    reg.emplace<comp::EffectTimer>(e, static_cast<int>(sim.tickCount()));
-    reg.emplace<comp::EffectParams>(e, p0, 0.0, 0.0);
+    reg.emplace<comp::CombatEffectTypeId>(e, type);
+    reg.emplace<comp::CombatEffectTimer>(e, static_cast<int>(sim.tickCount()));
+    reg.emplace<comp::CombatEffectParams>(e, p0, 0.0, 0.0);
     reg.emplace<comp::Creator>(e, creator);
     return e;
 }

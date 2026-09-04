@@ -61,16 +61,16 @@ std::string registryDump(const Simulation& sim) {
     }
     {
         std::vector<entt::entity> ents;
-        for (auto e : sim.registry().view<comp::EffectTypeId>())
+        for (auto e : sim.registry().view<comp::CombatEffectTypeId>())
             ents.push_back(e);
         std::sort(ents.begin(), ents.end(),
                   [](entt::entity a, entt::entity b) { return entt::to_integral(a) < entt::to_integral(b); });
         for (auto e : ents) {
             const auto& p = sim.registry().get<comp::Position>(e);
             const auto& f = sim.registry().get<comp::FactionId>(e);
-            const auto& t = sim.registry().get<comp::EffectTypeId>(e);
-            const auto& tm = sim.registry().get<comp::EffectTimer>(e);
-            const auto& pr = sim.registry().get<comp::EffectParams>(e);
+            const auto& t = sim.registry().get<comp::CombatEffectTypeId>(e);
+            const auto& tm = sim.registry().get<comp::CombatEffectTimer>(e);
+            const auto& pr = sim.registry().get<comp::CombatEffectParams>(e);
             const auto& cr = sim.registry().get<comp::Creator>(e);
             oss << "E" << entt::to_integral(e) << "(" << p.x << "," << p.y << "," << f.value << ","
                 << static_cast<int>(t.type) << "," << tm.createdTick << "," << pr.p0 << "," << pr.p1
@@ -89,7 +89,7 @@ std::uint64_t simFingerprint(const Simulation& sim) {
     std::uint64_t armies = 0, effects = 0;
     for (auto e : sim.registry().view<comp::Position, comp::Collider>())
         if (!sim.registry().all_of<comp::Dead>(e)) ++armies;
-    for ([[maybe_unused]] auto e : sim.registry().view<comp::EffectTypeId>()) ++effects;
+    for ([[maybe_unused]] auto e : sim.registry().view<comp::CombatEffectTypeId>()) ++effects;
     mix(armies);
     mix(effects);
     std::uint64_t landSum = 0, citySum = 0;
@@ -248,7 +248,7 @@ TEST(Snapshot, MapSeedRoundTripsAndContinuationMatches) {
 }
 
 TEST(Snapshot, NonDefaultMapAndCityIconFitsRoundTrip) {
-    const std::string mapPath = "test_snapshot_non_default_map.bmp";
+    const std::string mapPath = "test_snapshot_non_default_map.landmap";
     MapGenParams params;
     params.width = 40;
     params.height = 40;
@@ -293,7 +293,7 @@ TEST(Snapshot, EntityIdsPreserved) {
     std::vector<std::uint32_t> armyIds, effIds;
     for (auto e : sim.registry().view<comp::Position, comp::Collider>())
         armyIds.push_back(entt::to_integral(e));
-    for (auto e : sim.registry().view<comp::EffectTypeId>())
+    for (auto e : sim.registry().view<comp::CombatEffectTypeId>())
         effIds.push_back(entt::to_integral(e));
     std::sort(armyIds.begin(), armyIds.end());
     std::sort(effIds.begin(), effIds.end());
@@ -304,7 +304,7 @@ TEST(Snapshot, EntityIdsPreserved) {
     std::vector<std::uint32_t> rArmyIds, rEffIds;
     for (auto e : r.registry().view<comp::Position, comp::Collider>())
         rArmyIds.push_back(entt::to_integral(e));
-    for (auto e : r.registry().view<comp::EffectTypeId>())
+    for (auto e : r.registry().view<comp::CombatEffectTypeId>())
         rEffIds.push_back(entt::to_integral(e));
     std::sort(rArmyIds.begin(), rArmyIds.end());
     std::sort(rEffIds.begin(), rEffIds.end());
@@ -390,7 +390,7 @@ TEST(Snapshot, InvalidEntityTypeRejected) {
 
 TEST(Cli, ParsesFlags) {
     const char* argv[] = {"landwar", "--headless", "--seed", "7", "--ticks", "100",
-                          "--config", "a.json",    "--map",   "b.bmp",
+                          "--config", "a.json",    "--map",   "b.landmap",
                           "--save",   "s.json",    "--summary"};
     const auto o = parseCli(static_cast<int>(std::size(argv)), const_cast<char**>(argv));
     EXPECT_TRUE(o.headless);
@@ -398,7 +398,7 @@ TEST(Cli, ParsesFlags) {
     EXPECT_EQ(o.seed, 7u);
     EXPECT_EQ(o.ticks, 100);
     EXPECT_EQ(o.configPath, "a.json");
-    EXPECT_EQ(o.mapPath, "b.bmp");
+    EXPECT_EQ(o.mapPath, "b.landmap");
     EXPECT_EQ(o.savePath, "s.json");
     EXPECT_TRUE(o.loadPath.empty());
 }
@@ -469,14 +469,14 @@ TEST(Snapshot, RoundTripWithActiveEffects) {
         for (int t = 0; t < kMaxScan; ++t) {
             scan.tick();
             int n = 0;
-            for ([[maybe_unused]] auto e : scan.registry().view<comp::EffectTypeId>()) ++n;
+            for ([[maybe_unused]] auto e : scan.registry().view<comp::CombatEffectTypeId>()) ++n;
             if (n > 0) { kTick = t + 1; break; }
         }
     }
     ASSERT_GT(kTick, 0) << "前 " << kMaxScan << " tick 未出现活跃特效（回归前提）";
     Simulation direct = makeSim(42, kTick);
     int effects = 0;
-    for ([[maybe_unused]] auto e : direct.registry().view<comp::EffectTypeId>()) ++effects;
+    for ([[maybe_unused]] auto e : direct.registry().view<comp::CombatEffectTypeId>()) ++effects;
     ASSERT_GT(effects, 0) << "tick " << kTick << " 应存在活跃特效（回归前提）";
 
     // serialize 不再崩溃；往返后**当前状态**逐字节一致（registry 全兵/特效 + rng 状态）。

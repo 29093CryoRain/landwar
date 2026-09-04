@@ -136,7 +136,7 @@ TEST(Stats, BombEffectCreditsCreator) {
     clearArmies(sim);
     SpawnSystem::spawnArmy(sim, 21.5, 20.5, 2, ArmyType::normal);  // 敌兵在爆炸半径内
     // 爆炸特效：创建者 = 势力1 爆炸兵（unitType=bomb）。
-    SpawnSystem::spawnEffect(sim, 20.5, 20.5, 1, EffectType::bomb, 2.4,
+    SpawnSystem::spawnCombatEffect(sim, 20.5, 20.5, 1, CombatEffectType::bomb, 2.4,
                              comp::Creator{20.5, 20.5, 1, static_cast<int>(ArmyType::bomb)});
     sim.tick();
     // 爆炸占地 + 击杀敌兵 → credit (1, bomb)。
@@ -150,7 +150,7 @@ TEST(Stats, LaserEffectCreditsCreator) {
     clearToLand(sim, 1);  // 全势力1陆地（激光在己方陆地延伸，尖端无占领）
     clearArmies(sim);
     SpawnSystem::spawnArmy(sim, 25.5, 20.5, 2, ArmyType::normal);  // 敌兵在光束路径上
-    SpawnSystem::spawnEffect(sim, 20.5, 20.5, 1, EffectType::laser, 0.0 /*angle=0 → +x*/,
+    SpawnSystem::spawnCombatEffect(sim, 20.5, 20.5, 1, CombatEffectType::laser, 0.0 /*angle=0 → +x*/,
                              comp::Creator{20.5, 20.5, 1, static_cast<int>(ArmyType::laser)});
     sim.tick();
     EXPECT_EQ(sim.stats().perFactionUnit[1][static_cast<int>(ArmyType::laser)].kills, 1);

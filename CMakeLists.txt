@@ -78,7 +78,7 @@ add_library(landwar_core STATIC
     src/core/Random.cpp
     src/core/Simulation.cpp
     src/world/Faction.cpp
-    src/world/Bmp24.cpp
+    src/world/MapDefinition.cpp
     src/world/Map.cpp
     src/world/MapGenerator.cpp
     src/world/tiling/CityIconFitter.cpp
@@ -90,7 +90,7 @@ add_library(landwar_core STATIC
     src/sim/systems/CombatSystem.cpp
     src/sim/systems/DeathSystem.cpp
     src/sim/systems/EconomySystem.cpp
-    src/sim/systems/EffectSystem.cpp
+    src/sim/systems/CombatEffectSystem.cpp
     src/sim/systems/MovementSystem.cpp
     src/sim/systems/ProductionSystem.cpp
     src/sim/systems/ProjectileSystem.cpp
@@ -105,6 +105,15 @@ target_link_libraries(landwar_core PUBLIC
 landwar_warnings(landwar_core)
 
 # ---------------------------------------------------------------------------
+# Developer map editor model (headless, reusable, no SDL/ImGui dependency).
+# ---------------------------------------------------------------------------
+add_library(landwar_editor STATIC
+    src/editor/MapEditorModel.cpp)
+target_include_directories(landwar_editor PUBLIC src)
+target_link_libraries(landwar_editor PUBLIC landwar_core)
+landwar_warnings(landwar_editor)
+
+# ---------------------------------------------------------------------------
 # 城市贴图缩放交互调整工具（半正/Laves 渲染调整；保存临时 JSON，
 # 由 tools/apply_city_icon_fit_scales.py 写回 render.city.iconFitScale）
 # ---------------------------------------------------------------------------
@@ -116,6 +125,16 @@ target_link_libraries(city_icon_fit_tool PRIVATE
     SDL2_image::SDL2_image
     imgui)
 landwar_warnings(city_icon_fit_tool)
+
+add_executable(map_editor tools/map_editor.cpp src/ui/ImGuiSetup.cpp)
+target_include_directories(map_editor PRIVATE src)
+target_link_libraries(map_editor PRIVATE
+    landwar_editor
+    landwar_render
+    SDL2::SDL2
+    SDL2_image::SDL2_image
+    imgui)
+landwar_warnings(map_editor)
 
 # ---------------------------------------------------------------------------
 # 存档/回放（无头 CLI + 快照序列化；EXE 与测试共用）
@@ -144,7 +163,7 @@ add_library(landwar_render STATIC
     src/render/ArmyRenderer.cpp
     src/render/CityMarkerRenderer.cpp
     src/render/CityRenderer.cpp
-    src/render/EffectRenderer.cpp
+    src/render/CombatEffectRenderer.cpp
     src/render/MapPreview.cpp
     src/render/MapRenderer.cpp
     src/render/ProjectileRenderer.cpp
@@ -194,6 +213,9 @@ target_include_directories(landwar_perf PRIVATE src)
 target_link_libraries(landwar_perf PRIVATE landwar_core)
 landwar_warnings(landwar_perf)
 
+
+
+
 # ---------------------------------------------------------------------------
 # 单元测试（gtest, MSYS2: mingw-w64-ucrt-x86_64-gtest）
 # 2026-08：新增 test_baseline.cpp（确定性基线与 1000 tick 烟测）。
@@ -219,6 +241,7 @@ add_executable(landwar_tests
     tests/test_input.cpp
     tests/test_main.cpp
     tests/test_map.cpp
+    tests/test_map_editor.cpp
     tests/test_mapgen.cpp
     tests/test_math.cpp
     tests/test_mountain_render.cpp
@@ -239,6 +262,7 @@ add_executable(landwar_tests
     tests/test_tint.cpp)
 target_include_directories(landwar_tests PRIVATE src)
 target_link_libraries(landwar_tests PRIVATE
+    landwar_editor
     landwar_core
     landwar_replay
     landwar_input

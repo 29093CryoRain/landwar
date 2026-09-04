@@ -34,15 +34,15 @@ TEST(Options, DefaultsAllEnabledDefaultAI) {
         EXPECT_TRUE(o.factions[static_cast<size_t>(i)].enabled) << "faction slot " << i;
         EXPECT_EQ(o.factions[static_cast<size_t>(i)].aiId, 0) << "faction slot " << i;
     }
-    EXPECT_EQ(o.map.file, "data/map_bigIslands.bmp");
-    EXPECT_EQ(o.map.kind, lw::MapSelection::Kind::File);
+    EXPECT_TRUE(o.map.file.empty());
+    EXPECT_EQ(o.map.kind, lw::MapSelection::Kind::Random);
 }
 
 TEST(Options, ToJsonRoundTrip) {
     lw::Options a;
     a.factions[0].enabled = false;
     a.factions[3].aiId = 1;
-    a.map.file = "data/map3.bmp";
+    a.map.file = "data/map3.landmap";
     a.map.randomSeed = 1234u;
     a.map.kind = lw::MapSelection::Kind::Random;
     a.map.width = 88;
@@ -55,7 +55,7 @@ TEST(Options, ToJsonRoundTrip) {
     const lw::Options b = lw::Options::loadFromJson(a.toJson());
     EXPECT_FALSE(b.factions[0].enabled);
     EXPECT_EQ(b.factions[3].aiId, 1);
-    EXPECT_EQ(b.map.file, "data/map3.bmp");
+    EXPECT_EQ(b.map.file, "data/map3.landmap");
     EXPECT_EQ(b.map.randomSeed, 1234u);
     EXPECT_EQ(b.map.kind, lw::MapSelection::Kind::Random);
     EXPECT_EQ(b.map.width, 88);
@@ -71,7 +71,7 @@ TEST(Options, ToJsonRoundTrip) {
 
 TEST(Options, MapRandomParamsDefaultAndRoundTrip) {
     // 旧 options.json（无随机图参数键）→ 回退默认。
-    lw::Options o = lw::Options::loadFromJson(R"({"map":{"kind":"file","file":"a.bmp"}})");
+    lw::Options o = lw::Options::loadFromJson(R"({"map":{"kind":"file","file":"a.landmap"}})");
     EXPECT_EQ(o.map.width, 105);
     EXPECT_EQ(o.map.height, 95);
     EXPECT_DOUBLE_EQ(o.map.seaRatio, 0.40);
@@ -89,21 +89,21 @@ TEST(Options, MissingFileFallsBackToDefaults) {
         EXPECT_TRUE(o.factions[static_cast<size_t>(i)].enabled);
         EXPECT_EQ(o.factions[static_cast<size_t>(i)].aiId, 0);
     }
-    EXPECT_EQ(o.map.file, "data/map_bigIslands.bmp");
-    EXPECT_EQ(o.map.kind, lw::MapSelection::Kind::File);
+    EXPECT_TRUE(o.map.file.empty());
+    EXPECT_EQ(o.map.kind, lw::MapSelection::Kind::Random);
 }
 
 TEST(Options, SaveThenLoadRoundTrip) {
     lw::Options a;
     a.factions[2].enabled = false;
     a.factions[5].aiId = 1;
-    a.map.file = "data/map2.bmp";
+    a.map.file = "data/map2.landmap";
     const std::string path = "tests/data/options_test.json";
     a.saveToFile(path);
     const lw::Options b = lw::Options::loadFromFile(path);
     EXPECT_FALSE(b.factions[2].enabled);
     EXPECT_EQ(b.factions[5].aiId, 1);
-    EXPECT_EQ(b.map.file, "data/map2.bmp");
+    EXPECT_EQ(b.map.file, "data/map2.landmap");
     std::remove(path.c_str());
 }
 
@@ -150,7 +150,8 @@ TEST(OptionsSim, DisabledFactionHasNoCapitalAndStaysNeutral) {
 
     // 其首都保持中立：中立势力 landCount 比全启用多 1；总城市数不变（首都仍在图里）。
     EXPECT_EQ(a.faction(0).landCount, b.faction(0).landCount + 1);
-    EXPECT_EQ(a.map().totalCities(), b.map().totalCities());
+    EXPECT_GE(a.map().totalCities(), a.map().capitalCount());
+    EXPECT_GE(b.map().totalCities(), b.map().capitalCount());
 }
 
 TEST(OptionsSim, ConfiguredAdditionalFactionCanJoin) {

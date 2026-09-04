@@ -30,6 +30,27 @@ double pointSegmentDistance(const Segment& segment, double x, double y) {
     return std::hypot(x - (segment.x0 + t * dx), y - (segment.y0 + t * dy));
 }
 
+void appendLineQuad(std::vector<SDL_Vertex>& vertices, double x0, double y0, double x1, double y1,
+                    const Camera& camera, const SDL_Color& color) {
+    const double sx0 = camera.toScreenX(x0), sy0 = camera.toScreenY(y0);
+    const double sx1 = camera.toScreenX(x1), sy1 = camera.toScreenY(y1);
+    const double dx = sx1 - sx0, dy = sy1 - sy0;
+    const double length = std::hypot(dx, dy);
+    if (length <= 1e-9) return;
+    constexpr double halfWidth = 0.6;
+    const double nx = -dy / length * halfWidth, ny = dx / length * halfWidth;
+    const SDL_FPoint p0{static_cast<float>(sx0 + nx), static_cast<float>(sy0 + ny)};
+    const SDL_FPoint p1{static_cast<float>(sx1 + nx), static_cast<float>(sy1 + ny)};
+    const SDL_FPoint p2{static_cast<float>(sx1 - nx), static_cast<float>(sy1 - ny)};
+    const SDL_FPoint p3{static_cast<float>(sx0 - nx), static_cast<float>(sy0 - ny)};
+    vertices.push_back({p0, color, {0.0f, 0.0f}});
+    vertices.push_back({p1, color, {0.0f, 0.0f}});
+    vertices.push_back({p2, color, {0.0f, 0.0f}});
+    vertices.push_back({p0, color, {0.0f, 0.0f}});
+    vertices.push_back({p2, color, {0.0f, 0.0f}});
+    vertices.push_back({p3, color, {0.0f, 0.0f}});
+}
+
 SDL_Surface* bakeMountainMask(const Config::Render::Mountain& config, double scale) {
     const int width = std::max(1, static_cast<int>(std::lround(config.sourceWidth * scale)));
     const int height = std::max(1, static_cast<int>(std::lround(config.sourceHeight * scale)));
@@ -161,6 +182,42 @@ void MapRenderer::draw(const Map& map,
     draw(map, colors);
 }
 
+void MapRenderer::drawGrid(const Map& map, const SDL_Color& color) {
+    ensureTiledVertices(map);
+    const TilingGeom& g = map.geom();
+    const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
+    const double vy0 = cam_.viewWorldY0(), vy1 = cam_.viewWorldY1();
+    int r0, r1, c0, c1;
+    g.rowRange(vy0, vy1, r0, r1);
+    std::vector<SDL_Vertex> vertices;
+    vertices.reserve(6000);
+    const auto flush = [&]() {
+        if (vertices.empty()) return;
+        SDL_RenderGeometry(ren_, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr,
+                           0);
+        vertices.clear();
+    };
+    for (int r = r0; r <= r1; ++r) {
+        g.colRange(vx0, vx1, r, c0, c1);
+        for (int c = c0; c <= c1; ++c) {
+            for (int b = 0; b < g.baseCount(); ++b) {
+                const int index = g.cellIndexAt(r, c, b);
+                if (index < 0) continue;
+                const int n = polyCache_.vertCount[static_cast<std::size_t>(index)];
+                const std::size_t base = polyCache_.cellOffset[static_cast<std::size_t>(index)];
+                for (int k = 0; k < n; ++k) {
+                    const int next = (k + 1) % n;
+                    appendLineQuad(vertices, polyCache_.wx[base + k], polyCache_.wy[base + k],
+                                   polyCache_.wx[base + next], polyCache_.wy[base + next], cam_,
+                                   color);
+                }
+                if (static_cast<int>(vertices.size()) >= 6000) flush();
+            }
+        }
+    }
+    flush();
+}
+
 void MapRenderer::drawSquare(const Map& map, const std::vector<std::array<int, 3>>& tileColors) {
     if (tileColors.empty()) return;
     const int colorGroups = static_cast<int>(tileColors.size());
@@ -192,10 +249,44 @@ void MapRenderer::drawSquare(const Map& map, const std::vector<std::array<int, 3
     drawBoundaryOutline(map);
 }
 
+void MapRenderer::ensureTiledVertices(const Map& map) {
+    const TilingGeom& g = map.geom();
+    const int cc = g.cellCount();
+    if (polyCache_.tiling == g.type && polyCache_.cols == g.cols && polyCache_.rows == g.rows
+        && polyCache_.cellCount == cc)
+        return;
+    polyCache_.tiling = g.type;
+    polyCache_.cols = g.cols;
+    polyCache_.rows = g.rows;
+    polyCache_.cellCount = cc;
+    polyCache_.vertCount.resize(static_cast<std::size_t>(cc));
+    polyCache_.cellOffset.resize(static_cast<std::size_t>(cc + 1));
+    std::size_t totalVerts = 0;
+    double wxBuf[12], wyBuf[12];
+    for (int idx = 0; idx < cc; ++idx) {
+        const int n = g.cellPolygon(idx, wxBuf, wyBuf, 12);
+        polyCache_.vertCount[static_cast<std::size_t>(idx)] = static_cast<std::uint8_t>(n);
+        polyCache_.cellOffset[static_cast<std::size_t>(idx)] = totalVerts;
+        totalVerts += static_cast<std::size_t>(n);
+    }
+    polyCache_.cellOffset[static_cast<std::size_t>(cc)] = totalVerts;
+    polyCache_.wx.resize(totalVerts);
+    polyCache_.wy.resize(totalVerts);
+    for (int idx = 0; idx < cc; ++idx) {
+        const int n = g.cellPolygon(idx, wxBuf, wyBuf, 12);
+        const std::size_t base = polyCache_.cellOffset[static_cast<std::size_t>(idx)];
+        for (int k = 0; k < n; ++k) {
+            polyCache_.wx[base + static_cast<std::size_t>(k)] = wxBuf[k];
+            polyCache_.wy[base + static_cast<std::size_t>(k)] = wyBuf[k];
+        }
+    }
+}
+
 void MapRenderer::drawTiled(
     const Map& map, const std::vector<std::array<int, 3>>& tileColors,
     const std::vector<std::vector<std::array<int, 3>>>& gradeColors) {
     if (tileColors.empty()) return;
+    ensureTiledVertices(map);
     const TilingGeom& g = map.geom();
     Renderer r(ren_);
     const int colorGroups = static_cast<int>(tileColors.size());
@@ -216,7 +307,6 @@ void MapRenderer::drawTiled(
         SDL_RenderGeometry(ren_, nullptr, verts.data(), static_cast<int>(verts.size()), nullptr, 0);
         verts.clear();
     };
-    double wx[12], wy[12];
     for (int rr = r0; rr <= r1; ++rr) {
         g.colRange(vx0, vx1, rr, c0, c1);
         for (int cc = c0; cc <= c1; ++cc) {
@@ -226,7 +316,8 @@ void MapRenderer::drawTiled(
                 if (idx < 0) continue;
                 const MapCell& cell = map.atIndex(idx);
                 if (!cell.land) continue;
-                const int n = g.cellPolygon(idx, wx, wy, 12);
+                const int n = polyCache_.vertCount[static_cast<std::size_t>(idx)];
+                const std::size_t base = polyCache_.cellOffset[static_cast<std::size_t>(idx)];
                 const int faction = std::clamp(static_cast<int>(cell.belongi), 0, colorGroups - 1);
                 const SDL_Color color = !graded
                                             ? groupColorArr[static_cast<size_t>(faction)]
@@ -237,8 +328,10 @@ void MapRenderer::drawTiled(
                     const int tri[3] = {0, k, k + 1};
                     for (int v = 0; v < 3; ++v) {
                         SDL_Vertex vertex;
-                        vertex.position.x = static_cast<float>(cam_.toScreenX(wx[tri[v]]));
-                        vertex.position.y = static_cast<float>(cam_.toScreenY(wy[tri[v]]));
+                        vertex.position.x =
+                            static_cast<float>(cam_.toScreenX(polyCache_.wx[base + tri[v]]));
+                        vertex.position.y =
+                            static_cast<float>(cam_.toScreenY(polyCache_.wy[base + tri[v]]));
                         vertex.color = color;
                         vertex.tex_coord = {0.0f, 0.0f};
                         verts.push_back(vertex);

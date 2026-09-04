@@ -78,18 +78,17 @@ RunResult runOne(lw::TilingType t, int width, int height, int ticks, std::uint64
     gp.mountainDensity = 0.08;
     gp.cityDensity = 0.02;
     gp.tiling = t;
-    const std::string path = lw::MapGenerator::defaultPath(42, gp);
-    if (!lw::MapGenerator::generate(path, 42, gp)) {
+    lw::MapDefinition definition;
+    if (!lw::MapGenerator::generate(42, gp, definition, cfg.city)) {
         doneTicks = -1;
         return {};
     }
-    // cfg 用"合规输入"，Map::configure 端会再次 chooseTableDomain（与生成器同一公式）→
-    // lwmap 头尺寸匹配。六/三角生成器内部 clamp 偶数行，这里同步偶数行（与 Map.cpp 一致）。
-    cfg.map.width = width;
-    cfg.map.height = height;
-    cfg.map.file = path;
+    cfg.map.width = definition.cols;
+    cfg.map.height = definition.rows;
+    cfg.map.tiling = lw::tilingName(definition.tiling);
 
     lw::Simulation sim(cfg, 42, 42);
+    sim.setMapDefinition(std::move(definition));
     if (!sim.init()) {
         doneTicks = -1;
         return {};

@@ -60,7 +60,7 @@ TEST(Annihilation, ResidualEffectPreventsAnnihilation) {
     sim.faction(2).cityIds.clear();
     sim.faction(2).cityCount = 0;
     // 地雷特效残留 → 不算灭亡（思路 6.0.5：效果也全部消失才灭亡）。
-    SpawnSystem::spawnEffect(sim, 10.0, 10.0, 2, EffectType::mine, 0.0,
+    SpawnSystem::spawnCombatEffect(sim, 10.0, 10.0, 2, CombatEffectType::mine, 0.0,
                              comp::Creator{10.0, 10.0, 2});
 
     sim.detectAnnihilationAndUnification();

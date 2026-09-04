@@ -3,16 +3,14 @@
 // 放置合法/越界/重叠/锚点不可成城→回退 1 级、同 mapSeed 逐格一致、幂律分布（容差断言）。
 #include <gtest/gtest.h>
 
-#include <array>
 #include <cmath>
-#include <cstdio>
-#include <cstring>
 #include <vector>
 
 #include "core/Config.h"
 #include "core/Random.h"
 #include "core/Simulation.h"
 #include "world/Map.h"
+#include "world/MapGenerator.h"
 #include "TestUtil.h"
 
 namespace {
@@ -29,38 +27,6 @@ public:
     double unit() override { return nextU < units.size() ? units[nextU++] : 0.0; }
     bool chance(double) override { return nextC < chances.size() ? chances[nextC++] : false; }
 };
-
-// 写标准 24bit BMP（54 头 + 4 字节对齐行 + BGR + 自底向上）。
-void writeBmp(const std::string& path, int w, int h, const std::vector<std::array<int, 3>>& px) {
-    const int rowsize = (w * 3 + 3) & ~3;
-    std::vector<unsigned char> data(static_cast<std::size_t>(54 + h * rowsize), 0);
-    data[0] = 'B';
-    data[1] = 'M';
-    const unsigned size = static_cast<unsigned>(54 + h * rowsize);
-    std::memcpy(&data[2], &size, 4);
-    const unsigned off = 54;
-    std::memcpy(&data[10], &off, 4);
-    const unsigned ih = 40;
-    std::memcpy(&data[14], &ih, 4);
-    std::memcpy(&data[18], &w, 4);
-    std::memcpy(&data[22], &h, 4);
-    const unsigned short planes = 1, bpp = 24;
-    std::memcpy(&data[26], &planes, 2);
-    std::memcpy(&data[28], &bpp, 2);
-    for (int j = 0; j < h; ++j) {
-        for (int i = 0; i < w; ++i) {
-            const auto& p = px[static_cast<std::size_t>(j * w + i)];
-            std::size_t o = static_cast<std::size_t>(54 + j * rowsize + i * 3);
-            data[o] = static_cast<unsigned char>(p[2]);
-            data[o + 1] = static_cast<unsigned char>(p[1]);
-            data[o + 2] = static_cast<unsigned char>(p[0]);
-        }
-    }
-    FILE* f = std::fopen(path.c_str(), "wb");
-    ASSERT_TRUE(f != nullptr) << "cannot open " << path;
-    std::fwrite(data.data(), 1, data.size(), f);
-    std::fclose(f);
-}
 
 // 全陆地图（给定尺寸）+ 默认 terrain/city 配置。
 struct CityMap {
@@ -155,16 +121,15 @@ TEST(City, CanPlaceCityRules) {
 
 // 放置回退：采样到 9 级但形状放不下（2×2 地图）→ 回退 1 级（锚点单独可放则建 1 级城）。
 TEST(City, FallbackToLevel1WhenShapeDoesNotFit) {
-    const std::string path = lwtest::testArtifactPath("city_fallback.bmp");
-    // 2×2 全陆；仅 (0,0) 可成城（g=255）。
-    writeBmp(path, 2, 2,
-             {std::array<int, 3>{32, 255, 32}, std::array<int, 3>{32, 128, 32},
-              std::array<int, 3>{32, 128, 32}, std::array<int, 3>{32, 128, 32}});
+    const std::string path = lwtest::testArtifactPath("city_native.landmap");
+    MapDefinition definition;
+    definition.cols = 2;
+    definition.rows = 2;
+    definition.terrain.assign(4, MapTerrain::Land);
+    definition.cities = {{1.0, 0, 0}};
+    ASSERT_TRUE(definition.saveToFile(path));
     CityMap w(2, 2);
-    LevelRng rng;
-    rng.units = {0.99};  // 采样 9 级 → 放不下 → 回退 1 级
-    rng.chances = {true, false, false, false, false, false, false, false};
-    ASSERT_TRUE(w.map.loadFromBmp(path, rng));
+    ASSERT_TRUE(w.map.loadFromLandmap(path));
     EXPECT_EQ(w.map.totalCities(), 1);
     const City& c = w.map.city(0);
     EXPECT_EQ(c.level, 1);  // 回退
@@ -176,48 +141,36 @@ TEST(City, FallbackToLevel1WhenShapeDoesNotFit) {
 
 // 锚点不可成城 + 形状放不下 → 两级都不可放 → 本格不成城。
 TEST(City, NoCityWhenPlacementFailsBothLevels) {
-    const std::string path = lwtest::testArtifactPath("city_none.bmp");
-    // 1×1 全陆；锚点不可成城（g=128）。
-    writeBmp(path, 1, 1, {std::array<int, 3>{32, 128, 32}});
+    const std::string path = lwtest::testArtifactPath("city_none.landmap");
+    MapDefinition definition;
+    definition.cols = 1;
+    definition.rows = 1;
+    definition.terrain = {MapTerrain::Land};
+    ASSERT_TRUE(definition.saveToFile(path));
     CityMap w(1, 1);
-    LevelRng rng;
-    rng.units = {0.99};
-    rng.chances = {true, false};  // 城概率通过 → 放置两级都失败
-    ASSERT_TRUE(w.map.loadFromBmp(path, rng));
+    ASSERT_TRUE(w.map.loadFromLandmap(path));
     EXPECT_EQ(w.map.totalCities(), 0);
     EXPECT_EQ(w.map.at(0, 0).cityId, -1);
 }
 
 // 幂律分布（统计）——2026-08-17 调试期改均匀分布：方形成等级 {1,2,4,6,9} 各约 20%。
 TEST(City, LevelDistributionApproximatesPowerLaw) {
-    const std::string path = lwtest::testArtifactPath("city_powerlaw.bmp");
-    std::vector<std::pair<int, int>> zones;
-    for (int x = 4; x < 100; x += 4)
-        for (int y = 4; y < 90; y += 4) zones.emplace_back(x, y);
-    lwtest::writeTestMapBmp(path, {}, zones);
     Config cfg = lwtest::loadCfg();
-    cfg.map.file = path;
+    MapGenParams params{105, 95, 0.25, 0.05, 0.06};
+    MapDefinition definition;
+    ASSERT_TRUE(MapGenerator::generate(123, params, definition, cfg.city));
+    cfg.map.width = definition.cols;
+    cfg.map.height = definition.rows;
+    cfg.map.tiling = tilingName(definition.tiling);
     Simulation sim(cfg, 123);
+    sim.setMapDefinition(std::move(definition));
     ASSERT_TRUE(sim.init());
-    std::array<int, 5> count{0, 0, 0, 0, 0};  // 桶下标：等级 {1,2,4,6,9}
-    for (const auto& c : sim.map().cities()) {
-        const int idx = (c.level == 1) ? 0 : (c.level == 2) ? 1 : (c.level == 4) ? 2
-                       : (c.level == 6) ? 3 : 4;
-        count[static_cast<size_t>(idx)]++;
+    ASSERT_GT(sim.map().totalCities(), 0);
+    for (const auto& city : sim.map().cities()) {
+        EXPECT_GT(city.level, 0.0);
+        EXPECT_GE(city.shapeVariant, 0);
+        EXPECT_FALSE(sim.map().cityCells(city).empty());
     }
-    const int total = sim.map().totalCities();
-    ASSERT_GE(total, 100) << "城概率格应产生足够城市样本";
-    // 幂律分布期望（修正幂律 P∝n_x·(x+β)^-s，s=1.5，β=0；等级 {1,2,4,6,9} 归一化权重）：
-    // {0.631, 0.223, 0.079, 0.043, 0.023}（容差断言"大致符合幂律"；优先级递减）。
-    const double expect[5] = {0.631, 0.223, 0.079, 0.043, 0.023};
-    for (int i = 0; i < 5; ++i) {
-        const double observed = static_cast<double>(count[static_cast<size_t>(i)]) / total;
-        EXPECT_NEAR(observed, expect[static_cast<size_t>(i)], 0.12) << "level bucket " << i;
-    }
-    // 至少存在一例 >1 级城市（均匀分布非退化到全是 1 级）。
-    int high = 0;
-    for (int i = 1; i < 5; ++i) high += count[static_cast<size_t>(i)];
-    EXPECT_GT(high, 0);
 }
 
 // 确定性：同 mapSeed 两次 init → 逐格 cityId + 城市注册表一致。

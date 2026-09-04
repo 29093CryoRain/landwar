@@ -32,10 +32,10 @@ struct FactionSlot {
 // 地图选择。
 struct MapSelection {
     enum class Kind { File, Random };  // Random = P6 随机图
-    Kind kind = Kind::File;
-    std::string file = kDefaultMapFile;  // Kind::File：地图文件路径（默认=基线图）
+    Kind kind = Kind::Random;
+    std::string file;  // Kind::File: native editor map path
     std::uint32_t randomSeed = 0;       // 地图随机种子（P6，独立于主种子）：驱动随机图生成 +
-                                        // 所有地图的山/城骰子（loadFromBmp）；菜单选图页可编辑
+                                         // random map seed; menu-editable
     // Kind::Random：随机图参数（P6，MapGenerator）。
     int width = 105;                    // 随机图长（默认与基线一致）
     int height = 95;                    // 随机图宽
@@ -43,7 +43,7 @@ struct MapSelection {
     double mountainDensity = 0.08;      // 内陆山占比目标
     double cityDensity = 0.02;          // 城占比目标（占陆地格）
      bool forceCoast = false;            // 强制边缘为海：真实界外点邻接格必为海，并向内平滑削减海拔
-    std::string tiling = "square";      // P12：密铺（square/hex/tri；随机图生成用；预装 BMP 恒方形）
+    std::string tiling = "square";      // random map tiling
 };
 
 struct Options {

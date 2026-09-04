@@ -47,6 +47,16 @@ int countBullets(const Simulation& sim) {
     return n;
 }
 
+TEST(Projectile, UsesCombatEntityTaxonomy) {
+    Simulation sim = makeCleanSim();
+    const auto projectile = SpawnSystem::spawnProjectile(sim, 10.5, 10.5, 1, ArmyType::pistol, 0.0,
+                                                         0.0);
+    ASSERT_TRUE(projectile != entt::null);
+    EXPECT_TRUE(sim.registry().all_of<comp::CombatEntity>(projectile));
+    EXPECT_TRUE(sim.registry().all_of<comp::Projectile>(projectile));
+    EXPECT_FALSE(sim.registry().all_of<comp::CombatEffect>(projectile));
+}
+
 // 放一兵并冻结（速度 0，固定朝向 angle）→ 不移动但周期动作照常触发。
 entt::entity placeFrozen(Simulation& sim, double x, double y, int fid, ArmyType type,
                          double angle) {

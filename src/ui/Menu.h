@@ -57,13 +57,12 @@ struct MenuState {
     float mtnT = 0.5f, cityT = 0.5f;
     bool forceCoast = false;      // 强制边缘为海（随机图）
     TilingType tiling = TilingType::Square;  // P12：密铺（随机图区下拉；预装恒方形）
-    std::string genPath;          // 最近一次随机图生成的 BMP 路径（预览/开始复用）
+    std::string genKey;           // 最近一次随机图预览的内存缓存 key
     std::string genError;         // 随机图生成/加载失败信息（空 = 成功）
     PreviewCache previews;
 };
 
-// 枚举 data 目录下 *.bmp（排序），返回相对路径（如 data/map_bigIslands.bmp）。
-// 生成物 gen_*.bmp 会混入（菜单选图页过滤），保留原接口语义。
+// 枚举 data 目录下 *.landmap（排序），返回相对路径。
 std::vector<std::string> enumerateMapFiles(const std::string& dataDir);
 
 // 每帧绘制菜单（在 beginImGuiFrame / renderImGui 之间调用一次）。ren 供预览纹理生成。

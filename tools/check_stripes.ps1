@@ -1,35 +1,32 @@
-# check_stripes.ps1 — P12 抗锯齿重采样验证：解析 lwmap，检查
+# check_stripes.ps1 — P12 抗锯齿重采样验证：解析 native landmap，检查
 #   ① 逐行海陆占比的行交替相关性（"横纹"信号）；
 #   ② 三角正/反格海陆不一致率 + 正/反各自海陆占比差（"同朝向区"信号）。
 # 注意：变量名大小写不敏感——勿用 $B/$G/$R 覆盖字节数组。
 # 用法: powershell -File tools/check_stripes.ps1 [-Seeds 42,43,44] [-Fc]   （-Fc = 探针 forceCoast 图）
 param([int[]]$Seeds = @(42, 43, 44), [switch]$Fc)
 
-function Read-Lwmap([string]$Path) {
-    $bytes = [System.IO.File]::ReadAllBytes($Path)
-    $magic = [System.Text.Encoding]::ASCII.GetString($bytes, 0, 4)
-    if ($magic -ne 'LWMP') { throw "bad magic $magic in $Path" }
-    $tiling = $bytes[5]
-    $cols = [BitConverter]::ToUInt32($bytes, 6)
-    $rows = [BitConverter]::ToUInt32($bytes, 10)
-    $per = 1; if ($tiling -eq 2) { $per = 2 }
-    $n = [int]($cols * $rows * $per)
-    $off = 14
-    $land = [bool[]]::new($n)
-    for ($i = 0; $i -lt $n; $i++) {
-        $bCh = $bytes[$off + $i * 3]; $gCh = $bytes[$off + $i * 3 + 1]; $rCh = $bytes[$off + $i * 3 + 2]
-        $land[$i] = ($bCh -ge 32 -and $gCh -ge 32 -and $rCh -ge 32)
+function Read-Landmap([string]$Path) {
+    $root = (Get-Content -LiteralPath $Path -Raw) | ConvertFrom-Json
+    $tiling = $root.tiling
+    $cols = [int]$root.cols; $rows = [int]$root.rows
+    $base = 1; if ($tiling -eq 'tri') { $base = 2 }
+    $land = [bool[]]::new($cols * $rows * $base)
+    for ($r = 0; $r -lt $rows; $r++) {
+        $encoded = [string]$root.terrain[$r]
+        for ($i = 0; $i -lt $encoded.Length; $i++) { $land[$r * $cols * $base + $i] = $encoded[$i] -ne 'S' }
     }
-    return @{ tiling = $tiling; cols = [int]$cols; rows = [int]$rows; land = $land }
+    return @{ tiling = $tiling; cols = $cols; rows = $rows; land = $land }
 }
 
 foreach ($seed in $Seeds) {
     foreach ($tt in @('hex', 'tri')) {
-        $f = if ($Fc) { "userdata\maps\probe_${seed}_${tt}_fc.lwmap" } else { "userdata\maps\gen_${seed}_${tt}_105x95_0.40_0.08_0.02.lwmap" }
+        $pattern = if ($Fc) { "probe_${seed}_${tt}_fc.landmap" } else { "gen_${seed}_${tt}_*.landmap" }
+        $match = Get-ChildItem -LiteralPath "userdata\maps" -Filter $pattern -File -ErrorAction SilentlyContinue
+        $f = if ($match) { $match[0].FullName } else { "userdata\maps\$pattern" }
         if (-not (Test-Path $f)) { Write-Output "MISSING $f"; continue }
-        $m = Read-Lwmap $f
+        $m = Read-Landmap $f
         $cols = $m.cols; $rows = $m.rows; $land = $m.land
-        $isTri = ($m.tiling -eq 2)
+        $isTri = ($m.tiling -eq 'tri')
 
         $rowLand = New-Object 'double[]' $rows
         $rowN = New-Object 'int[]' $rows

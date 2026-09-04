@@ -319,6 +319,11 @@ void CityRenderer::draw(const Map& map, const Config::Render& rc,
                         const std::vector<int>& capitalStatus) {
     if (!ren_) return;  // 纯几何单测构造（无渲染器）→ 跳过绘制
     const Frame f = compute(map, rc, capitalStatus);
+    drawFrame(f, rc);
+}
+
+void CityRenderer::drawFrame(const Frame& f, const Config::Render& rc) {
+    if (!ren_) return;
     Renderer r(ren_);
 
     // 绘制顺序（层级）：普通城市塔图标 → 正式首都图标 → 候补指定虚化图标 → 普通细线 → 首都粗线。

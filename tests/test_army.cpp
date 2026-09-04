@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 #include <entt/entt.hpp>
@@ -73,7 +74,15 @@ void moveOnce(TestWorld& w, entt::entity e) {
 // ---- Spawn ----
 
 TEST(Spawn, ArmyFieldsCorrect) {
-    Simulation sim(lwtest::loadCfg(), 42);
+    const Config cfg = lwtest::loadCfg();
+    MapDefinition definition;
+    definition.cols = cfg.map.width;
+    definition.rows = cfg.map.height;
+    definition.tiling = cfg.map.tilingType();
+    definition.terrain.assign(static_cast<std::size_t>(definition.cols * definition.rows),
+                               MapTerrain::Land);
+    Simulation sim(cfg, 42);
+    sim.setMapDefinition(std::move(definition));
     ASSERT_TRUE(sim.init());
     auto e = SpawnSystem::spawnArmy(sim, 5.0, 5.0, 1, ArmyType::normal);
     ASSERT_TRUE(e != entt::null);
@@ -367,15 +376,15 @@ TEST(Death, BombDeathSpawnsBombEffect) {
     EXPECT_FALSE(sim.registry().valid(a));  // 已销毁
     EXPECT_FALSE(sim.registry().valid(b));
     int bombs = 0;
-    for (auto e : sim.registry().view<comp::EffectTypeId>()) {
-        if (sim.registry().get<comp::EffectTypeId>(e).type == EffectType::bomb) {
+    for (auto e : sim.registry().view<comp::CombatEffectTypeId>()) {
+        if (sim.registry().get<comp::CombatEffectTypeId>(e).type == CombatEffectType::bomb) {
             ++bombs;
             const auto& pos = sim.registry().get<comp::Position>(e);
             const auto& cr = sim.registry().get<comp::Creator>(e);
             EXPECT_NEAR(pos.x, 30.5, 0.25);
             EXPECT_NEAR(pos.y, 30.5, 0.25);
             EXPECT_EQ(cr.factionId, 1);  // 创建者快照 = 死者势力
-            EXPECT_NEAR(sim.registry().get<comp::EffectParams>(e).p0, 2.4, 1e-12);  // 默认半径
+            EXPECT_NEAR(sim.registry().get<comp::CombatEffectParams>(e).p0, 2.4, 1e-12);  // 默认半径
         }
     }
     EXPECT_EQ(bombs, 1);  // 仅 a 是 bomb → 1 个爆炸特效
@@ -389,8 +398,8 @@ TEST(Death, GreenLaserDeathSpawnsThreeBeams) {
     SpawnSystem::spawnArmy(sim, 30.5, 30.5, 1, ArmyType::normal);
     sim.tick();
     int lasers = 0;
-    for (auto e : sim.registry().view<comp::EffectTypeId>())
-        if (sim.registry().get<comp::EffectTypeId>(e).type == EffectType::laser) ++lasers;
+    for (auto e : sim.registry().view<comp::CombatEffectTypeId>())
+        if (sim.registry().get<comp::CombatEffectTypeId>(e).type == CombatEffectType::laser) ++lasers;
     EXPECT_EQ(lasers, 3);  // 绿5：主束 + ±π/11 两条
 }
 

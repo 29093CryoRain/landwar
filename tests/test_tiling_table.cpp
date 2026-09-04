@@ -216,7 +216,7 @@ TEST(TilingTable, SnubTilingsGenerateLoadAndCellRoundTrip) {
         chooseTableDomain(static_cast<int>(t), width, height, tc, tr);
         const int expectCells = B * tc * tr;
         MapGenParams gp{width, height, 0.35, 0.1, 0.06, 0.3, false, t};
-        const std::string path = "userdata/maps/utest_snub_" + std::string(tilingName(t)) + ".lwmap";
+        const std::string path = "userdata/maps/utest_snub_" + std::string(tilingName(t)) + ".landmap";
         ASSERT_TRUE(MapGenerator::generate(path, 42, gp)) << tilingName(t);
         Config::Map mc = cfg.map;
         mc.tiling = tilingName(t);
@@ -228,7 +228,8 @@ TEST(TilingTable, SnubTilingsGenerateLoadAndCellRoundTrip) {
         map.setTerrain(cfg.terrain);
         map.setCityConfig(cfg.city);
         Rng rng(42);
-        ASSERT_TRUE(map.loadFromLwmap(path, rng)) << tilingName(t);
+        std::string loadError;
+        ASSERT_TRUE(map.loadFromLandmap(path, &loadError)) << tilingName(t) << ": " << loadError;
         EXPECT_EQ(map.cellCount(), expectCells) << tilingName(t);
         // 可玩性：应能放置首都（半正/Laves 从已生成城市分配；多格形状需能解析）。
         ASSERT_TRUE(map.placeCapitals(rng)) << tilingName(t);
@@ -306,7 +307,7 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
     // 2026-08 比例保持映射：arch_488 的输入长/宽须为 Ra=7、Rb=10 的倍数（见 Tiling.cpp
     // tableDomainParams），否则会被向上取整。此处传合规值，使命中"长*宽=总格数"精确成立。
     MapGenParams gp{84, 120, 0.4, 0.1, 0.02, 0.3, false, TilingType::Arch488};
-    const std::string path = "userdata/maps/utest_arch488.lwmap";
+    const std::string path = "userdata/maps/utest_arch488.landmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;
     mc.tiling = "arch_488";
@@ -318,7 +319,7 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
     map.setTerrain(cfg.terrain);
     map.setCityConfig(cfg.city);
     Rng rng(42);
-    ASSERT_TRUE(map.loadFromLwmap(path, rng));
+    ASSERT_TRUE(map.loadFromLandmap(path));
     ASSERT_TRUE(map.placeCapitals(rng));
     EXPECT_EQ(map.cellCount(), 84 * 120);  // 用户长*宽 = 总格数（合规输入）
     EXPECT_GE(map.cityCount(), 8);  // 至少 8 个首都城
@@ -327,7 +328,7 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
 TEST(TilingTable, Laves488MapGenerationAndCapitalPlacement) {
     const Config cfg = Config::loadFromJson("{}");
     MapGenParams gp{32, 32, 0.4, 0.1, 0.02, 0.3, false, TilingType::Laves488};
-    const std::string path = "userdata/maps/utest_laves488.lwmap";
+    const std::string path = "userdata/maps/utest_laves488.landmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;
     mc.tiling = "laves_488";
@@ -339,7 +340,7 @@ TEST(TilingTable, Laves488MapGenerationAndCapitalPlacement) {
     map.setTerrain(cfg.terrain);
     map.setCityConfig(cfg.city);
     Rng rng(42);
-    ASSERT_TRUE(map.loadFromLwmap(path, rng));
+    ASSERT_TRUE(map.loadFromLandmap(path));
     ASSERT_TRUE(map.placeCapitals(rng));
     EXPECT_EQ(map.cellCount(), 32 * 32);  // 用户长*宽 = 总格数
     EXPECT_GE(map.cityCount(), 8);
@@ -720,7 +721,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
         chooseTableDomain(static_cast<int>(t), width, hc, tc, tr);
         const int expectCells = B * tc * tr;
         MapGenParams gp{width, hc, 0.3, 0.1, 0.08, 0.3, false, t};
-        const std::string path = "userdata/maps/utest_all10_" + std::string(tilingName(t)) + ".lwmap";
+        const std::string path = "userdata/maps/utest_all10_" + std::string(tilingName(t)) + ".landmap";
         ASSERT_TRUE(MapGenerator::generate(path, 42, gp)) << tilingName(t);
         Config::Map mc = cfg.map;
         mc.tiling = tilingName(t);
@@ -732,7 +733,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
         map.setTerrain(cfg.terrain);
         map.setCityConfig(cfg.city);
         Rng rng(42);
-        ASSERT_TRUE(map.loadFromLwmap(path, rng)) << tilingName(t);
+        ASSERT_TRUE(map.loadFromLandmap(path)) << tilingName(t);
         ASSERT_TRUE(map.placeCapitals(rng)) << tilingName(t);
         EXPECT_EQ(map.cellCount(), expectCells) << tilingName(t);  // 守恒：cellCount = B*cols*rows
         EXPECT_GT(map.cityCount(), 0) << tilingName(t);
@@ -751,7 +752,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
 TEST(TilingTable, Arch488GeneratedCitiesHaveMultipleTextureLevels) {
     const Config cfg = Config::loadFromJson("{}");
     MapGenParams gp{63, 40, 0.3, 0.1, 0.08, 0.3, false, TilingType::Arch488};
-    const std::string path = "userdata/maps/utest_arch488_levels.lwmap";
+    const std::string path = "userdata/maps/utest_arch488_levels.landmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;
     mc.tiling = "arch_488";
@@ -763,7 +764,7 @@ TEST(TilingTable, Arch488GeneratedCitiesHaveMultipleTextureLevels) {
     map.setTerrain(cfg.terrain);
     map.setCityConfig(cfg.city);
     Rng rng(42);
-    ASSERT_TRUE(map.loadFromLwmap(path, rng));
+    ASSERT_TRUE(map.loadFromLandmap(path));
     ASSERT_TRUE(map.placeCapitals(rng));
     std::set<int> texLevels;
     for (const auto& c : map.cities()) {

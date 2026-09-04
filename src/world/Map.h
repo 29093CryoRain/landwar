@@ -9,6 +9,7 @@
 
 #include "core/Config.h"
 #include "core/Random.h"
+#include "world/MapDefinition.h"
 #include "world/tiling/Tiling.h"
 
 namespace lw {
@@ -45,7 +46,7 @@ struct MapCell {
     bool land = false;  // false = 海, true = 陆
     bool mountain = false;  // 山（P5；陆地子集：land=true 且 mountain=true）
     // 可产城格（P5 改版）：陆地且源 g>probFloor（基图允许该格成为城市，即 ramp(g)>0）。
-    // 仅 init 时由 loadFromBmp 设置、placeCapitals 使用；不进快照（快照不序列化本字段）。
+    // Set while a definition is loaded; used by capital placement only.
     bool cityAllowed = false;
     // P13：所属城市 id（Map 注册表下标）；-1 = 非城市基建地块。取代旧 bool city。
     int cityId = -1;
@@ -59,6 +60,9 @@ public:
 
     // 从配置拷贝尺寸，并预分配网格（全海）。
     void configure(const Config::Map& cfg);
+    // Configure from already canonical native dimensions (no user-dimension
+    // normalization).
+    void configureCanonical(TilingType tiling, int cols, int rows);
     // 地形基图参数（P5 改版）：海陆阈值 + 概率 ramp + 移动规则（默认值即 Config::Terrain 默认）。
     void setTerrain(const Config::Terrain& t) { terrain_ = t; }
     const Config::Terrain& terrain() const { return terrain_; }
@@ -76,10 +80,9 @@ public:
     // 不掷城概率，RNG 位置确定性）；城概率通过 → 先采样等级、再尝试放置，失败回退 1 级。
     // ramp(x) = clamp((x - probFloor) / probScale, 0, 1)。海/陆确定性、山/城概率性（种子相关）。
     // 失败返回 false。
-    bool loadFromBmp(const std::string& path, Rng& rng);
+    bool loadFromDefinition(const MapDefinition& definition, std::string* err = nullptr);
+    bool loadFromLandmap(const std::string& path, std::string* err = nullptr);
     // P12：lwmap 加载（六/三角地形基图；自描述格式，见 MapGenerator）。通道语义与 BMP
-    // 一致 → 与 loadFromBmp 共用第二遍（掷骰/放置城市）。失败返回 false。
-    bool loadFromLwmap(const std::string& path, Rng& rng);
     // 格坐标 (c, r) → 格下标（P12；方 = r*width+c；六 = r*cols+c；三 = 正三角锚）。
     int cellIndexAt(int c, int r) const;
     // 带基础格序号的版本（半正/Laves 用；方/六忽略 b，三 = b 取 0 正/1 反）。
@@ -92,7 +95,8 @@ public:
     // 放置 factionCount 个首都：优先落在"可产城"格（cityAllowed，基图允许城市）；可产城格不足/太挤时
     // 放宽到任意陆地（保证游戏可玩）。随机陆地格，与已放置首都欧氏距离 >= capitalMinDistance。
     // 每个 attempt 消耗 get(width-1) + get(height-1)。重试耗尽（病态地图）返回 false。
-    // P13：锚点格已是城市（loadFromBmp 放置的形状）→ 该城即首都（不新建）；否则注册 1 级城。
+    // An existing city at the capital cell becomes the capital; otherwise a
+    // one-level city is registered.
     bool placeCapitals(Rng& rng, int factionCount = kPlayerFactionCount);
 
 
@@ -143,7 +147,7 @@ public:
     // P12：重算全部城市的 baseIndex/AABB/几何中心（快照读档后调用）。
     void recomputeCityGeometry();
     // 注册新城市（锚点格 index，形状由 level + tiling 推导）。占用/陆地/可成城校验由
-    // 调用方先行完成（loadFromBmp 经 canPlaceCity；placeCapitals 自身保证）。返回新 cityId。
+    // Callers perform placement checks first; returns the new city id.
     // rng 非空且同级多形状（变体>1）时：从"能放下的变体"中随机选（保证同级不同形状
     // 都能出现，2026-08-17 修复：旧逻辑总选第一个变体 → 后续变体永不出现，如 Laves31212
     // 的菱形 6 级城）。rng 为空 → 第一个能放下的变体（测试/兼容路径）。
@@ -158,6 +162,9 @@ public:
         return canPlaceCity(level, baseY * width_ + baseX);
     }
 
+    // Populate exact city records for an in-memory random map.
+    void populateRandomCities(Rng& rng, double cityDensity, double mountainWeight = 0.3);
+
 private:
     void updateCityGeometry(City& city);
     // canPlaceCity 的实现；requireAllowed=false 时跳过"锚点可成城"校验（首都回退到任意陆地）。
@@ -171,15 +178,7 @@ private:
     // P1.2：将形状表 cells（世界单位 U 偏移）解析为离散格下标；所有密铺统一。
     // 三角反锚镜像 dy；界外格返回 -1。shapeCells 与 placeableVariants 共用。
     std::vector<int> resolveShapeCells(const Config::City::Shape& shape, int anchorIndex) const;
-    // 每格概率通道（地形基图：海/陆确定性 + 山 R / 城 G 概率通道）。方/六/三共用。
-    struct CellChannels {
-        bool sea;
-        int g;
-        int r;
-    };
     void clear();
-    // 第二遍（方/六/三共用）：按格下标序掷山/城骰 + 放置城市（RNG 顺序 = 格下标序）。
-    void finishTerrain(const std::vector<CellChannels>& ch, Rng& rng);
 
     int width_ = 105;
     int height_ = 95;

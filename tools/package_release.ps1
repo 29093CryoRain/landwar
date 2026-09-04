@@ -78,10 +78,7 @@ foreach ($file in $schemaFiles) {
     Copy-RequiredFile (Join-Path "data" (Join-Path "schema" $file))
 }
 
-Get-ChildItem -LiteralPath $data -Filter "map_*.bmp" -File | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $OutputDir (Join-Path "data" $_.Name)) -Force
-}
-$imageFiles = @("army_base.png", "mountain.png", "ring.png", "arrow.png", "arrow2.png")
+$imageFiles = @("army_base.png", "ring.png", "arrow.png", "arrow2.png")
 foreach ($file in $imageFiles) {
     Copy-RequiredFile (Join-Path "data" $file)
 }
@@ -93,9 +90,6 @@ Get-ChildItem -LiteralPath (Join-Path $data "tower") -Filter "*.png" -File | For
 
 $launcher = "@echo off`r`nchcp 65001 >nul`r`ncd /d `"%~dp0`"`r`n`"%~dp0landwar.exe`"`r`n"
 Set-Content -LiteralPath (Join-Path $OutputDir "运行游戏.bat") -Value $launcher -Encoding ASCII
-New-Item -ItemType Directory -Path (Join-Path $OutputDir "userdata\maps") -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $OutputDir "userdata\screenshots") -Force | Out-Null
-
 if ([string]::IsNullOrWhiteSpace($Msys2Bin)) {
     throw "Pass -Msys2Bin pointing to the MSYS2 UCRT64 bin directory to copy DLL dependencies"
 }
@@ -126,6 +120,12 @@ while ($queue.Count -gt 0) {
         Copy-Item -LiteralPath $sourceDll -Destination (Join-Path $OutputDir $dll) -Force
         $queue.Enqueue($sourceDll)
     }
+}
+
+$runtimeData = Join-Path $OutputDir "userdata"
+if ($Verify -or $VerifyWindow) {
+    New-Item -ItemType Directory -Path (Join-Path $runtimeData "maps") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $runtimeData "screenshots") -Force | Out-Null
 }
 
 if ($Verify) {
@@ -160,6 +160,12 @@ if ($VerifyWindow) {
     } finally {
         Pop-Location
     }
+}
+
+# userdata/ contains only runtime-generated files. Keep the release archive clean;
+# the application recreates these directories on startup when needed.
+if (Test-Path -LiteralPath $runtimeData) {
+    Remove-Item -LiteralPath $runtimeData -Recurse -Force
 }
 
 Write-Output "Release package created: $OutputDir"

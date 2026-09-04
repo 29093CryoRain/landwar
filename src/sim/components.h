@@ -31,6 +31,14 @@ struct Behavior {
     int counter = 0;      // 距上次动作计数（UnitActionSystem 递增）
 };
 
+// Combat entity taxonomy:
+// - Every projectile or non-projectile combat effect created by SpawnSystem carries CombatEntity.
+// - CombatEffect is the non-projectile subtype; Projectile remains a separate data component.
+// - Future combat entities belong in this section and must carry CombatEntity plus their own
+//   subtype marker/data; give each solver its own system rather than folding unlike solvers together.
+struct CombatEntity {};
+struct CombatEffect {};
+
 // 射弹（P9）：子弹实体。**标志组件**（兵无此组件，视图/空间查询用它区分子弹与兵）。
 // 复用 Position/Velocity/Speed/FactionId/UnitType(发射兵类型)/Collider(子弹半径)。
 struct Projectile {
@@ -39,10 +47,10 @@ struct Projectile {
 };
 
 // ---- 特效组件（Phase 4 求解；Phase 3 仅创建）----
-struct EffectTypeId { EffectType type = EffectType::bomb; };
-struct EffectTimer { int createdTick = 0; };   // create_time
+struct CombatEffectTypeId { CombatEffectType type = CombatEffectType::bomb; };
+struct CombatEffectTimer { int createdTick = 0; };   // create_time
 // 原版 lsdouble1/2/3 通用参数槽（含义随类型不同，见翻新计划 §2.6）。
-struct EffectParams { double p0 = 0, p1 = 0, p2 = 0; };
+struct CombatEffectParams { double p0 = 0, p1 = 0, p2 = 0; };
 // 创建者快照（原版 creator_id：死兵位置不随 tick 变化，快照避免悬垂实体引用）。
 // P11：unitType = 创建者兵种（击杀/占领 credit 链：特效/子弹击杀 credit 回创建者 (faction, type)）。
 struct Creator { double x = 0, y = 0; int factionId = 0; int unitType = 0; };

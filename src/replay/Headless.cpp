@@ -6,7 +6,9 @@
 #include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sstream>
+#include <utility>
 
 #include "core/Simulation.h"
 #include "core/Paths.h"
@@ -72,31 +74,30 @@ int runHeadless(const CliOptions& opts) {
     } else {
         Config cfg = opts.configPath.empty() ? Config::loadFromFile(kDefaultConfigPath)
                                              : Config::loadFromFile(opts.configPath);
-        // P12：--tiling 覆盖密铺；非方（且未指定 --map）→ 自动生成随机 lwmap（种子 = 主种子）。
-        if (opts.tilingSet) {
-            cfg.map.tiling = opts.tiling;
-            if (opts.mapPath.empty()
-                && cfg.map.tilingType() != TilingType::Square) {
-                MapGenParams gp{cfg.map.width, cfg.map.height, 0.40, 0.08, 0.02,
-                                cfg.map.cityMountainWeight, false, cfg.map.tilingType(),
+        std::optional<MapDefinition> generated;
+        if (!opts.mapPath.empty()) {
+            cfg.map.file = opts.mapPath;
+        } else {
+            const TilingType tiling = opts.tilingSet ? tilingFromName(opts.tiling)
+                                                     : cfg.map.tilingType();
+            MapGenParams params{cfg.map.width, cfg.map.height, 0.40, 0.08, 0.02,
+                                cfg.map.cityMountainWeight, false, tiling,
                                 cfg.map.forceCoastRangeMultiplier,
                                 cfg.map.forceCoastStrengthMultiplier};
-                const std::string mpath = MapGenerator::defaultPath(seed, gp);
-                if (!MapGenerator::generate(mpath, seed, gp)) {
-                    spdlog::error("tiled map generate failed");
-                    return 1;
-                }
-                if ((gp.tiling == TilingType::Hex || gp.tiling == TilingType::Tri)
-                    && (gp.height & 1))
-                    --gp.height;  // 与生成器/Map::configure 一致（六/三角偶数行）
-                cfg.map.width = gp.width;
-                cfg.map.height = gp.height;
-                cfg.map.file = mpath;
+            MapDefinition definition;
+            const std::uint32_t mapSeed = opts.mapSeedSet ? opts.mapSeed : seed;
+            if (!MapGenerator::generate(mapSeed, params, definition, cfg.city)) {
+                spdlog::error("random map generation failed");
+                return 1;
             }
+            cfg.map.width = definition.cols;
+            cfg.map.height = definition.rows;
+            cfg.map.tiling = tilingName(definition.tiling);
+            generated = std::move(definition);
         }
-        if (!opts.mapPath.empty()) cfg.map.file = opts.mapPath;
         // P6 RNG 分离：主种子 seed；地图种子默认 = 主种子，可用 --map-seed 覆盖。
         sim = Simulation(cfg, seed, opts.mapSeedSet ? opts.mapSeed : seed);
+        if (generated) sim.setMapDefinition(std::move(*generated));
         if (!sim.init()) {
             spdlog::error("simulation init failed (map missing?)");
             return 1;

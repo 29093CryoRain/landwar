@@ -2,7 +2,7 @@
 // 算法（确定性）：① Rng(seed) 洗牌生成 256 值噪声查表 → ② fBm 海拔场 h∈[0,1] →
 // ③ 排序取 seaRatio 分位数切海陆（可选强制边缘为海）→ ④ 山 = 高原分量（按基础海拔取前段，
 // 大块高地）+ 山脉分量（按独立种子山脊噪声取前段，蜿蜒山脊）→ ⑤ 城概率按地形权重 →
-// ⑥ 编码 R/G 概率通道写 BMP。
+// ⑥ 输出 fully-resolved terrain and city records.
 #include "world/MapGenerator.h"
 
 #include <spdlog/spdlog.h>
@@ -10,18 +10,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdio>
-#include <cstring>
-#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <sstream>
 #include <vector>
 
-#include "core/Paths.h"
-#include "world/Bmp24.h"
-#include "world/TerrainCodec.h"
 #include "core/Random.h"
+#include "core/Paths.h"
+#include "world/Map.h"
 #include "world/tiling/Tiling.h"
 
 namespace lw {
@@ -188,8 +184,40 @@ void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
 }  // namespace
 
 // 前向声明（generate 分派用；实现见文件后部）。
-static bool generateSquare(const std::string& path, std::uint32_t seed, const MapGenParams& p);
-static bool generateTiled(const std::string& path, std::uint32_t seed, const MapGenParams& p);
+static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
+                           const Config::City& cityConfig);
+static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
+                          const Config::City& cityConfig);
+
+static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
+                             const Config::City& cityConfig, const std::vector<bool>& land,
+                             const std::vector<bool>& mountain, Rng& rng) {
+    out.cols = p.width;
+    out.rows = p.height;
+    out.tiling = p.tiling;
+    out.terrain.resize(land.size());
+    for (size_t i = 0; i < land.size(); ++i)
+        out.terrain[i] = !land[i] ? MapTerrain::Sea
+                         : mountain[i] ? MapTerrain::Mountain
+                                       : MapTerrain::Land;
+
+    Map map;
+    map.configureCanonical(p.tiling, p.width, p.height);
+    map.setCityConfig(cityConfig);
+    for (int idx = 0; idx < map.cellCount(); ++idx) {
+        map.atIndex(idx).land = land[static_cast<size_t>(idx)];
+        map.atIndex(idx).mountain = mountain[static_cast<size_t>(idx)];
+        map.atIndex(idx).cityAllowed = map.atIndex(idx).land;
+    }
+    map.populateRandomCities(rng, p.cityDensity, p.cityMountainWeight);
+    out.cities.reserve(map.cityCount());
+    for (const City& city : map.cities()) {
+        out.cities.push_back({city.level, city.baseIndex, city.shapeVariant});
+        for (const int index : map.cityCells(city))
+            if (index >= 0) out.terrain[static_cast<std::size_t>(index)] = MapTerrain::City;
+    }
+    return out.validate();
+}
 
 MapGenParams normalizedParams(const MapGenParams& raw) {
     MapGenParams p = raw;
@@ -219,12 +247,20 @@ std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p)
          << "_coast" << (n.forceCoast ? 1 : 0)
          << "_coastRange" << n.forceCoastRangeMultiplier
          << "_coastStrength" << n.forceCoastStrengthMultiplier
-         << (n.tiling == TilingType::Square ? ".bmp" : ".lwmap");
+          << ".landmap";
     return key.str();
 }
 
+bool MapGenerator::generate(std::uint32_t seed, const MapGenParams& raw, MapDefinition& out,
+                            const Config::City& cityConfig) {
+    const MapGenParams p = normalizedParams(raw);
+    out = MapDefinition{};
+    if (p.tiling == TilingType::Square)
+        return generateSquare(out, seed, p, cityConfig);
+    return generateTiled(out, seed, p, cityConfig);
+}
+
 bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const MapGenParams& raw) {
-    // 写盘前确保父目录存在（首次运行 userdata/maps/ 尚不存在）。
     const std::size_t slash = path.find_last_of("/\\");
     const std::string dir =
         (slash == std::string::npos) ? std::string(".") : path.substr(0, slash);
@@ -232,14 +268,19 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
         spdlog::error("map generate: cannot create dir '{}'", dir);
         return false;
     }
-    MapGenParams p = normalizedParams(raw);
-
-    if (p.tiling == TilingType::Square) return generateSquare(path, seed, p);
-    return generateTiled(path, seed, p);
+    MapDefinition definition;
+    if (!generate(seed, raw, definition)) return false;
+    std::string error;
+    if (!definition.saveToFile(path, &error)) {
+        spdlog::error("MapGenerator: '{}' write failed: {}", path, error);
+        return false;
+    }
+    return true;
 }
 
-// 正方形密铺（现状路径，零改动）：生成 BMP。文件局部，不导出。
-static bool generateSquare(const std::string& path, std::uint32_t seed, const MapGenParams& p) {
+// Square tiling terrain generation.
+static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
+                           const Config::City& cityConfig) {
     const int w = p.width, h = p.height;
     Rng rng(seed);
     ValueNoise2D noise(rng);
@@ -333,59 +374,14 @@ static bool generateSquare(const std::string& path, std::uint32_t seed, const Ma
     for (size_t k = 0; k < nPlateau && k < orderH.size(); ++k) isMountain[orderH[k]] = true;
     for (size_t k = 0; k < nRange && k < orderG.size(); ++k) isMountain[orderG[k]] = true;
 
-    // ④ 城：取消沿海/海拔偏好；保留山地惩罚 ×0.3。
-    size_t landCount = 0;
-    std::vector<double> cityWeight(land.size(), 0.0);
-    double cityWeightSum = 0.0;
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const size_t idx = static_cast<size_t>(y) * w + x;
-            if (!land[idx]) continue;
-            const double wgt = isMountain[idx] ? p.cityMountainWeight : 1.0;  // 山地降低城市率
-            cityWeight[idx] = wgt;
-            cityWeightSum += wgt;
-            ++landCount;
-        }
-    }
-
-    // ⑤ 编码像素 → 写 BMP（文件行 j = 世界行 j，与 Map::loadFromBmp 逐行对齐）。
-    std::vector<std::array<unsigned char, 3>> pixels(static_cast<size_t>(w) * h);
-    const Config::Terrain terrainConfig{};
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const size_t idx = static_cast<size_t>(y) * w + x;
-            unsigned char R, G, B;
-            if (!land[idx]) {
-                R = G = B = 0;  // 任一分量 <32 → 海（确定性）
-            } else {
-                R = isMountain[idx] ? 255u : 32u;  // 山：确定性（chance(1.0) 恒真）
-                double pCity = 0.0;
-                if (cityWeightSum > 0.0) {
-                    pCity = p.cityDensity * static_cast<double>(landCount) *
-                            cityWeight[idx] / cityWeightSum;
-                }
-                G = terrain::encodeProbability(pCity, terrainConfig);
-                B = static_cast<unsigned char>(terrainConfig.seaChannelMin);
-            }
-            pixels[static_cast<size_t>(y) * w + x] = {R, G, B};
-        }
-    }
-
-    std::string error;
-    if (!writeBmp24(path, w, h, pixels, &error)) {
-        spdlog::error("MapGenerator: '{}' write failed: {}", path, error);
-        return false;
-    }
-    spdlog::info("MapGenerator: '{}' written ({}x{}, sea {:.2f}, mtn {:.2f}, city {:.2f})", path, w,
-                 h, p.seaRatio, p.mountainDensity, p.cityDensity);
-    return true;
+    return finishDefinition(out, p, cityConfig, land, isMountain, rng);
 }
 
 // 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
 // 后处理；2026-08-15 用户拍板回退，先以纯净基线定位"横纹/同向三角"现象），其余流程与
-// 方形一致（分位数切海陆 + 内陆山 + 城权重），输出 lwmap（BGR 通道，与 Map::loadFromLwmap
-// 逐格对齐）。文件局部。
-static bool generateTiled(const std::string& path, std::uint32_t seed, const MapGenParams& p) {
+// 方形一致（分位数切海陆 + 内陆山 + 城权重），输出 native terrain records。
+static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
+                          const Config::City& cityConfig) {
     const TilingGeom g{p.tiling, p.width, p.height};
     const int cellCount = g.cellCount();
     Rng rng(seed);
@@ -475,64 +471,7 @@ static bool generateTiled(const std::string& path, std::uint32_t seed, const Map
     for (size_t kk = 0; kk < nPlateau && kk < orderH.size(); ++kk) isMountain[orderH[kk]] = true;
     for (size_t kk = 0; kk < nRange && kk < orderG.size(); ++kk) isMountain[orderG[kk]] = true;
 
-    // ④ 城：取消沿海/海拔偏好；保留山地惩罚 ×0.3。
-    size_t landCount = 0;
-    std::vector<double> cityWeight(land.size(), 0.0);
-    double cityWeightSum = 0.0;
-    for (int idx = 0; idx < cellCount; ++idx) {
-        if (!land[static_cast<size_t>(idx)]) continue;
-        const double wgt = isMountain[static_cast<size_t>(idx)] ? p.cityMountainWeight : 1.0;
-        cityWeight[static_cast<size_t>(idx)] = wgt;
-        cityWeightSum += wgt;
-        ++landCount;
-    }
-
-    // ⑤ 编码 → 写 lwmap（magic "LWMP" + ver1 + tiling + cols + rows + 逐格 BGR 通道）。
-    std::vector<unsigned char> data;
-    data.reserve(static_cast<size_t>(10 + cellCount * 3));
-    data.insert(data.end(), {'L', 'W', 'M', 'P'});
-    data.push_back(1);  // version
-    data.push_back(static_cast<unsigned char>(static_cast<int>(p.tiling)));
-    const auto push32 = [&](int v) {
-        data.push_back(static_cast<unsigned char>(v & 0xFF));
-        data.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
-        data.push_back(static_cast<unsigned char>((v >> 16) & 0xFF));
-        data.push_back(static_cast<unsigned char>((v >> 24) & 0xFF));
-    };
-    push32(g.cols);
-    push32(g.rows);
-    const Config::Terrain terrainConfig{};
-    for (int idx = 0; idx < cellCount; ++idx) {
-        unsigned char R, G, B;
-        if (!land[static_cast<size_t>(idx)]) {
-            R = G = B = 0;  // 任一分量 <32 → 海（确定性）
-        } else {
-            R = isMountain[static_cast<size_t>(idx)] ? 255u : 32u;
-            double pCity = 0.0;
-            if (cityWeightSum > 0.0)
-                pCity = p.cityDensity * static_cast<double>(landCount)
-                        * cityWeight[static_cast<size_t>(idx)] / cityWeightSum;
-            G = terrain::encodeProbability(pCity, terrainConfig);
-            B = static_cast<unsigned char>(terrainConfig.seaChannelMin);
-        }
-        data.push_back(B);
-        data.push_back(G);
-        data.push_back(R);
-    }
-    std::ofstream ofs(path, std::ios::binary);
-    if (!ofs.is_open()) {
-        spdlog::error("MapGenerator: cannot open '{}' for write", path);
-        return false;
-    }
-    ofs.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    if (!ofs) {
-        spdlog::error("MapGenerator: write to '{}' failed", path);
-        return false;
-    }
-    spdlog::info("MapGenerator: '{}' written ({} {}x{}, sea {:.2f}, mtn {:.2f}, city {:.2f})", path,
-                 tilingName(p.tiling), g.cols, g.rows, p.seaRatio, p.mountainDensity,
-                 p.cityDensity);
-    return true;
+    return finishDefinition(out, p, cityConfig, land, isMountain, rng);
 }
 
 }  // namespace lw

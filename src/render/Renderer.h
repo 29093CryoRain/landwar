@@ -1,7 +1,7 @@
 // Renderer.h — SDL_Renderer 封装（翻新计划 Phase 7，§3.1 render/）。
 // 提供颜色转换（势力色 array<int,3> / 0x00RRGGBB ↔ SDL_Color）、矩形/圆填充、
 // 带 alpha 与旋转的纹理绘制。渲染层约定：所有坐标已是屏幕像素
-// （MapRenderer/ArmyRenderer/EffectRenderer 用 math::ScreenTransform 换算）。
+// （MapRenderer/ArmyRenderer/CombatEffectRenderer 用 math::ScreenTransform 换算）。
 #pragma once
 
 #include <SDL.h>

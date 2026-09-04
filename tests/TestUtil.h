@@ -12,6 +12,7 @@
 
 #include "core/Config.h"
 #include "core/Random.h"
+#include "world/MapDefinition.h"
 
 namespace lwtest {
 
@@ -40,41 +41,25 @@ inline std::string testArtifactPath(const std::string& name) {
 //   cityZones 涂 (32,200,32)（g=200 → 城概率≈0.57）；seas 涂 (0,0,0)。
 // 与 C++ 读取器一致：54 头 + 标准 4 字节对齐行 + BGR + 自底向上。
 // 用途：让地图相关测试不依赖 data/ 下随时可能被删除/改动的具体地图文件。
-inline void writeTestMapBmp(const std::string& path,
-                            const std::vector<std::pair<int, int>>& mountains,
-                            const std::vector<std::pair<int, int>>& cityZones,
-                            const std::vector<std::pair<int, int>>& seas = {}) {
-    constexpr int W = 105, H = 95, ROWSIZE = (W * 3 + 3) & ~3;
-    std::vector<unsigned char> data(static_cast<std::size_t>(54 + H * ROWSIZE), 0);
-    data[0] = 'B';
-    data[1] = 'M';
-    const unsigned sz = 54 + H * ROWSIZE;
-    std::memcpy(&data[2], &sz, 4);
-    const unsigned off = 54;
-    std::memcpy(&data[10], &off, 4);
-    const unsigned ih = 40;
-    std::memcpy(&data[14], &ih, 4);
-    std::memcpy(&data[18], &W, 4);
-    std::memcpy(&data[22], &H, 4);
-    const unsigned short p = 1, bpp = 24;
-    std::memcpy(&data[26], &p, 2);
-    std::memcpy(&data[28], &bpp, 2);
-    const auto put = [&](int x, int y, int r, int g, int b) {
-        std::size_t o = static_cast<std::size_t>(54 + y * ROWSIZE + x * 3);
-        data[o] = static_cast<unsigned char>(b);
-        data[o + 1] = static_cast<unsigned char>(g);
-        data[o + 2] = static_cast<unsigned char>(r);
-    };
-    for (int y = 0; y < H; ++y)
-        for (int x = 0; x < W; ++x) put(x, y, 128, 128, 128);
-    for (const auto& [x, y] : mountains) put(x, y, 255, 32, 32);
-    for (const auto& [x, y] : cityZones) put(x, y, 32, 200, 32);
-    for (const auto& [x, y] : seas) put(x, y, 0, 0, 0);
-    FILE* f = std::fopen(path.c_str(), "wb");
-    if (f) {
-        std::fwrite(data.data(), 1, data.size(), f);
-        std::fclose(f);
-    }
+inline void writeTestMapLandmap(const std::string& path,
+                                const std::vector<std::pair<int, int>>& mountains,
+                                const std::vector<std::pair<int, int>>& cityZones,
+                                const std::vector<std::pair<int, int>>& seas = {}) {
+    constexpr int W = 105, H = 95;
+    lw::MapDefinition definition;
+    definition.cols = W;
+    definition.rows = H;
+    definition.terrain.assign(static_cast<std::size_t>(W * H), lw::MapTerrain::Land);
+    for (const auto& [x, y] : mountains)
+        definition.terrain[static_cast<std::size_t>(y * W + x)] = lw::MapTerrain::Mountain;
+    for (const auto& [x, y] : seas)
+        definition.terrain[static_cast<std::size_t>(y * W + x)] = lw::MapTerrain::Sea;
+    for (const auto& [x, y] : cityZones)
+        definition.terrain[static_cast<std::size_t>(y * W + x)] = lw::MapTerrain::City;
+    for (const auto& [x, y] : cityZones)
+        definition.cities.push_back({1.0, y * W + x, 0});
+    std::string error;
+    if (!definition.saveToFile(path, &error)) std::fputs(error.c_str(), stderr);
 }
 
 }  // namespace lwtest

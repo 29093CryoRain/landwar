@@ -92,6 +92,8 @@ public:
 
     // 实际绘制（需要纹理；内部调 compute）。rc = render 段（city + capital）。
     void draw(const Map& map, const Config::Render& rc, const std::vector<int>& capitalStatus = {});
+    // 绘制已经计算好的帧。编辑器可缓存 compute() 结果，避免鼠标移动时重复解析城市几何。
+    void drawFrame(const Frame& frame, const Config::Render& rc);
 
 private:
     SDL_Renderer* ren_;

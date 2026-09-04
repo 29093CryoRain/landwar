@@ -163,7 +163,7 @@ bool Application::init() {
                                                            rcfg.armyDrawSize);
     // 特效/玩家指示构造时传空主色表，随后 applyPaletteColors() 统一填充（爆炸圆/环/箭头）。
     effectRenderer_ =
-        std::make_unique<render::EffectRenderer>(ren_, sheet_, camera_, rcfg.armyDrawSize);
+        std::make_unique<render::CombatEffectRenderer>(ren_, sheet_, camera_, rcfg.armyDrawSize);
     projectileRenderer_ = std::make_unique<render::ProjectileRenderer>(
         ren_, sheet_, camera_, uiConfig_.projectile.drawSize);
     cityMarker_ = std::make_unique<render::CityMarkerRenderer>(
@@ -390,7 +390,7 @@ void Application::computeCounts() {
         ++counts_.armyTotal;
     }
     counts_.effectCount = 0;
-    for (auto e : reg.view<comp::EffectTypeId>()) {
+    for (auto e : reg.view<comp::CombatEffectTypeId>()) {
         if (!reg.all_of<comp::Dead>(e)) ++counts_.effectCount;
     }
 }
@@ -647,7 +647,8 @@ void Application::reloadConfig() {
     // 沿用当前地图选择（--map 覆盖 / 菜单 options / 随机图 P6），避免 F5 后地图被重置回 config 默认（P5 改版修复）。
     Config cfg = Config::loadFromFile(configPath_.empty() ? kDefaultConfigPath : configPath_);
     resolveMapSelection(cfg);
-    Simulation fresh(cfg, seed_, effectiveMapSeed());
+    const std::uint32_t mapSeed = effectiveMapSeed() == 0 ? seed_ : effectiveMapSeed();
+    Simulation fresh(cfg, seed_, mapSeed);
     // 用户反馈：重载后玩家无法游玩（变回全默认 AI）——fresh 必须沿用当前 options
     //（含玩家 aiId=1、势力出场、地图选择），不能走默认 init()（全 aiId=0）。
     if (!fresh.init(sim_.options())) {
@@ -944,6 +945,7 @@ bool Application::ensureSimulation() {
 }
 
 void Application::resolveMapSelection(Config& cfg) {
+    resolvedMapDefinition_.reset();
     // 当前地图选择：--map 覆盖 > 菜单 options 选择 > 随机图生成（P6）> config 默认。
     if (!mapOverride_.empty()) {
         cfg.map.file = mapOverride_;
@@ -954,23 +956,22 @@ void Application::resolveMapSelection(Config& cfg) {
         return;
     }
     if (options_.map.kind == MapSelection::Kind::Random) {
-        // P6：生成地形基图 → 走现有加载路径（单一加载路径；P12：六/三 = lwmap）。
-        // 确定性：(seed, 参数 + 密铺)。
+        const std::uint32_t mapSeed = effectiveMapSeed() == 0 ? seed_ : effectiveMapSeed();
         const MapGenParams p{options_.map.width,   options_.map.height,
                              options_.map.seaRatio, options_.map.mountainDensity,
                               options_.map.cityDensity, cfg.map.cityMountainWeight,
                               options_.map.forceCoast, tilingFromName(options_.map.tiling),
                               cfg.map.forceCoastRangeMultiplier,
                               cfg.map.forceCoastStrengthMultiplier};
-        const std::string path = MapGenerator::defaultPath(options_.map.randomSeed, p);
-        if (MapGenerator::generate(path, options_.map.randomSeed, p)) {
-            cfg.map.width = p.width;  // 只在生成成功后覆盖尺寸/文件（失败保底可启动）
-            cfg.map.height = p.height;
-            cfg.map.tiling = options_.map.tiling;  // P12：密铺
-            cfg.map.file = path;
+        MapDefinition definition;
+        if (MapGenerator::generate(mapSeed, p, definition, cfg.city)) {
+            resolvedMapDefinition_ = std::move(definition);
+            cfg.map.width = resolvedMapDefinition_->cols;
+            cfg.map.height = resolvedMapDefinition_->rows;
+            cfg.map.tiling = tilingName(resolvedMapDefinition_->tiling);
             return;
         }
-        spdlog::error("random map generate failed, falling back to '{}'", cfg.map.file);
+        spdlog::error("random map generation failed");
         return;
     }
     // 回退 config 默认。
@@ -981,6 +982,7 @@ bool Application::buildSimulation() {
     resolveMapSelection(cfg);
     // P6 RNG 分离：主种子 seed_ 驱动首都/后续；地图种子 effectiveMapSeed() 驱动地图骰子。
     Simulation fresh(cfg, seed_, effectiveMapSeed());
+    if (resolvedMapDefinition_) fresh.setMapDefinition(std::move(*resolvedMapDefinition_));
     if (!fresh.init(options_)) {
         spdlog::error("simulation init failed (map missing?): '{}'", cfg.map.file);
         return false;

@@ -35,8 +35,8 @@ enum class PeriodicAction : int {
     fireShotgun = 2, // 霰弹：向随机方向发 3 颗随机速度子弹
 };
 
-// 特效类型（原版 Effect.type 值，见翻新计划 §2.6）。
-enum class EffectType : int {
+// CombatEffect 类型（原版 Effect.type 值，见翻新计划 §2.6）。
+enum class CombatEffectType : int {
     bomb = 0,  // 爆炸
     mine = 1,  // 地雷（布设状态）
     laser = 2, // 激光

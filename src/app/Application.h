@@ -26,7 +26,7 @@
 #include "render/Camera.h"
 #include "render/CityMarkerRenderer.h"
 #include "render/CityRenderer.h"
-#include "render/EffectRenderer.h"
+#include "render/CombatEffectRenderer.h"
 #include "render/MapRenderer.h"
 #include "render/ProjectileRenderer.h"
 #include "render/SpriteSheet.h"
@@ -101,7 +101,7 @@ private:
     bool buildSimulation();   // 按 options_/mapOverride_/configPath_ 构建 Simulation
     // 应用当前地图选择到 cfg（--map 覆盖 > 菜单 options 选择 > 随机图生成 > config 默认）。
     // buildSimulation 与 reloadConfig 共用 → F5 重载不会把地图重置回 config.json 默认（P5 改版修复）。
-    // P6：Kind::Random 时生成随机图 BMP 并设置 cfg.map.width/height/file（确定性：seed+参数）。
+    // P6：Kind::Random 时生成 fully-resolved map data in memory。
     void resolveMapSelection(Config& cfg);
     // P6：地图尺寸可能与 config 默认不同（随机图长宽可调）→ 重配屏幕变换 tf_ 与相机
     // （否则相机 mapW/mapH、tf_.mapHeight 按旧尺寸算 → 大图放大后平移够不到边缘，2026-08-06）。
@@ -121,7 +121,7 @@ private:
     std::unique_ptr<render::MapRenderer> mapRenderer_;
     std::unique_ptr<render::CityRenderer> cityRenderer_;  // P13：基建格贴图 + 等级图标 + 细线围区
     std::unique_ptr<render::ArmyRenderer> armyRenderer_;
-    std::unique_ptr<render::EffectRenderer> effectRenderer_;
+    std::unique_ptr<render::CombatEffectRenderer> effectRenderer_;
     std::unique_ptr<render::ProjectileRenderer> projectileRenderer_;  // 子弹（P9）
     std::unique_ptr<render::CityMarkerRenderer> cityMarker_;  // 玩家产兵城/悬停指示圈（P2）
     // P2 悬停/选中城 id（= Map.cities() 下标；-1 = 无）。2026-08-07：由坐标改为 id，
@@ -137,6 +137,7 @@ private:
     std::string configPath_ = kDefaultConfigPath;  // F5 重载用
     std::string optionsPath_ = kDefaultOptionsPath;  // 菜单选项路径（开始游戏时保存；userdata/）
     std::string mapOverride_;          // CLI --map 覆盖
+    std::optional<MapDefinition> resolvedMapDefinition_;
     Options options_;                  // 菜单选项（启动时从 optionsPath_ 读取）
     std::vector<std::array<int, 3>> tileColors_;  // 地块填色（运行时势力数量）
     std::vector<std::vector<std::array<int, 3>>> tileGradeColors_;  // 双色密铺分档配色

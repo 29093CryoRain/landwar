@@ -8,6 +8,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <vector>
 
 #include <SDL.h>
@@ -39,11 +40,28 @@ public:
               const std::vector<std::vector<std::array<int, 3>>>& gradeColors = {});
     // 旧测试/调用方兼容入口；新代码应使用运行时长度的 vector 版本。
     void draw(const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
+    // Developer-tool grid layer. The regular game draw path keeps only the
+    // outer boundary; editor callers can omit this at low zoom.
+    void drawGrid(const Map& map, const SDL_Color& color = {235, 235, 235, 255});
 
 private:
     struct MountainScale {
         TintCache textures;
         double scale = 1.0;
+    };
+
+    // Per-cell world-space polygon cache for drawTiled.  Rebuilt only when
+    // the map geometry (tiling type / cols / rows) changes; camera changes
+    // only re-transform to screen space, avoiding repeated cellPolygon calls.
+    struct CellPolyCache {
+        TilingType tiling = TilingType::Square;
+        int cols = 0;
+        int rows = 0;
+        int cellCount = 0;
+        std::vector<std::uint8_t> vertCount;   // per cell: polygon vertex count
+        std::vector<std::size_t> cellOffset;   // per cell: flat index into wx/wy arrays
+        std::vector<double> wx;                // flattened world x coords
+        std::vector<double> wy;                // flattened world y coords
     };
 
     void ensureMountainScales(const Map& map);
@@ -52,6 +70,7 @@ private:
     void drawSquare(const Map& map, const std::vector<std::array<int, 3>>& tileColors);
     void drawTiled(const Map& map, const std::vector<std::array<int, 3>>& tileColors,
                    const std::vector<std::vector<std::array<int, 3>>>& gradeColors);
+    void ensureTiledVertices(const Map& map);
     // P12 决策 3：一圈灰线描出地图边界（任意密铺；实心粗线段）。
     void drawBoundaryOutline(const Map& map);
     SDL_Renderer* ren_;
@@ -59,6 +78,7 @@ private:
     const Config::Render::Mountain& mountainConfig_;
     std::vector<std::array<int, 3>> mountainColors_;
     std::vector<MountainScale> mountainScales_;
+    CellPolyCache polyCache_;
 };
 
 }  // namespace lw::render

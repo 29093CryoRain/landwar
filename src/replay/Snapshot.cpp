@@ -509,9 +509,9 @@ std::string Snapshot::serialize(const Simulation& sim) {
                 // 特效
                 a["kind"] = 2;
                 a["fid"] = reg.get<comp::FactionId>(e).value;
-                a["type"] = static_cast<int>(reg.get<comp::EffectTypeId>(e).type);
-                a["created"] = reg.get<comp::EffectTimer>(e).createdTick;
-                const auto& ep = reg.get<comp::EffectParams>(e);
+                a["type"] = static_cast<int>(reg.get<comp::CombatEffectTypeId>(e).type);
+                a["created"] = reg.get<comp::CombatEffectTimer>(e).createdTick;
+                const auto& ep = reg.get<comp::CombatEffectParams>(e);
                 a["p0"] = ep.p0;
                 a["p1"] = ep.p1;
                 a["p2"] = ep.p2;
@@ -697,8 +697,9 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
         auto e = reg.create(entt::entity{id});
         const int kind = ej.at("kind").get<int>();
         const auto& pos = ej.at("pos");
-        reg.emplace<comp::Position>(e, pos[0].get<double>(), pos[1].get<double>());
+            reg.emplace<comp::Position>(e, pos[0].get<double>(), pos[1].get<double>());
         if (kind == 1) {  // 子弹
+            reg.emplace<comp::CombatEntity>(e);
             reg.emplace<comp::Velocity>(e, ej.at("vel").get<double>());
             reg.emplace<comp::Speed>(e, ej.at("speed").get<double>());
             reg.emplace<comp::FactionId>(e, ej.at("fid").get<int>());
@@ -723,10 +724,13 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
                                                            ej.at("periodCounter").get<int>()});
             if (ej.at("dead").get<bool>()) reg.emplace<comp::Dead>(e);
         } else {  // 特效
+            reg.emplace<comp::CombatEntity>(e);
+            reg.emplace<comp::CombatEffect>(e);
             reg.emplace<comp::FactionId>(e, ej.at("fid").get<int>());
-            reg.emplace<comp::EffectTypeId>(e, static_cast<EffectType>(ej.at("type").get<int>()));
-            reg.emplace<comp::EffectTimer>(e, ej.at("created").get<int>());
-            reg.emplace<comp::EffectParams>(e, ej.at("p0").get<double>(), ej.at("p1").get<double>(),
+            reg.emplace<comp::CombatEffectTypeId>(
+                e, static_cast<CombatEffectType>(ej.at("type").get<int>()));
+            reg.emplace<comp::CombatEffectTimer>(e, ej.at("created").get<int>());
+            reg.emplace<comp::CombatEffectParams>(e, ej.at("p0").get<double>(), ej.at("p1").get<double>(),
                                             ej.at("p2").get<double>());
             const auto& cr = ej.at("creator");
             reg.emplace<comp::Creator>(e,

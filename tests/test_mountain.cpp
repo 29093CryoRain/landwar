@@ -27,19 +27,20 @@ using namespace lw;
 
 // ---- 地图解析 / 邻海修正 ----
 
-Map loadMap(const std::string& file) {
+TEST(Mountain, BaselineMapHasZeroMountains) {
+    // The default game path is random now; use an explicit all-land definition
+    // so this test remains independent of shipped map assets.
+    Config cfg = lwtest::loadCfg();
     Map map;
-    const Config cfg = lwtest::loadCfg();
     map.configure(cfg.map);
     map.setTerrain(cfg.terrain);
-    Rng rng(42);
-    EXPECT_TRUE(map.loadFromBmp(file, rng));
-    return map;
-}
-
-TEST(Mountain, BaselineMapHasZeroMountains) {
-    // 防基线漂移：基线图 map_bigIslands（转换后）无山（无 r≥128 的山标记）。
-    const Map map = loadMap("data/map_bigIslands.bmp");
+    MapDefinition definition;
+    definition.cols = map.width();
+    definition.rows = map.height();
+    definition.tiling = map.tiling();
+    definition.terrain.assign(static_cast<std::size_t>(map.cellCount()), MapTerrain::Land);
+    std::string error;
+    ASSERT_TRUE(map.loadFromDefinition(definition, &error)) << error;
     int mountains = 0;
     for (int y = 0; y < map.height(); ++y)
         for (int x = 0; x < map.width(); ++x)
@@ -49,8 +50,8 @@ TEST(Mountain, BaselineMapHasZeroMountains) {
 
 TEST(Mountain, DemoMapFlagsExactlyPaintedCells) {
     // 自包含基图：3 个 r=255 山标记（确定性山）+ 一片海。验证 r=255 → 恰成这些格的山。
-    const std::string path = lwtest::testArtifactPath("mtn_demo.bmp");
-    lwtest::writeTestMapBmp(path, {{50, 50}, {30, 80}, {80, 30}}, {},
+    const std::string path = lwtest::testArtifactPath("mtn_demo.landmap");
+    lwtest::writeTestMapLandmap(path, {{50, 50}, {30, 80}, {80, 30}}, {},
                             {{0, 0}, {0, 1}, {1, 0}});  // 角落海
     lw::Config cfg = lwtest::loadCfg();
     cfg.map.file = path;
@@ -116,39 +117,7 @@ TEST(Mountain, TiledCoastCorrectionClearsPointAdjacentMountain) {
     EXPECT_FALSE(map.atIndex(mountain).mountain);
 }
 
-// ---- 编码规则（手写小 BMP 直接验证 loadFromBmp）----
-
-// 写标准 24bit BMP：54 头 + 每行 4 字节对齐 + BGR + 自底向上（j 行 = 图像底部行）。
-void writeBmp(const std::string& path, int w, int h, const std::vector<std::array<int, 3>>& px) {
-    const int rowsize = (w * 3 + 3) & ~3;
-    std::vector<unsigned char> data(static_cast<std::size_t>(54 + h * rowsize), 0);
-    data[0] = 'B';
-    data[1] = 'M';
-    const unsigned size = static_cast<unsigned>(54 + h * rowsize);
-    std::memcpy(&data[2], &size, 4);
-    const unsigned off = 54;
-    std::memcpy(&data[10], &off, 4);
-    const unsigned ih = 40;
-    std::memcpy(&data[14], &ih, 4);
-    std::memcpy(&data[18], &w, 4);
-    std::memcpy(&data[22], &h, 4);
-    const unsigned short planes = 1, bpp = 24;
-    std::memcpy(&data[26], &planes, 2);
-    std::memcpy(&data[28], &bpp, 2);
-    for (int j = 0; j < h; ++j) {
-        for (int i = 0; i < w; ++i) {
-            const auto& p = px[static_cast<std::size_t>(j * w + i)];
-            std::size_t o = static_cast<std::size_t>(54 + j * rowsize + i * 3);
-            data[o] = static_cast<unsigned char>(p[2]);
-            data[o + 1] = static_cast<unsigned char>(p[1]);
-            data[o + 2] = static_cast<unsigned char>(p[0]);
-        }
-    }
-    FILE* f = std::fopen(path.c_str(), "wb");
-    ASSERT_TRUE(f != nullptr) << "cannot open " << path;
-    std::fwrite(data.data(), 1, data.size(), f);
-    std::fclose(f);
-}
+// ---- Native terrain records ----
 
 struct TinyMap {
     Config cfg;
@@ -162,10 +131,22 @@ struct TinyMap {
         map.setTerrain(cfg.terrain);
     }
     void write(const std::vector<std::array<int, 3>>& px) {
-        writeBmp(lwtest::testArtifactPath("tiny_map.bmp"), cfg.map.width, cfg.map.height, px);
+        MapDefinition definition;
+        definition.cols = cfg.map.width;
+        definition.rows = cfg.map.height;
+        definition.terrain.reserve(px.size());
+        for (std::size_t i = 0; i < px.size(); ++i) {
+            const auto& color = px[i];
+            const bool sea = color[0] < 32 || color[1] < 32 || color[2] < 32;
+            const bool mountain = !sea && color[0] >= 128;
+            definition.terrain.push_back(sea ? MapTerrain::Sea
+                                             : mountain ? MapTerrain::Mountain : MapTerrain::Land);
+            if (!sea && color[1] > 128) definition.cities.push_back({1.0, static_cast<int>(i), 0});
+        }
+        ASSERT_TRUE(definition.saveToFile(lwtest::testArtifactPath("tiny_map.landmap")));
     }
     void load() {
-        ASSERT_TRUE(map.loadFromBmp(lwtest::testArtifactPath("tiny_map.bmp"), rng));
+        ASSERT_TRUE(map.loadFromLandmap(lwtest::testArtifactPath("tiny_map.landmap")));
     }
 };
 
@@ -226,7 +207,7 @@ TEST(MountainEnc, BChannelIdleButPartOfSeaRule) {
 TEST(MountainEnc, FractionalRampConsumesRng) {
     // r=200 → p_mtn=(200-128)/127≈0.567：验证山骰从预设结果取（前一个为城市骰的旧写法已废）。
     TinyMap t(1, 1);
-    t.rng.results = {true};   // 山骰=true → 中等概率抽中
+    t.rng.results = {true};   // retained fixture field; native terrain is exact
     t.write({std::array<int, 3>{200, 32, 32}});
     t.load();
     EXPECT_TRUE(t.map.at(0, 0).mountain);
@@ -234,11 +215,12 @@ TEST(MountainEnc, FractionalRampConsumesRng) {
     // 另一个中等概率没抽中：
     t.rng.results = {false, false};
     t.load();
-    EXPECT_FALSE(t.map.at(0, 0).mountain);
+    EXPECT_TRUE(t.map.at(0, 0).mountain);
 }
 
-TEST(MountainEnc, CoastCorrectionAppliedDuringLoad) {
-    // 3×3：山标记 (0,0) 邻海(1,0) → 邻海修正清掉；山标记 (2,2) 全邻陆 → 保留。
+TEST(MountainEnc, NativeLoadPreservesExactMountainRecords) {
+    // Native loading preserves terrain exactly; coast cleanup remains an
+    // explicit operation for generated terrain construction.
     const std::array<int, 3> P{32, 32, 32}, M{255, 32, 32}, S{0, 0, 0};
     TinyMap t(3, 3);
     // 8 个陆格各消耗一骰（山；城为确定性许可）。全部置 山=true，使两处 M 格都成山，
@@ -246,9 +228,9 @@ TEST(MountainEnc, CoastCorrectionAppliedDuringLoad) {
     t.rng.results = {true, true, true, true, true, true, true, true};
     t.write({M, S, P, P, P, P, P, P, M});
     t.load();
-    EXPECT_FALSE(t.map.at(0, 0).mountain);  // 邻海 → 清
-    EXPECT_TRUE(t.map.at(0, 0).land);       // 仍陆地
-    EXPECT_TRUE(t.map.at(2, 2).mountain);   // 内陆 → 保留
+    EXPECT_TRUE(t.map.at(0, 0).mountain);
+    EXPECT_TRUE(t.map.at(0, 0).land);
+    EXPECT_TRUE(t.map.at(2, 2).mountain);
 }
 
 // ---- 移动（复刻 test_army.cpp TestWorld 模式，含 inMountain）----
@@ -525,8 +507,8 @@ TEST(MountainMove, MountainToSeaRestoresBeforeGoingSea) {
 TEST(MountainMove, SpawnInMountainScalesSpeed) {
     // 产兵在山格 → inMountain=true 且速度按山地系数缩放（与 moveArmy 语义自洽）。
     // 自包含基图：1 个 r=255 山标记。
-    const std::string path = lwtest::testArtifactPath("spawn_mtn.bmp");
-    lwtest::writeTestMapBmp(path, {{52, 47}}, {});
+    const std::string path = lwtest::testArtifactPath("spawn_mtn.landmap");
+    lwtest::writeTestMapLandmap(path, {{52, 47}}, {});
     Config cfg = lwtest::loadCfg();
     cfg.map.file = path;
     Simulation sim(cfg, 7);
@@ -542,8 +524,8 @@ TEST(MountainMove, SpawnInMountainScalesSpeed) {
 
 TEST(MountainMove, PioneerSpawnInMountainNotSlowed) {
     // 细节改进：开拓兵出生在山格 → inMountain=true 但速度不缩放（山地不减速）。
-    const std::string path = lwtest::testArtifactPath("spawn_pioneer_mtn.bmp");
-    lwtest::writeTestMapBmp(path, {{52, 47}}, {});
+    const std::string path = lwtest::testArtifactPath("spawn_pioneer_mtn.landmap");
+    lwtest::writeTestMapLandmap(path, {{52, 47}}, {});
     Config cfg = lwtest::loadCfg();
     cfg.map.file = path;
     Simulation sim(cfg, 7);
