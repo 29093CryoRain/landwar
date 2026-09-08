@@ -35,6 +35,10 @@ imgui.ini
 /shot_*.png
 /beam_*.png
 
+# 源贴图（运行时不加载）
+/data/mountain.png
+/data/towers.png
+
 # run_test.bat 输出
 /out_capture.txt
 
