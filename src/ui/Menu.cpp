@@ -9,7 +9,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
-#include <numeric>
 
 #ifdef _WIN32
 #include <windows.h>  // FindFirstFileA（枚举地图文件；避免 std::filesystem——MSYS2 运行时
@@ -440,20 +439,13 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         // 周期域映射把用户长宽转换为周期块列/行；步进由映射输入限制统一计算。
-        int wStep = 1;
         // 表驱动密铺：输入限制（算法一硬编码）——长须为 Ra 倍数、宽须为 Rb 倍数，使
         // 长*宽 = 总格数 精确守恒且映射单调（cols∝长、rows∝宽）。菜单按 Ra/Rb 设"-/+"步进。
         int Ra = 1, Rb = 1;
         const bool hasLimit = tableInputRestriction(static_cast<int>(st.tiling), Ra, Rb);
-        if (hasLimit) wStep = std::lcm(wStep, Ra);
+        const int wStep = hasLimit ? Ra : 1;
         ImGui::InputInt("长", &st.randW, wStep, 8);
-        // 周期块已包含规则密铺的方向重复，不再额外强制偶数行。
-        const bool needEvenRows = false;
-        const bool isTableTiling = static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri);
-        int hStep = 1;
-        if (hasLimit) hStep = std::lcm(needEvenRows ? 2 : 1, Rb);
-        else if (needEvenRows) hStep = 2;
-        else if (isTableTiling) hStep = Rb;
+        const int hStep = hasLimit ? Rb : 1;
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
         ImGui::InputInt("宽", &st.randH, hStep, 8);
         st.randW = std::clamp(st.randW, 32, 200);
@@ -468,12 +460,6 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
             };
             st.randW = snapMenuDimension(st.randW, Ra);
             st.randH = snapMenuDimension(st.randH, Rb);
-        } else if (needEvenRows) {
-            st.randH = (st.randH / 2) * 2;
-            if (st.randH < 32) st.randH = 32;
-        } else if (isTableTiling) {
-            st.randH = ((st.randH + hStep / 2) / hStep) * hStep;  // 四舍五入到 B 的倍数
-            if (st.randH > 200) st.randH = (200 / hStep) * hStep;
         }
         // 强制边缘为海（在陆地占比条上方，用户要求调换位置，2026-08-06）。
         ImGui::Checkbox("强制边缘为海", &st.forceCoast);

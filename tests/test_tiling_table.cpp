@@ -836,7 +836,7 @@ TEST(TilingTable, ArchRowColRangeConservative) {
         for (int y0 = 0; y0 < 4; ++y0) {
             const double yy = h * (0.2 + 0.15 * y0);
             int r0, r1;
-            g.rowRange(yy, yy, r0, r1);
+            g.rowRange(0.0, yy, w, yy, r0, r1);
             EXPECT_LE(r0, r1) << tilingName(t);
             EXPECT_GE(r0, 0);
             EXPECT_LE(r1, g.rows - 1);

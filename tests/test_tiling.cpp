@@ -424,7 +424,7 @@ TEST(Tiling, CullingCoversAllVisibleCells) {
                         const double vy0 = cy - vh * 0.5, vy1 = cy + vh * 0.5;
                         if (vx1 <= 0.0 || vx0 >= ww || vy1 <= 0.0 || vy0 >= wh) continue;
                         int r0, r1;
-                        g.rowRange(vy0, vy1, r0, r1);
+                        g.rowRange(vx0, vy0, vx1, vy1, r0, r1);
                         if (r0 > r1) continue;
                         for (int idx = 0; idx < g.cellCount(); ++idx) {
                             double vx[6], vy[6];

@@ -50,6 +50,3 @@ __pycache__/
 
 # 本地压力测试配置
 /data/factions_110s.jsonc
-
-# 本地调试启动脚本
-/运行游戏.bat

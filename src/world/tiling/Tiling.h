@@ -90,10 +90,8 @@ struct TilingGeom {
     // 周期细网格；边界/顶点/未命中时回退到精确半平面扫描。
     int worldToCell(double wx, double wy) const;
 
-    // 世界矩形（AABB）覆盖的行范围（含越界 ±1 保守外扩；供空间哈希/炸弹扫描）。
+    // 世界矩形（AABB）覆盖的行范围（含越界 ±1 保守外扩；斜周期同时使用 x 范围收紧）。
     // 输出直接 clamp 到 [0, rows)；矩形完全在图外时 r0 > r1（无覆盖）。
-    void rowRange(double y0, double y1, int& r0, int& r1) const;
-    // 同上，但同时使用 x 范围收紧斜周期密铺的候选行；矩形查询应优先使用此重载。
     void rowRange(double x0, double y0, double x1, double y1, int& r0, int& r1) const;
     // 世界 x 范围在给定行的列范围（含越界 ±1；clamp 到 [0, cols)）。
     void colRange(double x0, double x1, int r, int& c0, int& c1) const;

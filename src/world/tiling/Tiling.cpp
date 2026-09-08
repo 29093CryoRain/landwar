@@ -7,6 +7,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -132,9 +133,6 @@ bool isAnalyticType(TilingType t) {
 
 bool isGridType(TilingType t) {
     switch (t) {
-        case TilingType::Square:
-        case TilingType::Hex:
-        case TilingType::Tri:
         case TilingType::Arch33336:
         case TilingType::Arch31212:
         case TilingType::Arch3464:
@@ -688,10 +686,6 @@ int tryFastTableCell(const TilingTable& tab, TilingType type, int cols, int rows
     const int row = static_cast<int>(std::floor(v));
     const double fu = u - static_cast<double>(col);
     const double fv = v - static_cast<double>(row);
-    if (fu <= kFastBoundaryTol || fu >= 1.0 - kFastBoundaryTol ||
-        fv <= kFastBoundaryTol || fv >= 1.0 - kFastBoundaryTol)
-        return -1;
-
     const auto tryCandidate = [&](const TilingTable::FastCandidate& candidate) {
         const int rr = row + candidate.dr, cc = col + candidate.dc;
         if (candidate.b < 0 || rr < 0 || rr >= rows || cc < 0 || cc >= cols) return -1;
@@ -703,6 +697,9 @@ int tryFastTableCell(const TilingTable& tab, TilingType type, int cols, int rows
     };
 
     if (isAnalyticType(type)) {
+        if (fu <= kFastBoundaryTol || fu >= 1.0 - kFastBoundaryTol ||
+            fv <= kFastBoundaryTol || fv >= 1.0 - kFastBoundaryTol)
+            return -1;
         int region = 0;
         if (tab.analyticRegionCount == 2) {
             if (std::fabs(fv - 0.5) <= kFastBoundaryTol) return -1;
@@ -784,23 +781,10 @@ int scanTableCell(const TilingTable& tab, int cols, int rows, double worldX, dou
 int tryRegularCell(const TilingTable& tab, TilingType type, int cols, int rows, double x,
                    double y) {
     constexpr double kBoundaryTol = 4.0 * kTableTol;
-    if (type == TilingType::Square) {
-        const double uf = x / tab.wx, vf = y / tab.hy;
-        const int col = static_cast<int>(std::floor(uf));
-        const int row = static_cast<int>(std::floor(vf));
-        const double fu = uf - static_cast<double>(col);
-        const double fv = vf - static_cast<double>(row);
-        if (row >= 0 && row < rows && col >= 0 && col < cols &&
-            fu > kBoundaryTol && fu < 1.0 - kBoundaryTol && fv > kBoundaryTol &&
-            fv < 1.0 - kBoundaryTol)
-            return row * cols + col;
-        return -1;
-    }
-
     if (type == TilingType::Hex && tab.cells.size() == 2) {
         const double rowSpacing = 0.5 * tab.hy;
-        const int nearestRow = static_cast<int>(
-            std::lround((y - tab.cells[0].cy) / rowSpacing));
+        const int nearestRow =
+            static_cast<int>(std::lround((y - tab.cells[0].cy) / rowSpacing));
         for (int offset : {0, -1, 1}) {
             const int physicalRow = nearestRow + offset;
             if (physicalRow < 0 || physicalRow >= 2 * rows) continue;
@@ -858,7 +842,13 @@ int tryRegularCell(const TilingTable& tab, TilingType type, int cols, int rows, 
 
 void TilingGeom::ensureTable() const {
     if (!usesTableGeometry(type) || table_) return;
-    table_ = loadTable(type);
+    static std::array<std::once_flag, kTilingTypeCount> once;
+    static std::array<std::shared_ptr<const TilingTable>, kTilingTypeCount> cache;
+    const int index = static_cast<int>(type);
+    std::call_once(once[static_cast<size_t>(index)], [index] {
+        cache[static_cast<size_t>(index)] = loadTable(static_cast<TilingType>(index));
+    });
+    table_ = cache[static_cast<size_t>(index)];
 }
 
 int TilingGeom::tilePaletteSize() const {
@@ -1105,53 +1095,47 @@ int TilingGeom::worldToCell(double wx, double wy) const {
     ensureTable();
     if (!table_) return -1;
     const double ux = wx + worldMinX(), uy = wy + worldMinY();
-    if (static_cast<int>(type) <= static_cast<int>(TilingType::Tri)) {
+    if (!isTableType(type)) {
+        if (table_->cells.size() == 1) {
+            double u = 0.0, v = 0.0;
+            periodicCoordinates(*table_, ux, uy, u, v);
+            const int col = static_cast<int>(std::floor(u));
+            const int row = static_cast<int>(std::floor(v));
+            return row >= 0 && row < rows && col >= 0 && col < cols ? row * cols + col : -1;
+        }
         const int regular = tryRegularCell(*table_, type, cols, rows, ux, uy);
         if (regular >= 0) return regular;
-    }
-    const int fast = tryFastTableCell(*table_, type, cols, rows, ux, uy);
-    if (fast >= 0) return fast;
-    return scanTableCell(*table_, cols, rows, wx, wy, ux, uy, worldWidth(), worldHeight());
-}
-
-void TilingGeom::rowRange(double y0, double y1, int& r0, int& r1) const {
-    ensureTable();
-    if (table_) {
-        if (std::fabs(table_->wy) > kEps || std::fabs(table_->hy) < kEps) {
-            r0 = 0;
-            r1 = rows - 1;
-        } else {
-            r0 = static_cast<int>(std::floor((y0 - table_->ry) / table_->hy)) - 1;
-            r1 = static_cast<int>(std::ceil((y1 + table_->ry) / table_->hy)) + 1;
-        }
     } else {
-        r0 = 0;
-        r1 = rows - 1;
+        const int fast = tryFastTableCell(*table_, type, cols, rows, ux, uy);
+        if (fast >= 0) return fast;
     }
-    r0 = std::clamp(r0, 0, std::max(0, rows - 1));
-    r1 = std::clamp(r1, 0, std::max(0, rows - 1));
+    return scanTableCell(*table_, cols, rows, wx, wy, ux, uy, worldWidth(), worldHeight());
 }
 
 void TilingGeom::rowRange(double x0, double y0, double x1, double y1, int& r0, int& r1) const {
     ensureTable();
-    if (!table_ || std::fabs(table_->wy) <= kEps) {
-        rowRange(y0, y1, r0, r1);
-        return;
-    }
-    const double ox = worldMinX(), oy = worldMinY();
-    const double rawX[2] = {std::min(x0, x1) + ox, std::max(x0, x1) + ox};
-    const double rawY[2] = {std::min(y0, y1) + oy, std::max(y0, y1) + oy};
-    double vmin = std::numeric_limits<double>::max();
-    double vmax = std::numeric_limits<double>::lowest();
-    for (double x : rawX) {
-        for (double y : rawY) {
-            const double v = table_->inv10 * x + table_->inv11 * y;
-            vmin = std::min(vmin, v);
-            vmax = std::max(vmax, v);
+    if (!table_) {
+        r0 = 0;
+        r1 = rows - 1;
+    } else if (std::fabs(table_->wy) <= kEps) {
+        r0 = static_cast<int>(std::floor((std::min(y0, y1) - table_->ry) / table_->hy)) - 1;
+        r1 = static_cast<int>(std::ceil((std::max(y0, y1) + table_->ry) / table_->hy)) + 1;
+    } else {
+        const double ox = worldMinX(), oy = worldMinY();
+        const double rawX[2] = {std::min(x0, x1) + ox, std::max(x0, x1) + ox};
+        const double rawY[2] = {std::min(y0, y1) + oy, std::max(y0, y1) + oy};
+        double vmin = std::numeric_limits<double>::max();
+        double vmax = std::numeric_limits<double>::lowest();
+        for (double x : rawX) {
+            for (double y : rawY) {
+                const double v = table_->inv10 * x + table_->inv11 * y;
+                vmin = std::min(vmin, v);
+                vmax = std::max(vmax, v);
+            }
         }
+        r0 = static_cast<int>(std::floor(vmin - table_->vmax)) - 1;
+        r1 = static_cast<int>(std::ceil(vmax - table_->vmin)) + 1;
     }
-    r0 = static_cast<int>(std::floor(vmin - table_->vmax)) - 1;
-    r1 = static_cast<int>(std::ceil(vmax - table_->vmin)) + 1;
     r0 = std::clamp(r0, 0, std::max(0, rows - 1));
     r1 = std::clamp(r1, 0, std::max(0, rows - 1));
 }
@@ -1317,27 +1301,26 @@ int TilingGeom::crossEdge(int index, double& x, double& y, double angle, double&
 // 关键：c ∝ a、d ∝ b（正比例）⇒ 调"长"只改 cols、调"宽"只改 rows（完全单调、方向一致）。
 struct TableDomainParams {
     int s, t, p, q, Ra, Rb;
-    bool forceEvenRows = false;
 };
 const TableDomainParams* tableDomainParams(TilingType t) {
     static const TableDomainParams kTable[static_cast<int>(kTilingTypeCount)] = {
-        /* Square */ {1, 1, 1, 1, 1, 1, false},
-        /* Hex */ {1, 2, 13, 14, 14, 13, false},
-        /* Tri */ {1, 4, 2, 3, 3, 8, false},
-        /* Arch33336 */ {6, 3, 2, 1, 3, 6, false},
-        /* Arch33434 */ {2, 6, 5, 8, 16, 15, false},
-        /* Arch3464 */ {3, 4, 9, 8, 8, 9, false},
-        /* Arch3636 */ {3, 2, 8, 5, 15, 16, false},
-        /* Arch31212 */ {3, 2, 8, 5, 15, 16, false},
-        /* Arch4612 */ {3, 4, 2, 3, 9, 8, false},
-        /* Arch488 */ {1, 2, 5, 7, 7, 10, false},
-        /* Laves3636 */ {3, 2, 8, 5, 15, 16, false},
-        /* Laves31212 */ {3, 4, 9, 8, 8, 9, false},
-        /* Laves4612 */ {2, 12, 1, 2, 4, 6, false},
-        /* Laves488 */ {2, 2, 1, 1, 2, 2, false},
-        /* Laves33434 */ {2, 4, 3, 4, 8, 3, false},
-        /* Laves33336 */ {3, 4, 9, 8, 8, 9, false},
-        /* Laves3464 */ {3, 4, 9, 8, 8, 9, false},
+        /* Square */ {1, 1, 1, 1, 1, 1},
+        /* Hex */ {1, 2, 13, 14, 14, 13},
+        /* Tri */ {1, 4, 2, 3, 3, 8},
+        /* Arch33336 */ {6, 3, 2, 1, 3, 6},
+        /* Arch33434 */ {2, 6, 5, 8, 16, 15},
+        /* Arch3464 */ {3, 4, 9, 8, 8, 9},
+        /* Arch3636 */ {3, 2, 8, 5, 15, 16},
+        /* Arch31212 */ {3, 2, 8, 5, 15, 16},
+        /* Arch4612 */ {3, 4, 2, 3, 9, 8},
+        /* Arch488 */ {1, 2, 5, 7, 7, 10},
+        /* Laves3636 */ {3, 2, 8, 5, 15, 16},
+        /* Laves31212 */ {3, 4, 9, 8, 8, 9},
+        /* Laves4612 */ {2, 12, 1, 2, 4, 6},
+        /* Laves488 */ {2, 2, 1, 1, 2, 2},
+        /* Laves33434 */ {2, 4, 3, 4, 8, 3},
+        /* Laves33336 */ {3, 4, 9, 8, 8, 9},
+        /* Laves3464 */ {3, 4, 9, 8, 8, 9},
     };
     const int i = static_cast<int>(t);
     return (i >= static_cast<int>(TilingType::Square) && i < static_cast<int>(kTilingTypeCount))
@@ -1345,29 +1328,12 @@ const TableDomainParams* tableDomainParams(TilingType t) {
                : nullptr;
 }
 
-int gcdInt(int a, int b) {
-    while (b != 0) {
-        const int r = a % b;
-        a = b;
-        b = r;
-    }
-    return std::abs(a);
-}
-
-int effectiveInputRowsMultiple(const TableDomainParams& prm) {
-    if (!prm.forceEvenRows) return prm.Rb;
-    // rows = (q / gcd(t,q)) * (inputHeight / Rb). If this factor is odd,
-    // double the input multiple so the resulting periodic map has even rows.
-    const int rowFactor = prm.q / gcdInt(prm.t, prm.q);
-    return (rowFactor & 1) ? prm.Rb * 2 : prm.Rb;
-}
-
 bool tableInputRestriction(int tilingType, int& ra, int& rb) {
     const TilingType t = static_cast<TilingType>(tilingType);
     const TableDomainParams* prm = tableDomainParams(t);
     if (prm == nullptr || t == TilingType::Square) return false;
     ra = prm->Ra;
-    rb = effectiveInputRowsMultiple(*prm);
+    rb = prm->Rb;
     return true;
 }
 
@@ -1379,7 +1345,7 @@ void chooseTableDomain(int tilingType, int userLength, int userWidth, int& cols,
     if (prm == nullptr) return;
     if (t == TilingType::Square) return;  // square 的用户尺寸就是周期域尺寸。
     // 算法二：输入合规化（四舍五入到最近的 Ra/Rb 倍数；若菜单已限制则原样）。
-    const int Ra = prm->Ra, Rb = effectiveInputRowsMultiple(*prm);
+    const int Ra = prm->Ra, Rb = prm->Rb;
     const int p = prm->p, q = prm->q, s = prm->s, tt = prm->t;
     auto snap = [](int v, int m, int cap) {
         const int base = std::max(1, m);

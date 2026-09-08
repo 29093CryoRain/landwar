@@ -198,6 +198,66 @@ static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
     return out.validate();
 }
 
+static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
+                                   const Config::City& cityConfig, const TilingGeom& geometry,
+                                   std::vector<double>& height, bool gridCoordinates, Rng& rng) {
+    applyCoastElevationFalloff(height, p.forceCoast, geometry, p.forceCoastRangeMultiplier,
+                               p.forceCoastStrengthMultiplier);
+
+    std::vector<double> grad(height.size(), 0.0);
+    for (int index = 0; index < geometry.cellCount(); ++index)
+        grad[static_cast<size_t>(index)] =
+            estimateGradient(geometry, index, height, gridCoordinates);
+
+    std::vector<double> sorted = height;
+    std::sort(sorted.begin(), sorted.end());
+    const size_t thresholdIndex =
+        std::min(static_cast<size_t>(static_cast<double>(sorted.size()) * p.seaRatio),
+                 sorted.size() - 1);
+    const double threshold = sorted[thresholdIndex];
+    std::vector<bool> land(height.size(), false);
+    for (size_t i = 0; i < land.size(); ++i) land[i] = height[i] >= threshold;
+    if (p.forceCoast) {
+        for (int index = 0; index < geometry.cellCount(); ++index)
+            if (hasOutsidePointNeighbor(geometry, index)) land[static_cast<size_t>(index)] = false;
+    }
+
+    std::vector<size_t> orderH, orderG;
+    for (int index = 0; index < geometry.cellCount(); ++index) {
+        if (!land[static_cast<size_t>(index)]) continue;
+        bool adjacentSea = false;
+        for (int k = 0; k < geometry.pointNeighborCount(index) && !adjacentSea; ++k) {
+            const int neighbor = geometry.pointNeighbor(index, k);
+            adjacentSea = neighbor >= 0 && !land[static_cast<size_t>(neighbor)];
+        }
+        if (!adjacentSea) {
+            orderH.push_back(static_cast<size_t>(index));
+            orderG.push_back(static_cast<size_t>(index));
+        }
+    }
+    std::sort(orderH.begin(), orderH.end(), [&](size_t a, size_t b) {
+        if (height[a] != height[b]) return height[a] > height[b];
+        return a < b;
+    });
+    std::sort(orderG.begin(), orderG.end(), [&](size_t a, size_t b) {
+        if (grad[a] != grad[b]) return grad[a] > grad[b];
+        return a < b;
+    });
+
+    std::vector<bool> isMountain(land.size(), false);
+    constexpr double kPlateauShare = 0.4;
+    const size_t mountainCount =
+        static_cast<size_t>(std::llround(p.mountainDensity * orderH.size()));
+    const size_t plateauCount =
+        static_cast<size_t>(std::llround(mountainCount * kPlateauShare));
+    const size_t rangeCount = mountainCount - plateauCount;
+    for (size_t i = 0; i < plateauCount && i < orderH.size(); ++i)
+        isMountain[orderH[i]] = true;
+    for (size_t i = 0; i < rangeCount && i < orderG.size(); ++i)
+        isMountain[orderG[i]] = true;
+    return finishDefinition(out, p, cityConfig, land, isMountain, rng);
+}
+
 MapGenParams normalizedParams(const MapGenParams& raw) {
     MapGenParams p = raw;
     p.width = std::clamp(p.width, 32, 200);
@@ -273,85 +333,7 @@ static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenP
         }
     }
     const TilingGeom squareGeom{TilingType::Square, w, h};
-    // ①b 强制边缘为海：先降低边缘带海拔，再计算坡度和海陆阈值，
-    //     让海拔衰减同时作用于海岸线和山脉选择。
-    applyCoastElevationFalloff(height, p.forceCoast, squareGeom,
-                               p.forceCoastRangeMultiplier,
-                               p.forceCoastStrengthMultiplier);
-
-    // ①a 坡度场（供"山脉"分量选山用）：按真实中心距离拟合局部坡度，
-    //     避免不同密铺的格面积/邻居数量让某类格获得系统性偏高分。
-    std::vector<double> grad(static_cast<size_t>(w) * h, 0.0);
-    for (int idx = 0; idx < w * h; ++idx)
-        grad[static_cast<size_t>(idx)] = estimateGradient(squareGeom, idx, height, false);
-
-    // ② 海/陆阈值：排序后第 seaRatio 分位数；h < threshold → 海。
-    std::vector<double> sorted = height;
-    std::sort(sorted.begin(), sorted.end());
-    const size_t k = std::min(static_cast<size_t>(static_cast<double>(sorted.size()) * p.seaRatio),
-                              sorted.size() - 1);
-    const double threshold = sorted[k];
-
-    std::vector<bool> land(static_cast<size_t>(w) * h, false);
-    for (size_t i = 0; i < land.size(); ++i) land[i] = height[i] >= threshold;
-    // ②b 强制边缘为海：与界外点相邻的格必为海（即便 seaRatio=0 也只清真实边界格）。
-    if (p.forceCoast) {
-        for (int idx = 0; idx < w * h; ++idx)
-            if (hasOutsidePointNeighbor(squareGeom, idx)) land[static_cast<size_t>(idx)] = false;
-    }
-
-    // ③ 山（地形作用：成片山脉，2026-08-06 用户反馈"分布太均匀"）：
-    //    内陆格（陆且 8 邻无海）→ R=255（确定性山，chance(1.0) 恒真）。
-    const auto adjacentSea = [&](int x, int y) {
-        for (int dy = -1; dy <= 1; ++dy)
-            for (int dx = -1; dx <= 1; ++dx) {
-                if (dx == 0 && dy == 0) continue;
-                const int nx = x + dx, ny = y + dy;
-                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-                if (!land[static_cast<size_t>(ny) * w + nx]) return true;
-            }
-        return false;
-    };
-    std::vector<bool> eligible(land.size(), false);
-    size_t eligibleCount = 0;
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const size_t idx = static_cast<size_t>(y) * w + x;
-            if (land[idx] && !adjacentSea(x, y)) {
-                eligible[idx] = true;
-                ++eligibleCount;
-            }
-        }
-    }
-    // ③b 高原 + 山脉双分量（2026-08-06 用户反馈"全是高原"）：
-    //     总山数 mtnCount = mountainDensity × 内陆格数，按 高原/山脉 各半分配：
-    //       - 高原分量：取内陆格按【基础海拔】最高的前 nPlateau → 大块高地（高原形状）；
-    //       - 山脉分量：取内陆格按【坡度】最高的前 nRange → 沿高原边缘/山脊的蜿蜒山脉。
-    std::vector<size_t> orderH, orderG;
-    orderH.reserve(eligibleCount);
-    orderG.reserve(eligibleCount);
-    for (size_t idx = 0; idx < land.size(); ++idx) {
-        if (!eligible[idx]) continue;
-        orderH.push_back(idx);
-        orderG.push_back(idx);
-    }
-    std::sort(orderH.begin(), orderH.end(), [&](size_t a, size_t b) {
-        if (height[a] != height[b]) return height[a] > height[b];
-        return a < b;
-    });
-    std::sort(orderG.begin(), orderG.end(), [&](size_t a, size_t b) {
-        if (grad[a] != grad[b]) return grad[a] > grad[b];  // 坡越陡越像山脉
-        return a < b;
-    });
-    std::vector<bool> isMountain(land.size(), false);
-    constexpr double kPlateauShare = 0.4;  // 山数中高原占比（其余 0.6 为边缘/山脊山脉）
-    const size_t mtnCount = static_cast<size_t>(std::llround(p.mountainDensity * orderH.size()));
-    const size_t nPlateau = static_cast<size_t>(std::llround(mtnCount * kPlateauShare));
-    const size_t nRange = mtnCount - nPlateau;
-    for (size_t k = 0; k < nPlateau && k < orderH.size(); ++k) isMountain[orderH[k]] = true;
-    for (size_t k = 0; k < nRange && k < orderG.size(); ++k) isMountain[orderG[k]] = true;
-
-    return finishDefinition(out, p, cityConfig, land, isMountain, rng);
+    return finishGeneratedTerrain(out, p, cityConfig, squareGeom, height, false, rng);
 }
 
 // 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
@@ -379,61 +361,7 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
             g.cellCenter(idx, gx, gy);
         height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
     }
-    // ①b 强制边缘为海：先降低边缘带海拔，再计算坡度和海陆阈值。
-    applyCoastElevationFalloff(height, p.forceCoast, g, p.forceCoastRangeMultiplier,
-                               p.forceCoastStrengthMultiplier);
-
-    // ①a 坡度场（山脉分量）：使用真实中心距离拟合局部坡度，避免大格偏高。
-    std::vector<double> grad(static_cast<size_t>(cellCount), 0.0);
-    for (int idx = 0; idx < cellCount; ++idx) {
-        grad[static_cast<size_t>(idx)] = estimateGradient(g, idx, height, skew);
-    }
-
-    // ② 海/陆阈值（排序分位数）+ 真实界外邻接格硬设为海。
-    std::vector<double> sorted = height;
-    std::sort(sorted.begin(), sorted.end());
-    const size_t k = std::min(static_cast<size_t>(static_cast<double>(sorted.size()) * p.seaRatio),
-                              sorted.size() - 1);
-    const double threshold = sorted[k];
-    std::vector<bool> land(static_cast<size_t>(cellCount), false);
-    for (size_t i = 0; i < land.size(); ++i) land[i] = height[i] >= threshold;
-    // ②b 硬边界：只清除真实存在界外点邻居的格，不按周期块的行/列整圈清除。
-    if (p.forceCoast) {
-        for (int idx = 0; idx < cellCount; ++idx)
-            if (hasOutsidePointNeighbor(g, idx)) land[static_cast<size_t>(idx)] = false;
-    }
-
-    // ③ 山（内陆：点邻无海 → 确定性山 R=255）。
-    const auto adjacentSea = [&](int idx) {
-        for (int k = 0; k < g.pointNeighborCount(idx); ++k) {
-            const int nb = g.pointNeighbor(idx, k);
-            if (nb >= 0 && !land[static_cast<size_t>(nb)]) return true;
-        }
-        return false;
-    };
-    std::vector<size_t> orderH, orderG;
-    for (int idx = 0; idx < cellCount; ++idx)
-        if (land[static_cast<size_t>(idx)] && !adjacentSea(idx)) {
-            orderH.push_back(static_cast<size_t>(idx));
-            orderG.push_back(static_cast<size_t>(idx));
-        }
-    std::sort(orderH.begin(), orderH.end(), [&](size_t a, size_t b) {
-        if (height[a] != height[b]) return height[a] > height[b];
-        return a < b;
-    });
-    std::sort(orderG.begin(), orderG.end(), [&](size_t a, size_t b) {
-        if (grad[a] != grad[b]) return grad[a] > grad[b];
-        return a < b;
-    });
-    std::vector<bool> isMountain(land.size(), false);
-    constexpr double kPlateauShare = 0.4;
-    const size_t mtnCount = static_cast<size_t>(std::llround(p.mountainDensity * orderH.size()));
-    const size_t nPlateau = static_cast<size_t>(std::llround(mtnCount * kPlateauShare));
-    const size_t nRange = mtnCount - nPlateau;
-    for (size_t kk = 0; kk < nPlateau && kk < orderH.size(); ++kk) isMountain[orderH[kk]] = true;
-    for (size_t kk = 0; kk < nRange && kk < orderG.size(); ++kk) isMountain[orderG[kk]] = true;
-
-    return finishDefinition(out, p, cityConfig, land, isMountain, rng);
+    return finishGeneratedTerrain(out, p, cityConfig, g, height, skew, rng);
 }
 
 }  // namespace lw

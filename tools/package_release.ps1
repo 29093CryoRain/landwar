@@ -31,11 +31,14 @@ if ($Build) {
 
 $BuildDir = (Resolve-Path $BuildDir).Path
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
-$exe = Join-Path $BuildDir "landwar.exe"
+$executables = @("landwar.exe", "map_editor.exe")
 $data = Join-Path $SourceDir "data"
 
-if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-    throw "Release executable not found: $exe (build first or pass -Build)"
+foreach ($executable in $executables) {
+    $path = Join-Path $BuildDir $executable
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Release executable not found: $path (build first or pass -Build)"
+    }
 }
 
 if (Test-Path -LiteralPath $OutputDir) {
@@ -54,12 +57,15 @@ function Copy-RequiredFile([string]$relativePath) {
     Copy-Item -LiteralPath $source -Destination $destination -Force
 }
 
-Copy-Item -LiteralPath $exe -Destination (Join-Path $OutputDir "landwar.exe") -Force
+foreach ($executable in $executables) {
+    Copy-Item -LiteralPath (Join-Path $BuildDir $executable) -Destination (Join-Path $OutputDir $executable) -Force
+}
 Copy-RequiredFile "README.md"
 Copy-RequiredFile "LICENSE"
 Copy-RequiredFile "THIRD_PARTY.md"
 Copy-RequiredFile "ASSET-LICENSES.md"
 Copy-RequiredFile "CHANGELOG.md"
+Copy-RequiredFile "地图编辑器说明.md"
 
 $configFiles = @(
     "config.jsonc", "render.jsonc", "techs.jsonc", "factions.jsonc", "units.jsonc",
@@ -107,7 +113,9 @@ if (-not (Test-Path -LiteralPath $objdump -PathType Leaf)) {
 $systemDll = '(?i)^(api-ms-win|KERNEL32|USER32|SHELL32|ADVAPI32|GDI32|IMM32|OLE32|OLEAUT32|SETUPAPI|VERSION|WINMM|NTDLL|SHLWAPI|MSIMG32|COMDLG32|bcrypt|secur32|ucrtbase|VCRUNTIME)[^\\/]*\.dll$'
 $seen = @{}
 $queue = [System.Collections.Generic.Queue[string]]::new()
-$queue.Enqueue($exe)
+foreach ($executable in $executables) {
+    $queue.Enqueue((Join-Path $BuildDir $executable))
+}
 while ($queue.Count -gt 0) {
     $binary = $queue.Dequeue()
     $lines = @(& $objdump -p $binary | Where-Object { $_ -match "DLL Name:" })
@@ -136,6 +144,9 @@ if ($Verify -or $VerifyWindow) {
 if ($Verify) {
     Push-Location $OutputDir
     try {
+        if (-not (Test-Path -LiteralPath (Join-Path $OutputDir "map_editor.exe") -PathType Leaf)) {
+            throw "Map editor executable is missing from release package"
+        }
         & .\landwar.exe --validate-config
         $configExit = $LASTEXITCODE
         & .\landwar.exe --headless --seed 42 --ticks 100 --summary

@@ -98,7 +98,7 @@ TEST(Mountain, TiledCoastCorrectionClearsPointAdjacentMountain) {
     map.setTerrain(cfg.terrain);
     for (int idx = 0; idx < map.cellCount(); ++idx) map.atIndex(idx).land = true;
 
-    const int mountain = 2 * (3 * map.geom().cols + 3);  // interior upward triangle
+    const int mountain = map.geom().cellIndexAt(3, 3, 0);  // interior upward triangle
     int sea = -1;
     for (int k = 0; k < map.geom().pointNeighborCount(mountain); ++k) {
         const int candidate = map.geom().pointNeighbor(mountain, k);

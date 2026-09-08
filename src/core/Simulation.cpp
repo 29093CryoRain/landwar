@@ -47,9 +47,6 @@ bool Simulation::init() {
     if (config_.factions.size() < 2 || config_.factions.size() > static_cast<size_t>(kMaxFactionCount)) {
         config_.factions = defaultFactions();
     }
-    map_.configure(config_.map);
-    map_.setTerrain(config_.terrain);  // 山地参数（P5）：亮度带 + 邻海修正
-    map_.setCityConfig(config_.city);  // 城市等级形状表（P13，思路 9.1）
     MapDefinition definition;
     if (mapDefinition_) {
         definition = *mapDefinition_;
@@ -80,9 +77,9 @@ bool Simulation::init() {
     config_.map.width = definition.cols;
     config_.map.height = definition.rows;
     config_.map.tiling = tilingName(definition.tiling);
-    map_.configure(config_.map);
-    map_.setTerrain(config_.terrain);
-    map_.setCityConfig(config_.city);
+    map_.configureCanonical(definition.tiling, definition.cols, definition.rows);
+    map_.setTerrain(config_.terrain);  // 山地参数（P5）：亮度带 + 邻海修正
+    map_.setCityConfig(config_.city);  // 城市等级形状表（P13，思路 9.1）
     std::string mapError;
     if (!map_.loadFromDefinition(definition, &mapError)) {
         spdlog::error("map definition rejected: {}", mapError);

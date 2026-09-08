@@ -379,28 +379,7 @@ void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
 */
 
 void Map::correctMountainCoast() {
-    if (geom_.type == TilingType::Square) {
-        // 8 邻域（含对角）含海（land==false）→ 山置普通陆。只读 land（本循环不改 land），
-        // 结果与迭代顺序无关（确定性）；地图边界外不算海（不越界）。
-        for (int y = 0; y < height_; ++y) {
-            for (int x = 0; x < width_; ++x) {
-                MapCell& c = at(x, y);
-                if (!c.mountain) continue;
-                bool nearSea = false;
-                for (int dy = -1; dy <= 1 && !nearSea; ++dy) {
-                    for (int dx = -1; dx <= 1 && !nearSea; ++dx) {
-                        if (dx == 0 && dy == 0) continue;
-                        const int nx = x + dx, ny = y + dy;
-                        if (nx < 0 || nx >= width_ || ny < 0 || ny >= height_) continue;
-                        if (!at(nx, ny).land) nearSea = true;
-                    }
-                }
-                if (nearSea) c.mountain = false;
-            }
-        }
-        return;
-    }
-    // P12 六/三角/表驱动：共享顶点的海格也算邻海，山置普通陆（决策 4）。
+    // 共享顶点的海格也算邻海，山置普通陆；地图边界外不算海。
     for (int idx = 0; idx < cellCount(); ++idx) {
         MapCell& c = atIndex(idx);
         if (!c.mountain) continue;
