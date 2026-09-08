@@ -79,20 +79,21 @@ TEST(City, ShapeCoverageMatchesLevel) {
     const std::array<std::array<int, 2>, 5> wh = {{{1, 1}, {1, 2}, {2, 2}, {2, 3}, {3, 3}}};
     int baseY = 0;
     for (int k = 0; k < 5; ++k) {
-        const int cid = w.map.addCity(levels[k], 0, baseY);
+        const int baseX = levels[k] == 9 ? 1 : 0;
+        const int cid = w.map.addCity(levels[k], baseX, baseY);
         ASSERT_GE(cid, 0);
         const City& c = w.map.city(cid);
         EXPECT_EQ(c.level, levels[k]);
         EXPECT_EQ(c.w, wh[static_cast<size_t>(k)][0]) << "level " << levels[k];
         EXPECT_EQ(c.h, wh[static_cast<size_t>(k)][1]) << "level " << levels[k];
-        EXPECT_EQ(c.baseX, 0);
+        EXPECT_EQ(c.baseX, baseX);
         EXPECT_EQ(c.baseY, baseY);
         EXPECT_DOUBLE_EQ(c.area, static_cast<double>(levels[k]));
-        // 基建格集合 = 锚点 + (0..w-1, 0..h-1)。
-        for (int dy = 0; dy < c.h; ++dy)
-            for (int dx = 0; dx < c.w; ++dx)
-                EXPECT_EQ(w.map.at(dx, baseY + dy).cityId, cid) << "cell (" << dx << ","
-                                                                 << baseY + dy << ")";
+        const auto cells = w.map.cityCells(c);
+        ASSERT_EQ(cells.size(), static_cast<std::size_t>(levels[k]));
+        for (const int index : cells)
+            ASSERT_GE(index, 0) << "level " << levels[k] << " baseY " << baseY;
+        for (const int index : cells) EXPECT_EQ(w.map.atIndex(index).cityId, cid);
         baseY += 4;  // 每级换行（最大形状 3 行高 → 互不重叠）
     }
     EXPECT_EQ(w.map.totalCities(), 5);
@@ -104,13 +105,14 @@ TEST(City, CanPlaceCityRules) {
     CityMap w(12, 12);
     for (int y = 0; y < 12; ++y)
         for (int x = 0; x < 12; ++x) w.map.at(x, y).cityAllowed = true;
-    EXPECT_TRUE(w.map.canPlaceCity(9, 0, 0));  // 合法 3×3
+    EXPECT_FALSE(w.map.canPlaceCity(9, 0, 0));  // 中心锚点形状越界
+    EXPECT_TRUE(w.map.canPlaceCity(9, 1, 1));   // 合法 3×3
     EXPECT_TRUE(w.map.canPlaceCity(1, 11, 11));  // 单格贴右下角
-    EXPECT_FALSE(w.map.canPlaceCity(9, 10, 10));  // 越界（10+3>12）
+    EXPECT_FALSE(w.map.canPlaceCity(9, 11, 11));  // 中心锚点形状越界
     EXPECT_FALSE(w.map.canPlaceCity(6, 11, 0));   // 越界（11+2>12，6 级形状 2×3）
     w.map.addCity(1, 0, 0);                       // 锚点 (0,0) 被占
     EXPECT_FALSE(w.map.canPlaceCity(4, 0, 0));    // 重叠
-    EXPECT_FALSE(w.map.canPlaceCity(9, 0, 0));    // 重叠（形状含 (0,0)）
+    EXPECT_FALSE(w.map.canPlaceCity(9, 1, 1));    // 重叠（形状含 (0,0)）
     w.map.at(5, 0).cityAllowed = false;           // 锚点不可成城
     EXPECT_FALSE(w.map.canPlaceCity(1, 5, 0));
     EXPECT_FALSE(w.map.canPlaceCity(2, 5, 0));    // 形状 1×2 锚点不可成城

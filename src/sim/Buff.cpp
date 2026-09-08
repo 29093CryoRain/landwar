@@ -73,7 +73,15 @@ FactionMods computeMods(const std::vector<Buff>& buffs) {
                 case BuffType::FreeArmyChanceMult: m.freeArmyChanceMult *= b.magnitude; break;
                 case BuffType::FreeArmyChance:
                     m.freeArmyChance += b.magnitude;
-                    if (b.param >= 0) m.freeArmyType = b.param;
+                    // 每条记录的 param 指定一种免费兵。相同兵种的记录相加，
+                    // 不同兵种分别保留，避免后面的记录覆盖前面的兵种。
+                    if (b.param >= 0) {
+                        m.freeArmyChanceByType[static_cast<size_t>(b.param)] += b.magnitude;
+                        m.freeArmyType = b.param;
+                    } else {
+                        // 保留无 param 旧调用的默认普通兵语义；配置校验仍要求显式 param。
+                        m.freeArmyChanceByType[static_cast<size_t>(ArmyType::normal)] += b.magnitude;
+                    }
                     break;
                 case BuffType::EconomyGainAdd: m.economyGainMult += b.magnitude; break;
                 case BuffType::ExplosionRadiusAdd: m.explosionRadiusAdd += b.magnitude; break;

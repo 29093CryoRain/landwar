@@ -439,7 +439,7 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
             st.previews.clear();  // 密铺变了 → 预览失效
         }
         ImGui::SetNextItemWidth(scaled(kDropdownWidth, uiScale));
-        // 三角的周期域映射已经把用户长宽转换为列/行；步进由映射输入限制统一计算。
+        // 周期域映射把用户长宽转换为周期块列/行；步进由映射输入限制统一计算。
         int wStep = 1;
         // 表驱动密铺：输入限制（算法一硬编码）——长须为 Ra 倍数、宽须为 Rb 倍数，使
         // 长*宽 = 总格数 精确守恒且映射单调（cols∝长、rows∝宽）。菜单按 Ra/Rb 设"-/+"步进。
@@ -447,9 +447,8 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         const bool hasLimit = tableInputRestriction(static_cast<int>(st.tiling), Ra, Rb);
         if (hasLimit) wStep = std::lcm(wStep, Ra);
         ImGui::InputInt("长", &st.randW, wStep, 8);
-        // P12 六/三角：行数强制偶数 → "宽"的 "-"/"+" 步进 2（避免点一次不变/偶奇来回跳）。
-        // 表驱动：宽步进 = Rb（跳到下一个 Rb 倍数）。
-        const bool needEvenRows = (st.tiling == TilingType::Hex || st.tiling == TilingType::Tri);
+        // 周期块已包含规则密铺的方向重复，不再额外强制偶数行。
+        const bool needEvenRows = false;
         const bool isTableTiling = static_cast<int>(st.tiling) > static_cast<int>(TilingType::Tri);
         int hStep = 1;
         if (hasLimit) hStep = std::lcm(needEvenRows ? 2 : 1, Rb);

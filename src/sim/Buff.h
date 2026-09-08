@@ -49,8 +49,9 @@ struct FactionMods {
     int    laserExtraBeams = 0;      // 额外激光条数（加算）
     double mineTimeoutMult = 1.0;    // 地雷超时乘数
     double freeArmyChanceMult = 1.0; // 攻占城市免费兵概率乘数
-    double freeArmyChance = 0.0;     // 攻占城市免费兵基础概率
-    int    freeArmyType = static_cast<int>(ArmyType::normal); // 免费产出的兵种
+    double freeArmyChance = 0.0;     // 兼容汇总值；实际概率按兵种分别读取
+    std::array<double, kArmyTypeCount> freeArmyChanceByType{}; // 各兵种免费产兵概率
+    int    freeArmyType = static_cast<int>(ArmyType::normal); // 兼容字段：最后一条兵种
     double mineExplosionRadiusAdd = 1.0; // 地雷产生的爆炸半径增幅
     double techGainMult = 1.0;       // 科技点产出乘数（P8 观星台；加算）
 
@@ -59,6 +60,7 @@ struct FactionMods {
         speedMult.fill(1.0);
         actionRateMult.fill(1.0);
         projectileCountExtra.fill(0);
+        freeArmyChanceByType.fill(0.0);
     }
 };
 

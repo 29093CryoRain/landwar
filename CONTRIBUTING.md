@@ -24,3 +24,9 @@ ctest --preset release --output-on-failure
 Describe behavior changes, configuration changes, and the checks you ran in
 the pull request. For rendering or UI changes, include a screenshot when it
 helps reviewers reproduce the result.
+
+## Releases
+
+Keep release notes in [`CHANGELOG.md`](CHANGELOG.md). Before creating a GitHub
+Release, move the unreleased changes into a versioned section, copy that section
+into the Release description, and start a new `Unreleased` section.

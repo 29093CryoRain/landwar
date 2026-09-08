@@ -122,7 +122,7 @@ TEST(CityIconFitter, TriLevel6ShapeUsesRealPolygons) {
     Map map;
     map.configure(mc);
     map.setCityConfig(cfg.city);
-    const int anchor = map.cellIndexAt(2, 3);  // 正三角锚
+    const int anchor = map.cellIndexAt(map.geom().cols / 2, map.geom().rows / 2, 0);
     const auto cells = polygonsFor(map, 6.0, anchor);
     ASSERT_EQ(cells.size(), 6u);
     double scale = 0.0, cx = 0.0, cy = 0.0;

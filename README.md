@@ -61,7 +61,7 @@ build-release/landwar.exe --validate-config
 
 这是一个持续完善中的项目。快照版本采用严格匹配策略，跨版本读档不保证兼容；窗口模式默认使用
 Windows 系统中文字体，发行包不捆绑字体。运行时需要从项目或发行包根目录启动，并保证 `userdata/`
-可写。
+可写。版本更新记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 参与开发
 

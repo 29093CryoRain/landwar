@@ -59,6 +59,7 @@ Copy-RequiredFile "README.md"
 Copy-RequiredFile "LICENSE"
 Copy-RequiredFile "THIRD_PARTY.md"
 Copy-RequiredFile "ASSET-LICENSES.md"
+Copy-RequiredFile "CHANGELOG.md"
 
 $configFiles = @(
     "config.jsonc", "render.jsonc", "techs.jsonc", "factions.jsonc", "units.jsonc",
@@ -67,6 +68,9 @@ $configFiles = @(
 foreach ($file in $configFiles) {
     Copy-RequiredFile (Join-Path "data" $file)
 }
+Copy-RequiredFile "data\tiling_specs_regular.json"
+Copy-RequiredFile "data\tiling_specs_arch.json"
+Copy-RequiredFile "data\tiling_specs_laves.json"
 foreach ($file in $configFiles) {
     Copy-RequiredFile (Join-Path "data" (Join-Path "default" $file))
 }

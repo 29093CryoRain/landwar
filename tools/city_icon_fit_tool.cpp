@@ -128,7 +128,7 @@ struct Item {
     int variantIndex = 0;  // 同级第几个变体（0,1,...）
     double level = 0.0;
     int iconLevel = 1;
-    int anchorB = 0;  // hex=0；tri=0正/1倒；表驱动=基础格 b
+    int anchorB = 0;  // 周期块内基础格 b；tri 的正/反方向由 b 的分组表达
     std::string anchorDesc;
 };
 
@@ -535,10 +535,13 @@ int main(int, char**) {
             };
 
             if (tt == lw::TilingType::Hex) {
-                push(0, "六边形锚");
+                push(0, "六边形锚（基础格类 0/1）");
             } else if (tt == lw::TilingType::Tri) {
-                push(0, "正三角锚");
-                push(1, "倒三角锚");
+                const std::uint32_t mask = set.shapes[si].anchorBaseMask;
+                if (mask == 0 || (mask & (1u << 0)) != 0)
+                    push(0, "正三角锚（基础格类 0/2）");
+                if (mask == 0 || (mask & (1u << 1)) != 0)
+                    push(1, "倒三角锚（基础格类 1/3）");
             } else {
                 // 半正/Laves：每城市每**类锚基础格**一条（baseGroups 每个数组 = 一类，如
                 // "n3ua":[2,11] 一类）。锚取该类最小基础格；形状已烘焙世界帧，同类别锚几何一致。

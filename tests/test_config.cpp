@@ -181,6 +181,18 @@ TEST(Config, FreeArmyChanceCarriesSpawnUnitParam) {
     EXPECT_EQ(cfg.factions[1].buffs[0].param, static_cast<int>(lw::ArmyType::normal));
 }
 
+TEST(Config, ExternalFactionFileLoadsMultipleFreeArmyChances) {
+    const lw::Config cfg = lw::Config::loadFromFile("data/config.jsonc");
+    ASSERT_GE(cfg.factions.size(), 10u);
+    ASSERT_EQ(cfg.factions[9].buffs.size(), 9u);
+    EXPECT_EQ(cfg.factions[9].buffs[3].type, lw::BuffType::FreeArmyChance);
+    EXPECT_EQ(cfg.factions[9].buffs[3].param, static_cast<int>(lw::ArmyType::laser));
+    EXPECT_DOUBLE_EQ(cfg.factions[9].buffs[3].magnitude, 0.5);
+    EXPECT_EQ(cfg.factions[9].buffs[4].type, lw::BuffType::FreeArmyChance);
+    EXPECT_EQ(cfg.factions[9].buffs[4].param, static_cast<int>(lw::ArmyType::bomb));
+    EXPECT_DOUBLE_EQ(cfg.factions[9].buffs[4].magnitude, 0.5);
+}
+
 TEST(Config, AppendedFactionIsLoadedAndSerialized) {
     const lw::Config cfg = lw::Config::loadFromJson(R"({
         "factions": [{
@@ -386,13 +398,13 @@ TEST(Config, CityShapesFileProvidesSquareHexTri) {
     EXPECT_NEAR(cfg.city.square.shapes[1].cells[1].dy, 1.0, 1e-12);  // 1×2：第二格在下方
 
     ASSERT_EQ(cfg.city.hex.levels.size(), 6u);
-    ASSERT_EQ(cfg.city.hex.shapes.size(), 6u);
+    ASSERT_GE(cfg.city.hex.shapes.size(), 6u);
     ASSERT_GE(cfg.city.hex.shapes[1].cells.size(), 3u);
     EXPECT_NEAR(cfg.city.hex.shapes[1].cells[1].dx, -0.5372849659117709, 1e-12);
     EXPECT_NEAR(cfg.city.hex.shapes[1].cells[1].dy, -0.9306048591020997, 1e-12);
 
     ASSERT_EQ(cfg.city.tri.levels.size(), 5u);
-    ASSERT_EQ(cfg.city.tri.shapes.size(), 5u);
+    ASSERT_GE(cfg.city.tri.shapes.size(), 5u);
     ASSERT_GE(cfg.city.tri.shapes[1].cells.size(), 2u);
     EXPECT_NEAR(cfg.city.tri.shapes[1].cells[1].dx, 0.0, 1e-12);
     EXPECT_NEAR(cfg.city.tri.shapes[1].cells[1].dy, -0.8773826753016616, 1e-12);

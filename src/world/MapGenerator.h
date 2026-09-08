@@ -15,9 +15,8 @@ namespace lw {
 
 // 随机图参数（菜单「随机地图」页可编辑；options.json 持久化）。
 struct MapGenParams {
-    int width = 105;                // 随机图长（clamp 到 [32,200]；六 = 列数；三 = **视觉列数**，
-                                    //   生成时列对数 = width/2 → 格数与方形一致，见 generate）
-    int height = 95;                // 随机图宽（六/三 clamp 到偶数行）
+    int width = 105;                // 随机图长（用户输入；canonical 周期块列数由映射得到）
+    int height = 95;                // 随机图宽（用户输入；canonical 周期块行数由映射得到）
     double seaRatio = 0.40;         // 海占比目标（clamp [0,0.9]，0 = 全陆地；0.9 = 陆地占比 0.1）
     double mountainDensity = 0.08;  // 内陆山占比目标（clamp [0,0.9]，期望值经骰子近似）
     double cityDensity = 0.02;      // 城占比目标（占陆地格）

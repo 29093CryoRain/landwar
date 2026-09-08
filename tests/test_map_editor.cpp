@@ -1,12 +1,24 @@
 #include <gtest/gtest.h>
 
 #include <cstdio>
+#include <vector>
 
 #include "editor/MapEditorModel.h"
 #include "TestUtil.h"
 #include "world/Map.h"
 
 namespace {
+
+std::vector<int> directShapeCells(const lw::TilingGeom& geometry,
+                                  const lw::Config::City::Shape& shape, int anchor) {
+    double ax = 0.0, ay = 0.0;
+    geometry.cellCenter(anchor, ax, ay);
+    std::vector<int> cells;
+    cells.reserve(shape.cells.size());
+    for (const auto& offset : shape.cells)
+        cells.push_back(geometry.worldToCell(ax + offset.dx, ay + offset.dy));
+    return cells;
+}
 
 TEST(MapEditorModel, PaintFillResolveAndUndoAreOperationLevel) {
     lw::editor::MapEditorModel model(lw::TilingType::Square, 4, 4, lwtest::loadCfg().city);
@@ -33,7 +45,7 @@ TEST(MapEditorModel, ChoosesHighestFeasibleConfiguredShapeDeterministically) {
     for (int i = 0; i < model.cellCount(); ++i) EXPECT_TRUE(model.setCityMark(i, true));
     ASSERT_FALSE(model.resolvedCities().empty());
     EXPECT_DOUBLE_EQ(model.resolvedCities().front().level, 9.0);
-    EXPECT_EQ(model.resolvedCities().front().baseIndex, 0);
+    EXPECT_EQ(model.resolvedCities().front().baseIndex, 4);
     EXPECT_FALSE(model.hasUnresolvedMarks());
 }
 
@@ -103,6 +115,74 @@ TEST(MapEditorModel, CityAndMountainShareCellAndSurviveExport) {
     ASSERT_TRUE(map.loadFromDefinition(definition, &error)) << error;
     EXPECT_TRUE(map.atIndex(0).mountain);
     EXPECT_GE(map.atIndex(0).cityId, 0);
+}
+
+TEST(MapEditorModel, HexCityResolutionUsesPeriodicBlockCoordinates) {
+    const lw::Config cfg = lwtest::loadCfg();
+    lw::editor::MapEditorModel model(lw::TilingType::Hex, 24, 14, cfg.city);
+    ASSERT_EQ(model.floodFillTerrain(0, lw::MapTerrain::Land), model.cellCount());
+
+    const auto* shape = cfg.city.hex.shapeFor(3.0, 0);
+    ASSERT_NE(shape, nullptr);
+    const int anchor = model.geometry().cellIndexAt(6, 10, 0);
+    const std::vector<int> expected = directShapeCells(model.geometry(), *shape, anchor);
+    ASSERT_EQ(expected.size(), 3u);
+    for (int index : expected) ASSERT_TRUE(model.setCityMark(index));
+
+    ASSERT_EQ(model.resolvedCities().size(), 1u);
+    EXPECT_EQ(model.resolvedCities()[0].baseIndex, anchor);
+    EXPECT_FALSE(model.hasUnresolvedMarks());
+
+    const std::string path = lwtest::testArtifactPath("editor_hex_city.landmap");
+    std::string error;
+    ASSERT_TRUE(model.saveToFile(path, &error)) << error;
+    lw::Map map;
+    map.setCityConfig(cfg.city);
+    ASSERT_TRUE(map.loadFromLandmap(path, &error)) << error;
+    EXPECT_EQ(map.totalCities(), 1);
+    std::remove(path.c_str());
+}
+
+TEST(MapEditorModel, TriCityResolutionUsesPeriodicBlockCoordinates) {
+    const lw::Config cfg = lwtest::loadCfg();
+    lw::editor::MapEditorModel model(lw::TilingType::Tri, 24, 14, cfg.city);
+    ASSERT_EQ(model.floodFillTerrain(0, lw::MapTerrain::Land), model.cellCount());
+
+    const auto* shape = cfg.city.tri.shapeFor(4.0, 1);
+    ASSERT_NE(shape, nullptr);
+    const int anchor = model.geometry().cellIndexAt(6, 10, 0);
+    const std::vector<int> expected = directShapeCells(model.geometry(), *shape, anchor);
+    ASSERT_EQ(expected.size(), 4u);
+    for (int index : expected) ASSERT_TRUE(model.setCityMark(index));
+
+    ASSERT_EQ(model.resolvedCities().size(), 1u);
+    EXPECT_EQ(model.resolvedCities()[0].baseIndex, anchor);
+    EXPECT_FALSE(model.hasUnresolvedMarks());
+
+    const std::string path = lwtest::testArtifactPath("editor_tri_city.landmap");
+    std::string error;
+    ASSERT_TRUE(model.saveToFile(path, &error)) << error;
+    lw::Map map;
+    map.setCityConfig(cfg.city);
+    ASSERT_TRUE(map.loadFromLandmap(path, &error)) << error;
+    EXPECT_EQ(map.totalCities(), 1);
+    std::remove(path.c_str());
+}
+
+TEST(MapEditorModel, TriShapeOrientationsUseExplicitVariants) {
+    const lw::Config cfg = lwtest::loadCfg();
+    lw::Map map;
+    map.configureCanonical(lw::TilingType::Tri, 24, 14);
+    map.setCityConfig(cfg.city);
+    for (int index = 0; index < map.cellCount(); ++index) {
+        map.atIndex(index).land = true;
+        map.atIndex(index).cityAllowed = true;
+    }
+    const int up = map.geom().cellIndexAt(6, 10, 0);
+    const int down = map.geom().cellIndexAt(6, 10, 1);
+    EXPECT_TRUE(map.canPlaceCity(4.0, up));
+    EXPECT_TRUE(map.canPlaceCity(4.0, down));
+    EXPECT_EQ(cfg.city.tri.variantCount(4.0), 2);
 }
 
 }  // namespace

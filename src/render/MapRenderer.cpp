@@ -188,7 +188,7 @@ void MapRenderer::drawGrid(const Map& map, const SDL_Color& color) {
     const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
     const double vy0 = cam_.viewWorldY0(), vy1 = cam_.viewWorldY1();
     int r0, r1, c0, c1;
-    g.rowRange(vy0, vy1, r0, r1);
+    g.rowRange(vx0, vy0, vx1, vy1, r0, r1);
     std::vector<SDL_Vertex> vertices;
     vertices.reserve(6000);
     const auto flush = [&]() {
@@ -298,7 +298,7 @@ void MapRenderer::drawTiled(
     const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
     const double vy0 = cam_.viewWorldY0(), vy1 = cam_.viewWorldY1();
     int r0, r1, c0, c1;
-    g.rowRange(vy0, vy1, r0, r1);
+    g.rowRange(vx0, vy0, vx1, vy1, r0, r1);
     constexpr int kBatchVerts = 6000;
     std::vector<SDL_Vertex> verts;
     verts.reserve(kBatchVerts);
@@ -376,7 +376,7 @@ void MapRenderer::drawBoundaryOutline(const Map& map) {
     const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
     const double vy0 = cam_.viewWorldY0(), vy1 = cam_.viewWorldY1();
     int r0, r1, c0, c1;
-    g.rowRange(vy0, vy1, r0, r1);
+    g.rowRange(vx0, vy0, vx1, vy1, r0, r1);
     for (int rr = r0; rr <= r1; ++rr) {
         g.colRange(vx0, vx1, rr, c0, c1);
         for (int cc = c0; cc <= c1; ++cc) {

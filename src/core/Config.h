@@ -156,7 +156,7 @@ struct Config {
         // 爆炸半径相对基础值的增加比例；0.7 表示基础值增加 70%。
         double bombRadiusBonus = 0.0;
         double mineTriggerBombRadiusBonus = 0.0;
-        double freeArmyChance = 0.0;    // 攻占城市免费产兵概率
+        double freeArmyChance = 0.0;    // 兼容汇总值；实际概率按 buffs 的 param 分兵种
     };
     std::vector<Faction> factions;  // 下标即 id（0=中立；其余数量由 JSON 决定）
 
@@ -217,7 +217,7 @@ struct Config {
     // 三角形 U 偏移 + 朝向）。等级集按密铺（方 {1,2,4,6,9}、六 {1,3,4,6,7,9}、
     // 三 {1,2,4,6,8}）；普通/等面积密铺中等级数值恰好等于格数，半正密铺按实际面积。
     // 形状格 = 相对锚格中心的**世界单位 U 偏移**（ShapeCell{dx,dy}）——parity-free，
-    // 放置时经 worldToCell 解析。三角正/反朝向由锚格奇偶在运行时镜像 dy 处理。
+    // 放置时经 worldToCell 解析；不同朝向需在形状表中显式定义并用 anchorBases 限制。
     //（Map::shapeCells）；半正/Laves 已烘焙世界帧、锚格朝向由数据保证，运行时不旋转。
     struct City {
         // 形状格（相对锚格中心的世界单位 U 偏移）。

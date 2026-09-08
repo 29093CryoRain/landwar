@@ -3,8 +3,8 @@
 // 做法：全部默认 AI、无头、~14400 格（≈120×120）地图，跑 2000 tick，开启 opt-in profiling，
 //       按功能累加墙钟；每个密铺一张地图，单图超时（wall-clock 预算）即提前终止该图防卡死。
 //
-// 覆盖密铺：除 arch/laves 3.3.3.3.6 与 3.3.4.3.4（共 4 种，尺寸映射暂缺）外的全部
-//       方/六/三 + 10 种半正/Laves。单测不锁时序数值（时序随机器/构建浮动），只输出并
+// 覆盖密铺：方/六/三、arch/laves 3.3.3.3.6，以及原有 10 种半正/Laves。
+//       单测不锁时序数值（时序随机器/构建浮动），只输出并
 //       校验"运行可完成 + 各功能记账合理（combat/geom/enter/conquer 合计 ≤ loop）"。
 //
 // 运行：ctest / 直接 ./landwar_tests --gtest_filter=MovePerf.*
@@ -33,13 +33,15 @@ struct TilingCase {
     int height;   // 用户输入宽
 };
 
-// 本剖析覆盖的密铺集合（排除 arch/laves 3.3.3.3.6 与 3.3.4.3.4 共 4 种）。
+// 本剖析覆盖的密铺集合（仅排除 arch/laves 3.3.4.3.4）。
 // 方/六/三 固定 120×120（≈14400 格）；表驱动为 (Ra,Rb) 倍数下最贴近 120×120 且 面积≈14400。
 std::vector<TilingCase> eligibleTilings() {
     return {
         {lw::TilingType::Square, 120, 120},
         {lw::TilingType::Hex, 120, 120},
         {lw::TilingType::Tri, 120, 120},
+        {lw::TilingType::Arch33336, 120, 120},
+        {lw::TilingType::Laves33336, 120, 120},
         {lw::TilingType::Arch3464, 128, 114},
         {lw::TilingType::Arch3636, 105, 138},
         {lw::TilingType::Arch31212, 105, 138},

@@ -373,12 +373,10 @@ std::vector<int> MapEditorModel::shapeCells(double level, int anchor, int varian
         const int sampleAnchor = geometry_.cellIndexAt(sampleRow, sampleCol, anchorBase);
         double ax = 0.0, ay = 0.0;
         geometry_.cellCenter(sampleAnchor, ax, ay);
-        const bool anchorUp = geometry_.type != TilingType::Tri || (sampleAnchor % 2 == 0);
         bool valid = sampleAnchor >= 0;
         for (const auto& cell : shape->cells) {
             if (!valid) break;
-            const int target = geometry_.worldToCell(ax + cell.dx,
-                                                    ay + (anchorUp ? cell.dy : -cell.dy));
+            const int target = geometry_.worldToCell(ax + cell.dx, ay + cell.dy);
             if (target < 0) {
                 valid = false;
                 break;
@@ -409,11 +407,9 @@ std::vector<int> MapEditorModel::shapeCells(double level, int anchor, int varian
     // Preserve the exact geometric path as a defensive fallback.
     double ax = 0.0, ay = 0.0;
     geometry_.cellCenter(anchor, ax, ay);
-    const bool anchorUp = geometry_.type != TilingType::Tri || (anchor % 2 == 0);
     out.reserve(shape->cells.size());
     for (const auto& cell : shape->cells) {
-        out.push_back(geometry_.worldToCell(ax + cell.dx,
-                                            ay + (anchorUp ? cell.dy : -cell.dy)));
+        out.push_back(geometry_.worldToCell(ax + cell.dx, ay + cell.dy));
     }
     return out;
 }

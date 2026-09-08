@@ -95,7 +95,7 @@ public:
     double economyRate = 0.0;  // 最近一次经济系统计算的每 tick 产出
     double techRate = 0.0;     // 最近一次科技系统计算的每 tick 产出
     double maxCityLevel = 0.0; // 所持城市中的最高等级
-    double freeArmyChance = 0.0;  // 攻占城市免费产兵概率（来自定义）
+    double freeArmyChance = 0.0;  // 兼容汇总值；实际概率由 mods 按兵种保存
     double bombRadiusBonus = 0.0; // 爆炸半径相对增幅（来自定义，不绑定势力 ID）
     double mineTriggerBombRadiusBonus = 0.0; // 地雷引爆爆炸半径相对增幅
     // 产兵方向：spawnAngle 是下一次产兵使用的角度；首次产兵前由 spawnAngleSet 区分未初始化。

@@ -68,4 +68,81 @@ TEST(MapGen, GeneratedDefinitionLoadsWithExactTerrain) {
     }
 }
 
+TEST(MapGen, SkewedPeriodsApplyGradualCoastFalloffInsideHardBoundary) {
+    const lw::Config cfg = lwtest::loadCfg();
+    for (lw::TilingType type : {lw::TilingType::Arch33336, lw::TilingType::Laves33336}) {
+        lw::MapGenParams withoutFalloff;
+        withoutFalloff.width = 120;
+        withoutFalloff.height = 120;
+        withoutFalloff.seaRatio = 0.35;
+        withoutFalloff.mountainDensity = 0.0;
+        withoutFalloff.cityDensity = 0.0;
+        withoutFalloff.forceCoast = true;
+        withoutFalloff.tiling = type;
+        withoutFalloff.forceCoastRangeMultiplier = 0.0;
+
+        lw::MapGenParams withFalloff = withoutFalloff;
+        withFalloff.forceCoastRangeMultiplier = 1.0;
+        withFalloff.forceCoastStrengthMultiplier = 1.0;
+
+        lw::MapDefinition hardBoundaryOnly, gradualCoast;
+        ASSERT_TRUE(lw::MapGenerator::generate(42, withoutFalloff, hardBoundaryOnly, cfg.city));
+        ASSERT_TRUE(lw::MapGenerator::generate(42, withFalloff, gradualCoast, cfg.city));
+        ASSERT_EQ(hardBoundaryOnly.terrain.size(), gradualCoast.terrain.size());
+
+        const lw::TilingGeom geometry{type, gradualCoast.cols, gradualCoast.rows};
+        int cellsInFalloffBand = 0;
+        int interiorCellsTurnedToSea = 0;
+        for (int index = 0; index < geometry.cellCount(); ++index) {
+            bool touchesHardBoundary = false;
+            for (int k = 0; k < geometry.pointNeighborCount(index); ++k)
+                if (geometry.pointNeighbor(index, k) < 0) {
+                    touchesHardBoundary = true;
+                    break;
+                }
+            const double distance = geometry.cellBoundaryDistance(index);
+            if (touchesHardBoundary || distance <= 1e-6 || distance >= 3.0) continue;
+            ++cellsInFalloffBand;
+            if (hardBoundaryOnly.terrain[static_cast<std::size_t>(index)] != lw::MapTerrain::Sea &&
+                gradualCoast.terrain[static_cast<std::size_t>(index)] == lw::MapTerrain::Sea)
+                ++interiorCellsTurnedToSea;
+        }
+        EXPECT_GT(cellsInFalloffBand, 0) << lw::tilingName(type);
+        EXPECT_GT(interiorCellsTurnedToSea, 0) << lw::tilingName(type);
+    }
+}
+
+TEST(MapGen, SkewedPeriodsSampleIndividualBaseCells) {
+    const lw::Config cfg = lwtest::loadCfg();
+    for (lw::TilingType type : {lw::TilingType::Arch33336, lw::TilingType::Laves33336}) {
+        lw::MapGenParams params;
+        params.width = 120;
+        params.height = 120;
+        params.seaRatio = 0.35;
+        params.mountainDensity = 0.0;
+        params.cityDensity = 0.0;
+        params.forceCoast = false;
+        params.tiling = type;
+
+        lw::MapDefinition definition;
+        ASSERT_TRUE(lw::MapGenerator::generate(9173, params, definition, cfg.city));
+        const lw::TilingGeom geometry{type, definition.cols, definition.rows};
+        int variedBlocks = 0;
+        for (int row = 0; row < geometry.rows; ++row) {
+            for (int col = 0; col < geometry.cols; ++col) {
+                const auto first = definition.terrain[static_cast<std::size_t>(
+                    geometry.cellIndexAt(row, col, 0))];
+                for (int base = 1; base < geometry.baseCount(); ++base) {
+                    const int index = geometry.cellIndexAt(row, col, base);
+                    if (definition.terrain[static_cast<std::size_t>(index)] != first) {
+                        ++variedBlocks;
+                        break;
+                    }
+                }
+            }
+        }
+        EXPECT_GT(variedBlocks, 0) << lw::tilingName(type);
+    }
+}
+
 }  // namespace

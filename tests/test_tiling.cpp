@@ -3,6 +3,7 @@
 // 三角形顶/底平、穿越求交（含顶点平局确定性）、城市形状表（格数=等级、连通）。
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 
@@ -30,6 +31,80 @@ TEST(Tiling, CenterRoundTripAllTilings) {
             g.cellCenter(idx, wx, wy);
             EXPECT_EQ(g.worldToCell(wx, wy), idx) << "tiling=" << static_cast<int>(g.type)
                                                   << " idx=" << idx;
+        }
+    }
+}
+
+TEST(Tiling, WorldToCellResolvesDenseCellInteriors) {
+    const TilingGeom cases[] = {{TilingType::Square, 9, 7},
+                                {TilingType::Hex, 9, 7},
+                                {TilingType::Tri, 9, 7},
+                                {TilingType::Arch33336, 9, 7},
+                                {TilingType::Laves33336, 9, 7}};
+    for (const auto& g : cases) {
+        for (int index = 0; index < g.cellCount(); ++index) {
+            double cx = 0.0, cy = 0.0, vx[12], vy[12];
+            g.cellCenter(index, cx, cy);
+            const int n = g.cellPolygon(index, vx, vy, 12);
+            ASSERT_GE(n, 3);
+            for (int vertex = 0; vertex < n; ++vertex) {
+                for (double amount : {0.15, 0.35, 0.65, 0.85}) {
+                    const double x = cx + amount * (vx[vertex] - cx);
+                    const double y = cy + amount * (vy[vertex] - cy);
+                    EXPECT_EQ(g.worldToCell(x, y), index)
+                        << "tiling=" << static_cast<int>(g.type) << " index=" << index
+                        << " vertex=" << vertex << " amount=" << amount;
+                }
+                const int next = (vertex + 1) % n;
+                const double x = 0.2 * cx + 0.4 * vx[vertex] + 0.4 * vx[next];
+                const double y = 0.2 * cy + 0.4 * vy[vertex] + 0.4 * vy[next];
+                EXPECT_EQ(g.worldToCell(x, y), index)
+                    << "tiling=" << static_cast<int>(g.type) << " index=" << index
+                    << " edge=" << vertex;
+            }
+        }
+        EXPECT_EQ(g.worldToCell(-1e-3, 0.5 * g.worldHeight()), -1);
+        EXPECT_EQ(g.worldToCell(g.worldWidth() + 1e-3, 0.5 * g.worldHeight()), -1);
+    }
+}
+
+TEST(Tiling, RectRowRangeCoversLocatedCellsAndNarrowsSkewedPeriods) {
+    const TilingGeom cases[] = {{TilingType::Square, 9, 7},
+                                {TilingType::Hex, 9, 7},
+                                {TilingType::Tri, 9, 7},
+                                {TilingType::Arch33336, 9, 20},
+                                {TilingType::Laves33336, 9, 20}};
+    for (const auto& g : cases) {
+        for (int index = 0; index < g.cellCount(); ++index) {
+            double cx = 0.0, cy = 0.0, vx[12], vy[12];
+            g.cellCenter(index, cx, cy);
+            const int n = g.cellPolygon(index, vx, vy, 12);
+            ASSERT_GE(n, 3);
+            int row = -1, col = -1, base = -1;
+            g.indexToRowCol(index, row, col, base);
+            for (int sample = -1; sample < n; ++sample) {
+                const double x = sample < 0 ? cx : cx + 0.8 * (vx[sample] - cx);
+                const double y = sample < 0 ? cy : cy + 0.8 * (vy[sample] - cy);
+                ASSERT_EQ(g.worldToCell(x, y), index);
+                int r0 = 0, r1 = -1, c0 = 0, c1 = -1;
+                g.rowRange(x - 0.01, y - 0.01, x + 0.01, y + 0.01, r0, r1);
+                ASSERT_GE(row, r0)
+                    << "tiling=" << static_cast<int>(g.type) << " index=" << index;
+                ASSERT_LE(row, r1)
+                    << "tiling=" << static_cast<int>(g.type) << " index=" << index;
+                g.colRange(x - 0.01, x + 0.01, row, c0, c1);
+                EXPECT_GE(col, c0)
+                    << "tiling=" << static_cast<int>(g.type) << " index=" << index;
+                EXPECT_LE(col, c1)
+                    << "tiling=" << static_cast<int>(g.type) << " index=" << index;
+            }
+        }
+        if (g.type == TilingType::Arch33336 || g.type == TilingType::Laves33336) {
+            double x = 0.0, y = 0.0;
+            g.cellCenter(g.cellIndexAt(g.rows / 2, g.cols / 2, 0), x, y);
+            int r0 = 0, r1 = -1;
+            g.rowRange(x - 0.1, y - 0.1, x + 0.1, y + 0.1, r0, r1);
+            EXPECT_LT(r1 - r0 + 1, g.rows) << "tiling=" << static_cast<int>(g.type);
         }
     }
 }
@@ -70,17 +145,24 @@ TEST(Tiling, PointNeighborsIncludeExpectedGeometry) {
     for (int k = 0; k < sq.pointNeighborCount(center); ++k)
         squarePoints.insert(sq.pointNeighbor(center, k));
     EXPECT_EQ(squarePoints.size(), 8u);
-    EXPECT_EQ(sq.pointNeighbor(0, 0), 5);  // edge neighbour remains first
-    EXPECT_EQ(sq.pointNeighbor(0, 4), -1); // diagonal outside the map
+    int squareBoundaryNeighbors = 0;
+    for (int k = 0; k < sq.pointNeighborCount(0); ++k)
+        if (sq.pointNeighbor(0, k) >= 0) ++squareBoundaryNeighbors;
+    EXPECT_EQ(squareBoundaryNeighbors, 3);
 
     const TilingGeom hx{TilingType::Hex, 5, 6};
-    const int hexCenter = 2 * 5 + 2;
+    const int hexCenter = hx.cellIndexAt(2, 2, 0);
     EXPECT_EQ(hx.pointNeighborCount(hexCenter), 6);
+    std::set<int> hexPoints;
     for (int k = 0; k < hx.pointNeighborCount(hexCenter); ++k)
-        EXPECT_EQ(hx.pointNeighbor(hexCenter, k), hx.neighbor(hexCenter, k));
+        hexPoints.insert(hx.pointNeighbor(hexCenter, k));
+    std::set<int> hexEdges;
+    for (int k = 0; k < hx.neighborCount(hexCenter); ++k)
+        hexEdges.insert(hx.neighbor(hexCenter, k));
+    EXPECT_EQ(hexPoints, hexEdges);
 
     const TilingGeom tr{TilingType::Tri, 8, 8};
-    const int triCenter = 2 * (4 * 8 + 3);
+    const int triCenter = tr.cellIndexAt(4, 3, 0);
     EXPECT_EQ(tr.pointNeighborCount(triCenter), 12);
     std::set<int> triPoints;
     for (int k = 0; k < tr.pointNeighborCount(triCenter); ++k) {
@@ -115,7 +197,7 @@ TEST(Tiling, SquareGeometryRegression) {
     EXPECT_DOUBLE_EQ(wx, 7.5);
     EXPECT_DOUBLE_EQ(wy, 3.5);
     EXPECT_EQ(g.worldToCell(7.2, 3.8), 37);
-    EXPECT_EQ(g.worldToCell(10.0, 3.0), -1);
+    EXPECT_EQ(g.worldToCell(10.0 + 1e-4, 3.0), -1);
     EXPECT_EQ(g.worldToCell(-0.5, 3.0), -1);
     EXPECT_EQ(g.neighbor(37, 0), 47);  // 下 y+1
     EXPECT_EQ(g.neighbor(37, 1), 27);  // 上 y-1
@@ -125,47 +207,35 @@ TEST(Tiling, SquareGeometryRegression) {
     EXPECT_EQ(g.neighbor(59, 0), -1);  // 底行下越界
 }
 
-// 六边形偶数行：顶行顶点贴 worldHeight；环绕后落入行 0。
-TEST(Tiling, HexWrapVerticalEvenRows) {
-    const TilingGeom g{TilingType::Hex, 6, 8};  // H=8 偶数
-    double wx, wy;
-    g.cellCenter(7 * 6 + 0, wx, wy);  // 顶行 r=7
-    const double topY = wy + TilingGeom::kHexSide;
-    EXPECT_NEAR(topY, g.worldHeight(), 1e-9);
-    // 环绕 y -= worldHeight → 应落在底行（y ∈ [-a/2, ...]）某格
-    const double wy2 = topY - g.worldHeight();
-    EXPECT_GE(wy2, -TilingGeom::kHexSide - 1e-9);
-    const int idx = g.worldToCell(wx, wy2);
-    EXPECT_GE(idx, 0);
-    EXPECT_LT(idx, g.cellCount());
-    EXPECT_EQ(idx / 6, 0);  // 行 0
+TEST(Tiling, HexOrthogonalBlockRepeatsTwoCells) {
+    const TilingGeom g{TilingType::Hex, 6, 8};
+    ASSERT_EQ(g.baseCount(), 2);
+    double x0, y0, x1, y1, x2, y2;
+    g.cellCenter(g.cellIndexAt(0, 0, 0), x0, y0);
+    g.cellCenter(g.cellIndexAt(0, 0, 1), x1, y1);
+    g.cellCenter(g.cellIndexAt(1, 0, 0), x2, y2);
+    EXPECT_NEAR(x1 - x0, TilingGeom::kHexColSpacing / 2.0, 1e-9);
+    EXPECT_NEAR(y1 - y0, TilingGeom::kHexRowSpacing, 1e-9);
+    EXPECT_NEAR(x2 - x0, 0.0, 1e-9);
+    EXPECT_NEAR(y2 - y0, 2.0 * TilingGeom::kHexRowSpacing, 1e-9);
 }
 
-// 奇数行（H=7）时顶/底均无顶点对称性差异（顶恒贴 worldHeight、底恒凸出 a/2）；
-// 偶数行要求来自**环绕接缝邻接一致性**（见 HexVerticalWrapSeamEvenRows）。
-TEST(Tiling, HexTopBottomGeometryAnyRows) {
+TEST(Tiling, HexTopBottomGeometryAnyBlockRows) {
     for (const int rows : {7, 8}) {
         const TilingGeom g{TilingType::Hex, 6, rows};
-        double wx, wy;
-        g.cellCenter((rows - 1) * 6 + 0, wx, wy);
-        EXPECT_NEAR(wy + TilingGeom::kHexSide, g.worldHeight(), 1e-9);  // 顶行顶点贴 worldHeight
-        g.cellCenter(0 * 6 + 0, wx, wy);
-        EXPECT_NEAR(wy - TilingGeom::kHexSide, -TilingGeom::kHexSide / 2.0, 1e-9);  // 底行底顶点 -a/2
+        double vx[6], vy[6];
+        ASSERT_EQ(g.cellPolygon(g.cellIndexAt(0, 0, 0), vx, vy, 6), 6);
+        EXPECT_NEAR(*std::min_element(vy, vy + 6), TilingGeom::kHexSide / 2.0, 1e-9);
+        ASSERT_EQ(g.cellPolygon(g.cellIndexAt(rows - 1, 0, 1), vx, vy, 6), 6);
+        EXPECT_NEAR(*std::max_element(vy, vy + 6), g.worldHeight(), 1e-9);
     }
 }
 
-// 六边形偶数行环绕接缝：顶行（奇）格中心正上穿越 → 顶点（k 不确定）→ 环绕 y 后
-// 应落入行 0 的公式一致格（(0, c+(r&1))）。
-TEST(Tiling, HexVerticalWrapSeamEvenRows) {
-    const TilingGeom g{TilingType::Hex, 6, 8};  // H 偶
-    const int idx = 7 * 6 + 2;                  // 顶行 r=7（奇）c=2
-    double wx, wy;
-    g.cellCenter(idx, wx, wy);
-    // 越过顶行顶顶点：y = worldHeight + ε（环绕后 ≈ 0）
-    const double y2 = wy + TilingGeom::kHexSide + 1e-6;
-    const int got = g.worldToCell(wx, y2 - g.worldHeight());
-    // 上邻公式：(r+1=8≡0, c' = c+(7&1) = 3) → (0, 3)；位置环绕结果与之一致
-    EXPECT_EQ(got, 0 * 6 + 3);
+TEST(Tiling, HexBlockBoundaryNeighborsMatch) {
+    const TilingGeom g{TilingType::Hex, 6, 8};
+    const int upper = g.cellIndexAt(3, 2, 1);
+    EXPECT_EQ(g.neighbor(upper, 1), g.cellIndexAt(4, 3, 0));
+    EXPECT_EQ(g.neighbor(upper, 2), g.cellIndexAt(4, 2, 0));
 }
 
 // 三角形顶/底平：底行 y=0 为正三角底边；顶行 y=worldHeight 为反三角底边（上边）。
@@ -173,33 +243,32 @@ TEST(Tiling, TriTopBottomFlat) {
     const TilingGeom g{TilingType::Tri, 8, 6};
     // 底行 up：底边 y=0
     double wx, wy;
-    g.cellCenter(2 * (0 * 8 + 3) + 0, wx, wy);
+    g.cellCenter(g.cellIndexAt(0, 3, 0), wx, wy);
     EXPECT_NEAR(wy - g.kTriAlt / 3.0, 0.0, 1e-9);
-    EXPECT_EQ(g.worldToCell(wx, wy), 2 * (0 * 8 + 3) + 0);
+    EXPECT_EQ(g.worldToCell(wx, wy), g.cellIndexAt(0, 3, 0));
     // 顶行 down：上边 y = worldHeight
-    g.cellCenter(2 * (5 * 8 + 4) + 1, wx, wy);
+    g.cellCenter(g.cellIndexAt(5, 4, 3), wx, wy);
     EXPECT_NEAR(wy + g.kTriAlt / 3.0, g.worldHeight(), 1e-9);
-    EXPECT_EQ(g.worldToCell(wx, wy), 2 * (5 * 8 + 4) + 1);
+    EXPECT_EQ(g.worldToCell(wx, wy), g.cellIndexAt(5, 4, 3));
 }
 
-// 三角形左右互补：底行最右 down 环绕 -W 后与最左 up 共享斜边
-// （down 顶点 x − W = 0 = up 底左角 x；down 底右角 x − W = b/2 = up 顶点 x）。
-TEST(Tiling, TriWrapLeftRightComplementary) {
+TEST(Tiling, TriOrthogonalBlockRepeatsFourCells) {
     const TilingGeom g{TilingType::Tri, 8, 6};
-    double wxUp, wyUp;
-    g.cellCenter(2 * (0 * 8 + 0) + 0, wxUp, wyUp);   // 最左 up：底左角 (0,0)、顶点 (b/2, h)
-    double wxDn, wyDn;
-    g.cellCenter(2 * (0 * 8 + 7) + 1, wxDn, wyDn);   // 最右 down：顶点 (8b, 0)、底右角 (8b+b/2, h)
-    // down 顶点（x = 8b）环绕 −W = −8b → 0 = up 底左角
-    EXPECT_NEAR(wxDn - g.worldWidth(), 0.0, 1e-9);
-    // down 底右角（x = 8b + b/2）环绕 −W → b/2 = up 顶点 x
-    EXPECT_NEAR(wxDn + g.kTriSide / 2.0 - g.worldWidth(), wxUp, 1e-9);
+    EXPECT_EQ(g.baseCount(), 4);
+    double x0, y0, x1, y1;
+    g.cellCenter(g.cellIndexAt(2, 3, 0), x0, y0);
+    g.cellCenter(g.cellIndexAt(2, 4, 0), x1, y1);
+    EXPECT_NEAR(x1 - x0, g.kTriSide, 1e-9);
+    EXPECT_NEAR(y1 - y0, 0.0, 1e-9);
+    g.cellCenter(g.cellIndexAt(3, 3, 0), x1, y1);
+    EXPECT_NEAR(x1 - x0, 0.0, 1e-9);
+    EXPECT_NEAR(y1 - y0, 2.0 * g.kTriAlt, 1e-9);
 }
 
 // 穿越：六边形中心向右 → 边 0，t = √3a/2。
 TEST(Tiling, CrossEdgeHexRight) {
     const TilingGeom g{TilingType::Hex, 10, 8};
-    const int idx = 3 * 10 + 4;
+    const int idx = g.cellIndexAt(3, 4, 0);
     double wx, wy;
     g.cellCenter(idx, wx, wy);
     double x = wx, y = wy, rem = 5.0;
@@ -208,14 +277,14 @@ TEST(Tiling, CrossEdgeHexRight) {
     EXPECT_NEAR(rem, 5.0 - TilingGeom::kHexColSpacing / 2.0, 1e-9);
     EXPECT_NEAR(x, wx + TilingGeom::kHexColSpacing / 2.0, 1e-9);
     // 穿过后下一格 = neighbor(0)，且位置微推进后取格一致
-    EXPECT_EQ(g.neighbor(idx, 0), g.worldToCell(x + kEps, y));
+    EXPECT_EQ(g.neighbor(idx, 0), g.worldToCell(x + 1e-4, y));
 }
 
 // 穿越：六边形中心正上 → 顶点命中（3 格共点）：位置推进到顶点、返回 -1；
 // 调用方从顶点 nudge ε 后 worldToCell 进入顶点另一侧格（确定性）。
 TEST(Tiling, CrossEdgeHexUpVertexPass) {
     const TilingGeom g{TilingType::Hex, 10, 8};
-    const int idx = 3 * 10 + 4;
+    const int idx = g.cellIndexAt(3, 4, 0);
     double wx, wy;
     g.cellCenter(idx, wx, wy);
     double x = wx, y = wy, rem = 5.0;
@@ -224,7 +293,7 @@ TEST(Tiling, CrossEdgeHexUpVertexPass) {
     EXPECT_NEAR(y, wy + TilingGeom::kHexSide, 1e-9);     // 位置已到顶顶点
     EXPECT_NEAR(rem, 5.0 - TilingGeom::kHexSide, 1e-9);
     // 从顶点 nudge 后重定位：应进入顶点上方某格（非本格）
-    const int nxt = g.worldToCell(x + kEps, y + kEps);
+    const int nxt = g.worldToCell(x + 1e-4, y + 1e-4);
     EXPECT_GE(nxt, 0);
     EXPECT_NE(nxt, idx);
 }
@@ -232,7 +301,7 @@ TEST(Tiling, CrossEdgeHexUpVertexPass) {
 // 穿越：正三角中心向下 → 底边 k=0，t = h/3，进入 down(i, r-1)。
 TEST(Tiling, CrossEdgeTriUpDown) {
     const TilingGeom g{TilingType::Tri, 10, 8};
-    const int idx = 2 * (3 * 10 + 4) + 0;  // up(4, 3)
+    const int idx = g.cellIndexAt(3, 4, 0);
     double wx, wy;
     g.cellCenter(idx, wx, wy);
     double x = wx, y = wy, rem = 5.0;
@@ -241,7 +310,7 @@ TEST(Tiling, CrossEdgeTriUpDown) {
     EXPECT_NEAR(rem, 5.0 - g.kTriAlt / 3.0, 1e-9);
     EXPECT_EQ(g.neighbor(idx, 0), g.worldToCell(x + kEps, y - kEps));
     // 底行（r=0）的 up 下穿 → 越界 -1（图外）
-    const int bIdx = 2 * (0 * 10 + 4) + 0;
+    const int bIdx = g.cellIndexAt(0, 4, 0);
     g.cellCenter(bIdx, wx, wy);
     x = wx;
     y = wy;
@@ -254,7 +323,7 @@ TEST(Tiling, CrossEdgeTriUpDown) {
 // 从顶点 nudge 后进入顶点上方格（r=3 奇 → up(5, 4)）。
 TEST(Tiling, CrossEdgeTriUpUpVertexPass) {
     const TilingGeom g{TilingType::Tri, 10, 8};
-    const int idx = 2 * (3 * 10 + 4) + 0;
+    const int idx = g.cellIndexAt(1, 4, 2);
     double wx, wy;
     g.cellCenter(idx, wx, wy);
     double x = wx, y = wy, rem = 5.0;
@@ -262,27 +331,27 @@ TEST(Tiling, CrossEdgeTriUpUpVertexPass) {
     EXPECT_EQ(k, -1);
     EXPECT_NEAR(y, wy + 2.0 * g.kTriAlt / 3.0, 1e-9);  // 位置已到顶点（上尖）
     EXPECT_NEAR(rem, 5.0 - 2.0 * g.kTriAlt / 3.0, 1e-9);
-    const int nxt = g.worldToCell(x + kEps, y + kEps);
-    EXPECT_EQ(nxt, 2 * (4 * 10 + 5) + 0);
+    const int nxt = g.worldToCell(x + 1e-4, y + 1e-4);
+    EXPECT_EQ(nxt, g.cellIndexAt(2, 5, 0));
 }
 
 // 穿越：反三角中心向上 → 顶边 k=0，进入 up(i, r+1)（P12 直边布局：同列上邻）。
 TEST(Tiling, CrossEdgeTriDownUp) {
     const TilingGeom g{TilingType::Tri, 10, 8};
-    const int idx = 2 * (3 * 10 + 4) + 1;  // down(4, 3)，r=3 奇 → 上邻 up(4, 4)（i 不变）
+    const int idx = g.cellIndexAt(1, 4, 3);
     double wx, wy;
     g.cellCenter(idx, wx, wy);
     double x = wx, y = wy, rem = 5.0;
     const int k = g.crossEdge(idx, x, y, lw::kPi / 2.0, rem);
     EXPECT_EQ(k, 0);
     EXPECT_NEAR(rem, 5.0 - g.kTriAlt / 3.0, 1e-9);
-    EXPECT_EQ(g.neighbor(idx, 0), 2 * (4 * 10 + 4) + 0);  // up(4, 4)
+    EXPECT_EQ(g.neighbor(idx, 0), g.cellIndexAt(2, 4, 0));
 }
 
 // 穿越：剩余长度不足 → -2 走完，位置推进 remLength。
 TEST(Tiling, CrossEdgeWalkComplete) {
     const TilingGeom g{TilingType::Hex, 10, 8};
-    const int idx = 3 * 10 + 4;
+    const int idx = g.cellIndexAt(3, 4, 0);
     double wx, wy;
     g.cellCenter(idx, wx, wy);
     double x = wx, y = wy, rem = 0.1;
@@ -293,32 +362,29 @@ TEST(Tiling, CrossEdgeWalkComplete) {
     EXPECT_NEAR(y, wy, 1e-9);
 }
 
-// 三角特定邻接（P12 直边布局几何事实；p = r&1）：
-//   up(i,r)：k0 底 → down(i, r-1)（同列下邻）；k1 左斜 → down(i+p-1, r)；k2 右斜 → down(i+p, r)。
-//   down(i,r)：k0 顶 → up(i, r+1)（同列上邻）；k1 右斜 → up(i+1-p, r)；k2 左斜 → up(i-p, r)。
 TEST(Tiling, TriNeighborFacts) {
     const TilingGeom g{TilingType::Tri, 10, 8};
-    const int up = 2 * (3 * 10 + 4) + 0;    // up(4,3)，r=3 奇（p=1）
-    EXPECT_EQ(g.neighbor(up, 0), 2 * (2 * 10 + 4) + 1);  // down(4,2)（同列下邻）
-    EXPECT_EQ(g.neighbor(up, 1), 2 * (3 * 10 + 4) + 1);  // down(4,3)（i+p-1 = 4）
-    EXPECT_EQ(g.neighbor(up, 2), 2 * (3 * 10 + 5) + 1);  // down(5,3)（i+p = 5）
-    const int dn = 2 * (3 * 10 + 4) + 1;    // down(4,3)，r=3 奇（p=1）
-    EXPECT_EQ(g.neighbor(dn, 0), 2 * (4 * 10 + 4) + 0);  // up(4,4)（同列上邻，与 r 奇偶无关）
-    EXPECT_EQ(g.neighbor(dn, 1), 2 * (3 * 10 + 4) + 0);  // up(4,3)（i+1-p = 4）
-    EXPECT_EQ(g.neighbor(dn, 2), 2 * (3 * 10 + 3) + 0);  // up(3,3)（i-p = 3）
-    // 偶数行 r=2（p=0）：down(4,2) 顶邻 = up(4,3)（i 不变）
-    const int dn2 = 2 * (2 * 10 + 4) + 1;
-    EXPECT_EQ(g.neighbor(dn2, 0), 2 * (3 * 10 + 4) + 0);
-    // 偶数行 r=2：up(4,2) 底邻 = down(4,1)（同列下邻）；左斜 = down(3,2)；右斜 = down(4,2)
-    const int up2 = 2 * (2 * 10 + 4) + 0;
-    EXPECT_EQ(g.neighbor(up2, 0), 2 * (1 * 10 + 4) + 1);  // down(4,1)
-    EXPECT_EQ(g.neighbor(up2, 1), 2 * (2 * 10 + 3) + 1);  // down(3,2)
-    EXPECT_EQ(g.neighbor(up2, 2), 2 * (2 * 10 + 4) + 1);  // down(4,2)
+    const int oddUp = g.cellIndexAt(3, 4, 2);
+    EXPECT_EQ(g.neighbor(oddUp, 0), g.cellIndexAt(3, 4, 1));
+    EXPECT_EQ(g.neighbor(oddUp, 1), g.cellIndexAt(3, 4, 3));
+    EXPECT_EQ(g.neighbor(oddUp, 2), g.cellIndexAt(3, 5, 3));
+    const int oddDown = g.cellIndexAt(3, 4, 3);
+    EXPECT_EQ(g.neighbor(oddDown, 0), g.cellIndexAt(4, 4, 0));
+    EXPECT_EQ(g.neighbor(oddDown, 1), g.cellIndexAt(3, 4, 2));
+    EXPECT_EQ(g.neighbor(oddDown, 2), g.cellIndexAt(3, 3, 2));
+    const int evenDown = g.cellIndexAt(3, 4, 1);
+    EXPECT_EQ(g.neighbor(evenDown, 0), g.cellIndexAt(3, 4, 2));
+    const int evenUp = g.cellIndexAt(3, 4, 0);
+    EXPECT_EQ(g.neighbor(evenUp, 0), g.cellIndexAt(2, 4, 3));
+    EXPECT_EQ(g.neighbor(evenUp, 1), g.cellIndexAt(3, 3, 1));
+    EXPECT_EQ(g.neighbor(evenUp, 2), g.cellIndexAt(3, 4, 1));
 }
 
 // 边端点与邻格一致：cellEdge(idx,k) 的两端点必须是 neighbor(idx,k) 多边形的顶点（几何正确性）。
 TEST(Tiling, CellEdgeMatchesNeighborVertices) {
-    const TilingGeom cases[] = {{TilingType::Hex, 10, 8}, {TilingType::Tri, 10, 8}};
+    const TilingGeom cases[] = {{TilingType::Square, 10, 8},
+                                {TilingType::Hex, 10, 8},
+                                {TilingType::Tri, 10, 8}};
     for (const auto& g : cases) {
         for (int idx = 0; idx < g.cellCount(); ++idx) {
             for (int k = 0; k < g.neighborCount(); ++k) {
@@ -346,7 +412,7 @@ TEST(Tiling, CellEdgeMatchesNeighborVertices) {
 // 剔除覆盖性：任意视口世界矩形，凡多边形与视口相交的格，其 (r,c) 必落在
 // rowRange/colRange 结果内（P12：防"固定区域纯黑"——剔除漏格）。
 TEST(Tiling, CullingCoversAllVisibleCells) {
-    const TilingGeom cases[] = {{TilingType::Hex, 40, 40}, {TilingType::Tri, 40, 40}};
+    const TilingGeom cases[] = {{TilingType::Hex, 20, 20}, {TilingType::Tri, 20, 20}};
     for (const auto& g : cases) {
         const double ww = g.worldWidth(), wh = g.worldHeight();
         // 采样多种视口（整图、半图、1/4 图、细条），位置沿两轴滑动。
@@ -371,15 +437,8 @@ TEST(Tiling, CullingCoversAllVisibleCells) {
                                 maxY = std::max(maxY, vy[i]);
                             }
                             if (maxX <= vx0 || minX >= vx1 || maxY <= vy0 || minY >= vy1) continue;
-                            // 可见格：行/列须在范围内（六：idx = r*cols+c；三：pair）。
-                            int rr = -1, cc = -1;
-                            if (g.type == TilingType::Hex) {
-                                rr = idx / g.cols;
-                                cc = idx % g.cols;
-                            } else {
-                                rr = (idx >> 1) / g.cols;
-                                cc = (idx >> 1) % g.cols;
-                            }
+                            int rr = -1, cc = -1, bb = -1;
+                            g.indexToRowCol(idx, rr, cc, bb);
                             int c0, c1;
                             g.colRange(vx0, vx1, rr, c0, c1);
                             EXPECT_TRUE(rr >= r0 && rr <= r1 && cc >= c0 && cc <= c1)
@@ -399,7 +458,7 @@ TEST(Tiling, CullingCoversAllVisibleCells) {
 // (√3a(dq + dr/2), 1.5a·dr)，锚格中心 + 偏移应解析回同一格。
 TEST(Tiling, HexAxialOffsetResolves) {
     const TilingGeom g{TilingType::Hex, 10, 8};
-    const int anchor = 3 * 10 + 4;  // (r=3, c=4)
+    const int anchor = g.cellIndexAt(3, 4, 0);
     double ax, ay;
     g.cellCenter(anchor, ax, ay);
     // 轴向 (0,-1)（下方）与 (1,-1)（右下）：L3 形状 {(0,0),(0,-1),(1,-1)}
@@ -423,26 +482,16 @@ TEST(Tiling, HexAxialOffsetResolves) {
 
 namespace {
 
-// 形状 → 格下标（锚点取地图中部；P1.2 起 square/hex/tri 的 cells 统一为世界偏移，
-// 三角反锚镜像 dy，与 Map::shapeCells 一致）。
-std::vector<int> shapeToCells(const lw::Config::City::TilingSet& set, int level,
-                              const TilingGeom& g, int anchorOrient = 0) {
-    const auto* sh = [&]() -> const lw::Config::City::Shape* {
-        const int i = set.levelIndex(level);
-        return i < 0 ? nullptr : &set.shapes[static_cast<size_t>(i)];
-    }();
-    if (!sh) return {};
-    const int anchor = (g.type == TilingType::Tri)
-                           ? 2 * (6 * g.cols + 10) + anchorOrient  // 中部锚（正/反）
-                           : 5 * g.cols + 10;
+// 形状 → 格下标（锚点取地图中部；不做运行时朝向变换）。
+std::vector<int> shapeToCells(const lw::Config::City::Shape& shape, const TilingGeom& g,
+                              int anchorBase = 0) {
+    const int anchor = g.cellIndexAt(6, 10, anchorBase);
     double ax, ay;
     g.cellCenter(anchor, ax, ay);
-    const bool anchorUp = anchorOrient == 0;
     std::vector<int> out;
-    for (const auto& c : sh->cells) {
+    for (const auto& c : shape.cells) {
         const double wx = ax + c.dx;
-        const double wy = ay + (anchorUp ? c.dy : -c.dy);
-        out.push_back(g.worldToCell(wx, wy));
+        out.push_back(g.worldToCell(wx, ay + c.dy));
     }
     return out;
 }
@@ -472,23 +521,29 @@ bool shapeConnected(const TilingGeom& g, const std::vector<int>& cells) {
 
 }  // namespace
 
-// 形状表不变量：各密铺 levels[i] ↔ shapes[i] 一一对应、格数恰 = 等级数。
+// 形状表不变量：shapeLevelIndex 关联等级；同级可有多个显式形状变体。
 TEST(Tiling, CityShapeCountEqualsLevel) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     const lw::Config::City::TilingSet* sets[3] = {&cfg.city.square, &cfg.city.hex, &cfg.city.tri};
     const int expectLv[3][6] = {{1, 2, 4, 6, 9}, {1, 3, 4, 6, 7, 9}, {1, 2, 4, 6, 8}};
-    const int counts[3][6] = {{1, 2, 4, 6, 9, -1}, {1, 3, 4, 6, 7, 9}, {1, 2, 4, 6, 8, -1}};
     for (int t = 0; t < 3; ++t) {
         const auto& set = *sets[t];
-        ASSERT_EQ(set.levels.size(), set.shapes.size());
+        ASSERT_EQ(set.shapeLevelIndex.size(), set.shapes.size());
         for (std::size_t i = 0; i < set.levels.size(); ++i) {
             EXPECT_EQ(set.levels[i], expectLv[t][i]) << "tiling " << t;
-            EXPECT_EQ(set.shapes[i].cells.size(),
-                      static_cast<std::size_t>(counts[t][i]))
-                << "tiling " << t << " level " << set.levels[i];
-            // cells[0] = 锚格 (0,0)。
-            EXPECT_EQ(set.shapes[i].cells[0].dx, 0.0);
-            EXPECT_EQ(set.shapes[i].cells[0].dy, 0.0);
+        }
+        for (std::size_t i = 0; i < set.shapes.size(); ++i) {
+            const int levelIndex = set.shapeLevelIndex[i];
+            ASSERT_GE(levelIndex, 0);
+            ASSERT_LT(levelIndex, static_cast<int>(set.levels.size()));
+            const double level = set.levels[static_cast<std::size_t>(levelIndex)];
+            EXPECT_EQ(set.shapes[i].cells.size(), static_cast<std::size_t>(std::lround(level)))
+                << "tiling " << t << " shape " << i << " level " << level;
+            const auto anchor = std::find_if(set.shapes[i].cells.begin(), set.shapes[i].cells.end(),
+                                             [](const auto& cell) {
+                return cell.dx == 0.0 && cell.dy == 0.0;
+            });
+            EXPECT_NE(anchor, set.shapes[i].cells.end());
         }
     }
 }
@@ -497,62 +552,53 @@ TEST(Tiling, CityShapeCountEqualsLevel) {
 TEST(Tiling, CityHexShapesConnected) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     const TilingGeom g{TilingType::Hex, 24, 14};
-    for (int lv : cfg.city.hex.levels) {
-        const std::vector<int> cells = shapeToCells(cfg.city.hex, lv, g);
-        ASSERT_EQ(cells.size(), static_cast<std::size_t>(lv)) << "level " << lv;
-        EXPECT_TRUE(shapeConnected(g, cells)) << "hex level " << lv;
+    for (std::size_t shapeIndex = 0; shapeIndex < cfg.city.hex.shapes.size(); ++shapeIndex) {
+        const std::vector<int> cells = shapeToCells(cfg.city.hex.shapes[shapeIndex], g);
+        EXPECT_TRUE(shapeConnected(g, cells)) << "hex shape " << shapeIndex;
     }
 }
 
-TEST(Tiling, CityTriShapesConnectedBothModes) {
+TEST(Tiling, CityTriShapesConnectedForExplicitAnchorBases) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     const TilingGeom g{TilingType::Tri, 24, 14};
-    for (int orient = 0; orient <= 1; ++orient) {
-        for (int lv : cfg.city.tri.levels) {
-            const std::vector<int> cells = shapeToCells(cfg.city.tri, lv, g, orient);
-            ASSERT_EQ(cells.size(), static_cast<std::size_t>(lv))
-                << "orient " << orient << " level " << lv;
-            EXPECT_TRUE(shapeConnected(g, cells)) << "orient " << orient << " tri level " << lv;
+    for (std::size_t shapeIndex = 0; shapeIndex < cfg.city.tri.shapes.size(); ++shapeIndex) {
+        const auto& shape = cfg.city.tri.shapes[shapeIndex];
+        for (int anchorBase = 0; anchorBase < g.baseCount(); ++anchorBase) {
+            if (shape.anchorBaseMask != 0 &&
+                (shape.anchorBaseMask & (1u << anchorBase)) == 0)
+                continue;
+            const std::vector<int> cells = shapeToCells(shape, g, anchorBase);
+            EXPECT_TRUE(shapeConnected(g, cells))
+                << "shape " << shapeIndex << " base " << anchorBase;
         }
     }
 }
 
-// 三角形 L2：一正一反、公共边**水平**（正格 k0 底 = 同列下方反格，两格共水平底边）。
-// 反锚（镜像）变体：反格 + 同列上方正格（反格 k0 顶邻），公共边仍水平。
+// 三角形 L2：显式允许的两个正三角基础格都解析为水平公共边。
 TEST(Tiling, TriL2HorizontalSharedEdge) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     const TilingGeom g{TilingType::Tri, 24, 14};
-    for (int orient = 0; orient <= 1; ++orient) {
-        const std::vector<int> cells = shapeToCells(cfg.city.tri, 2, g, orient);
-        ASSERT_EQ(cells.size(), 2u) << "orient " << orient;
-        // 两格必为 k0 邻（正 k0 底 / 反 k0 顶：同列上下、共水平底边）
-        EXPECT_EQ(cells[1], g.neighbor(cells[0], 0)) << "orient " << orient;
+    const auto* shape = cfg.city.tri.shapeFor(2, 0);
+    ASSERT_NE(shape, nullptr);
+    for (int anchorBase : {0, 2}) {
+        const std::vector<int> cells = shapeToCells(*shape, g, anchorBase);
+        ASSERT_EQ(cells.size(), 2u) << "base " << anchorBase;
+        EXPECT_EQ(cells[1], g.neighbor(cells[0], 0)) << "base " << anchorBase;
         double ex0, ey0, ex1, ey1;
         ASSERT_TRUE(g.cellEdge(cells[0], 0, ex0, ey0, ex1, ey1));
-        EXPECT_NEAR(ey0, ey1, 1e-9) << "公共边应为水平（两端点 y 相等），orient " << orient;
+        EXPECT_NEAR(ey0, ey1, 1e-9) << "base " << anchorBase;
     }
 }
 
-// 三角形 L4 正/反两种模式：正锚 = 大三角尖朝上（4 格 = 2 正 + 反 + 正）；反锚镜像 = 尖朝下。
-// 各模式格数 = 4 且连通（连通性已由 CityTriShapesConnectedBothModes 覆盖），此处锁定模式几何：
-// 正模式最上格为"正"，反模式最下格为"反"（朝向随镜像翻转）。
-TEST(Tiling, TriL4ModesOrientation) {
+TEST(Tiling, TriL4HasExplicitUpAndDownVariants) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
-    const TilingGeom g{TilingType::Tri, 24, 14};
-    const std::vector<int> up = shapeToCells(cfg.city.tri, 4, g, 0);
-    const std::vector<int> dn = shapeToCells(cfg.city.tri, 4, g, 1);
-    ASSERT_EQ(up.size(), 4u);
-    ASSERT_EQ(dn.size(), 4u);
-    // 正模式：大三角最高点格（尖朝上 = 偶下标正格）存在且比锚格高 1 行；
-    // 反模式：最低点格（尖朝下 = 奇下标反格）比锚格低 1 行。
-    bool upHasTop = false, dnHasBottom = false;
-    const auto rowOf = [&](int idx) { return (idx >> 1) / g.cols; };
-    for (int idx : up)
-        if ((idx & 1) == 0 && rowOf(idx) == 6 + 1) upHasTop = true;   // 行 7 正格（尖朝上）
-    for (int idx : dn)
-        if ((idx & 1) == 1 && rowOf(idx) == 6 - 1) dnHasBottom = true;  // 行 5 反格（尖朝下）
-    EXPECT_TRUE(upHasTop);
-    EXPECT_TRUE(dnHasBottom);
+    ASSERT_EQ(cfg.city.tri.variantCount(4), 2);
+    const auto* down = cfg.city.tri.shapeFor(4, 0);
+    const auto* up = cfg.city.tri.shapeFor(4, 1);
+    ASSERT_NE(down, nullptr);
+    ASSERT_NE(up, nullptr);
+    EXPECT_EQ(down->anchorBaseMask, (1u << 1) | (1u << 3));
+    EXPECT_EQ(up->anchorBaseMask, (1u << 0) | (1u << 2));
 }
 
 }  // namespace

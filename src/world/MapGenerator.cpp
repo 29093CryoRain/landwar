@@ -11,7 +11,6 @@
 #include <array>
 #include <cmath>
 #include <iomanip>
-#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -98,14 +97,10 @@ private:
 double estimateGradient(const TilingGeom& g, int index, const std::vector<double>& height,
                         bool gridCoordinates) {
     auto position = [&](int idx, double& x, double& y) {
-        if (gridCoordinates) {
-            int r, c, b;
-            g.indexToRowCol(idx, r, c, b);
-            x = static_cast<double>(c);
-            y = static_cast<double>(r);
-        } else {
+        if (gridCoordinates)
+            g.gridCenter(idx, x, y);
+        else
             g.cellCenter(idx, x, y);
-        }
     };
 
     double x0, y0;
@@ -145,25 +140,9 @@ bool hasOutsidePointNeighbor(const TilingGeom& g, int index) {
     return false;
 }
 
-double polygonDistanceToBounds(const TilingGeom& g, int index) {
-    double vx[12], vy[12];
-    const int n = g.cellPolygon(index, vx, vy, 12);
-    if (n <= 0) return 0.0;
-    double distance = std::numeric_limits<double>::max();
-    for (int i = 0; i < n; ++i) {
-        distance = std::min(distance, vx[i]);
-        distance = std::min(distance, g.worldWidth() - vx[i]);
-        distance = std::min(distance, vy[i]);
-        distance = std::min(distance, g.worldHeight() - vy[i]);
-    }
-    return std::max(0.0, distance);
-}
-
 // 强制海岸的第二部分：降低靠近真实地图边界的海拔，使海岸从边缘向内自然形成。
-// 距离函数由调用方提供，以便方形和任意多边形密铺使用各自的边界距离。
-template <typename DistanceFn>
 void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
-                                DistanceFn distanceToBounds, double rangeMultiplier,
+                                const TilingGeom& geometry, double rangeMultiplier,
                                 double strengthMultiplier) {
     constexpr double kBaseEdgeBand = 3.0;
     constexpr double kBaseEdgeStrength = 0.5;
@@ -172,7 +151,7 @@ void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
     if (!forceCoast || edgeBand <= 0.0 || edgeStrength <= 0.0) return;
 
     for (size_t index = 0; index < height.size(); ++index) {
-        const double distance = distanceToBounds(index);
+        const double distance = geometry.cellBoundaryDistance(static_cast<int>(index));
         if (distance >= edgeBand) continue;
 
         const double u = 1.0 - distance / edgeBand;
@@ -296,11 +275,9 @@ static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenP
     const TilingGeom squareGeom{TilingType::Square, w, h};
     // ①b 强制边缘为海：先降低边缘带海拔，再计算坡度和海陆阈值，
     //     让海拔衰减同时作用于海岸线和山脉选择。
-    applyCoastElevationFalloff(height, p.forceCoast, [w, h](size_t index) {
-        const int x = static_cast<int>(index % static_cast<size_t>(w));
-        const int y = static_cast<int>(index / static_cast<size_t>(w));
-        return static_cast<double>(std::min({x, w - 1 - x, y, h - 1 - y}));
-    }, p.forceCoastRangeMultiplier, p.forceCoastStrengthMultiplier);
+    applyCoastElevationFalloff(height, p.forceCoast, squareGeom,
+                               p.forceCoastRangeMultiplier,
+                               p.forceCoastStrengthMultiplier);
 
     // ①a 坡度场（供"山脉"分量选山用）：按真实中心距离拟合局部坡度，
     //     避免不同密铺的格面积/邻居数量让某类格获得系统性偏高分。
@@ -386,40 +363,25 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
     const int cellCount = g.cellCount();
     Rng rng(seed);
     ValueNoise2D noise(rng);
-    // 2026-08 斜周期（33336 系）：世界为平行四边形（W.y/H.x 剪切），若按世界坐标采样，
-    // 噪声场被剪切 → 地形呈斜纹/陆地占比失真。改为按**格坐标**（c,r 常规矩形）采样——
-    // 即"旋转到常规矩形后再采样"，地形在各向同性矩形域上生成，格后再映射回斜周期。
+    // 斜周期在周期基坐标中采样，避免世界坐标剪切噪声；gridCenter 保留块内基础格位置。
     const bool skew = g.hasSkewedPeriod();
     const double baseCell = skew
                                 ? static_cast<double>(std::max(g.cols, g.rows)) / 6.0
                                 : std::max(g.worldWidth(), g.worldHeight()) / 6.0;
-    // 采样坐标（格坐标 [c,r] 或世界坐标 [wx,wy]）。
-    std::vector<int> sampC(static_cast<size_t>(cellCount)), sampR(static_cast<size_t>(cellCount));
-    if (skew) {
-        for (int idx = 0; idx < cellCount; ++idx) {
-            int r, c, b;
-            g.indexToRowCol(idx, r, c, b);
-            sampC[static_cast<size_t>(idx)] = c;
-            sampR[static_cast<size_t>(idx)] = r;
-        }
-    }
 
-    // ① 海拔场（skew：按格坐标在各向同性矩形域采样；否则按格中心世界坐标采样）。
+    // ① 海拔场（skew：周期坐标中的格中心；否则：世界坐标中的格中心）。
     std::vector<double> height(static_cast<size_t>(cellCount), 0.0);
     for (int idx = 0; idx < cellCount; ++idx) {
         double gx, gy;
-        if (skew) {
-            gx = static_cast<double>(sampC[static_cast<size_t>(idx)]);
-            gy = static_cast<double>(sampR[static_cast<size_t>(idx)]);
-        } else {
+        if (skew)
+            g.gridCenter(idx, gx, gy);
+        else
             g.cellCenter(idx, gx, gy);
-        }
         height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
     }
     // ①b 强制边缘为海：先降低边缘带海拔，再计算坡度和海陆阈值。
-    applyCoastElevationFalloff(height, p.forceCoast, [&g](size_t index) {
-        return polygonDistanceToBounds(g, static_cast<int>(index));
-    }, p.forceCoastRangeMultiplier, p.forceCoastStrengthMultiplier);
+    applyCoastElevationFalloff(height, p.forceCoast, g, p.forceCoastRangeMultiplier,
+                               p.forceCoastStrengthMultiplier);
 
     // ①a 坡度场（山脉分量）：使用真实中心距离拟合局部坡度，避免大格偏高。
     std::vector<double> grad(static_cast<size_t>(cellCount), 0.0);

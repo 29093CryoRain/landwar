@@ -69,7 +69,7 @@ void solveBomb(CombatEffectContext& ctx, entt::entity e, std::vector<entt::entit
             // P12 密铺：rowRange/colRange 保守扫描 + 格心距（迭代顺序固定 → RNG 确定）。
             const TilingGeom& g = ctx.move.map.geom();
             int r0, r1, c0, c1;
-            g.rowRange(pos.y - radius, pos.y + radius, r0, r1);
+            g.rowRange(pos.x - radius, pos.y - radius, pos.x + radius, pos.y + radius, r0, r1);
             for (int r = r0; r <= r1; ++r) {
                 g.colRange(pos.x - radius, pos.x + radius, r, c0, c1);
                 for (int c = c0; c <= c1; ++c) {

@@ -4,6 +4,8 @@
 /build-linux/
 /build-*/
 /release/
+/rubbish/
+/tools/blocks/
 
 # 本地第三方源码 (FetchContent 本地源)
 /_deps/
@@ -20,6 +22,7 @@ imgui.ini
 
 # 根目录可执行副本（构建产物拷贝，供项目根运行）
 /landwar.exe
+/map_editor.exe
 
 # 运行期产物（2026-08 工程改进：统一入 userdata/，可丢弃、不进版本库）
 #   userdata/options.json    菜单选项（开始游戏时保存）
@@ -44,3 +47,9 @@ __pycache__/
 
 # 城市贴图缩放交互工具临时数据
 /data/city_icon_fit_scales.json
+
+# 本地压力测试配置
+/data/factions_110s.jsonc
+
+# 本地调试启动脚本
+/运行游戏.bat

@@ -25,7 +25,7 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 10;  // v10：保存本局选入势力及其顺序
+constexpr int kSnapshotVersion = 11;  // v11：三种规则密铺统一使用周期块索引
 
 void setErr(std::string* err, const std::string& msg) {
     if (err) *err = msg;
@@ -595,21 +595,10 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
     for (size_t i = 0; i < cellCount; ++i) {
         const auto& c = cells[i];
         MapCell& out = m.cells_[i];
-        if (m.geom_.type == TilingType::Tri) {  // 格坐标 (i 对, r 行)
-            out.x = static_cast<int>((i >> 1) % static_cast<size_t>(m.geom_.cols));
-            out.y = static_cast<int>((i >> 1) / static_cast<size_t>(m.geom_.cols));
-        } else if (m.geom_.type == TilingType::Hex) {
-            out.x = static_cast<int>(i % static_cast<size_t>(m.geom_.cols));
-            out.y = static_cast<int>(i / static_cast<size_t>(m.geom_.cols));
-        } else if (static_cast<int>(m.geom_.type) > static_cast<int>(TilingType::Tri)) {
-            int rr, cc, bb;
-            m.geom_.indexToRowCol(static_cast<int>(i), rr, cc, bb);
-            out.x = cc;
-            out.y = rr;
-        } else {
-            out.x = static_cast<int>(i % static_cast<size_t>(m.width_));
-            out.y = static_cast<int>(i / static_cast<size_t>(m.width_));
-        }
+        int rr = 0, cc = 0, bb = 0;
+        m.geom_.indexToRowCol(static_cast<int>(i), rr, cc, bb);
+        out.x = cc;
+        out.y = rr;
         out.belongi = c[0].get<int>();
         out.land = c[1].get<bool>();
         out.mountain = c[2].get<bool>();

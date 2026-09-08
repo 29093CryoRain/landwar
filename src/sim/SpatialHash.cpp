@@ -56,7 +56,7 @@ std::vector<entt::entity> SpatialHash::queryAABB([[maybe_unused]] const entt::re
     std::vector<entt::entity> result;
     if (buckets_.empty()) return result;
     int r0, r1, c0, c1;
-    geom_.rowRange(y0, y1, r0, r1);
+    geom_.rowRange(x0, y0, x1, y1, r0, r1);
     if (r0 > r1) return result;
     for (int r = r0; r <= r1; ++r) {
         geom_.colRange(x0, x1, r, c0, c1);
@@ -79,7 +79,7 @@ std::vector<entt::entity> SpatialHash::queryCircle(const entt::registry& reg, do
     std::vector<entt::entity> result;
     if (buckets_.empty()) return result;
     int r0, r1, c0, c1;
-    geom_.rowRange(y - radius, y + radius, r0, r1);
+    geom_.rowRange(x - radius, y - radius, x + radius, y + radius, r0, r1);
     if (r0 > r1) return result;
     const double r2 = radius * radius;
     for (int r = r0; r <= r1; ++r) {

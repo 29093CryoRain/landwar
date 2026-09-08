@@ -417,15 +417,16 @@ void loadCityShapesFile(Config::City& c) {
 
 // 内置默认城市表（P13 + P12）：等级/形状按密铺。
 // ShapeCell 偏移语义（Config.h 注）：全部为相对锚格中心的**世界单位偏移**
-// （方/六/三/半正/Laves 统一；三角正锚模式，反锚由 Map 解析端镜像 dy）。
+// （方/六/三/半正/Laves 统一；不同朝向由形状表显式定义）。
 void initDefaultCity(Config::City& c) {
     using Shape = Config::City::Shape;
     using ShapeCell = Config::City::ShapeCell;
-    const auto sq = [](int w, int h) {
+    const auto sq = [](int w, int h, int x0 = 0, int y0 = 0) {
         Shape sh;
         for (int dy = 0; dy < h; ++dy)
             for (int dx = 0; dx < w; ++dx)
-                sh.cells.push_back(ShapeCell{static_cast<double>(dx), static_cast<double>(dy)});
+                sh.cells.push_back(ShapeCell{static_cast<double>(x0 + dx),
+                                             static_cast<double>(y0 + dy)});
         return sh;
     };
     const auto hx = [](std::initializer_list<ShapeCell> list) {
@@ -438,9 +439,10 @@ void initDefaultCity(Config::City& c) {
         sh.cells.assign(list.begin(), list.end());
         return sh;
     };
-    // 正方形：1/2/4/6/9（旧 w×h：1×1 / 1×2 / 2×2 / 2×3 / 3×3）。
+    // 正方形：大形状围绕锚点展开，与外置形状表保持一致。
     c.square.levels = {1, 2, 4, 6, 9};
-    c.square.shapes = {sq(1, 1), sq(1, 2), sq(2, 2), sq(2, 3), sq(3, 3)};
+    c.square.shapes = {sq(1, 1), sq(1, 2), sq(2, 2), sq(2, 3, 0, -1),
+                       sq(3, 3, -1, -1)};
     // 六边形：1/3/4/6/7/9（U 偏移已由旧轴向表换算，P12 §3.2 定稿；锚 = (0,0)）。
     c.hex.levels = {1, 3, 4, 6, 7, 9};
     c.hex.shapes = {
@@ -460,14 +462,10 @@ void initDefaultCity(Config::City& c) {
             {0.5372849659117709, -0.9306048591020997}, {-0.5372849659117709, 0.9306048591020997},
             {0.0, 1.8612097182041993}, {0.0, -1.8612097182041993}}),
     };
-    // 三角形：1/2/4/6/8（U 偏移以 kTriSide/kTriAlt 换算；**正锚模式**——表按"锚 =
-    // 正三角"定义；锚为反三角时解析端对 dy 垂直镜像，即该等级的朝向变体）。
+    // 三角形：1/2/4/6/8（U 偏移以 kTriSide/kTriAlt 换算；各朝向由形状表显式列出）。
     // 语义（用户 2026-08 定稿）：
-    //   L1 = 1 格（锚正→正、锚反→反，2 种模式）
-    //   L2 = 一正一反，公共边**水平**（正底边 = 反底边，同列上下相邻）
-    //   L4 = 边长 2b 大三角含 4 小三角（锚正→尖朝上、锚反→尖朝下，2 种模式）
-    //   L6 = 6 格正六边形（左右顶点、上下平边；3 正 3 反；锚镜像同形，1 种模式）
-    //   L8 = L6 + 顶上正 + 底下反（≡ 两个 4 级城拼接；锚镜像旋转 180° 同构，1 种模式）
+    //   L1 = 1 格（不限锚点方向）
+    //   L2/L4/L6/L8 = 以正三角基础格为锚；不在运行时生成镜像方向
     c.tri.levels = {1, 2, 4, 6, 8};
     c.tri.shapes = {
         tr({{0.0, 0.0}}),  // L1
@@ -482,10 +480,12 @@ void initDefaultCity(Config::City& c) {
                {0.7598356856515962, 0.4386913376508308}}),
         // L8：L6 + 顶上正 (0, 2h) + 底下反 (0, −2h/3)（紧贴六边形下平边的同列下方反格）
         tr({{0.0, 0.0}, {0.0, 1.7547653506033232}, {0.7598356856515962, 1.3160740129524924},
-               {-0.7598356856515962, 1.3160740129524924}, {-0.7598356856515962, 0.4386913376508308},
-               {0.7598356856515962, 0.4386913376508308}, {0.0, 2.6321480259049848},
-               {0.0, -0.8773826753016616}}),
+            {-0.7598356856515962, 1.3160740129524924}, {-0.7598356856515962, 0.4386913376508308},
+            {0.7598356856515962, 0.4386913376508308}, {0.0, 2.6321480259049848},
+            {0.0, -0.8773826753016616}}),
     };
+    for (std::size_t i = 1; i < c.tri.shapes.size(); ++i)
+        c.tri.shapes[i].anchorBaseMask = (1u << 0) | (1u << 2);
     // 2026-08-16：先给 1 级城（单格）兜底占位；下面每个已接入几何的密铺都会
     // 用完整等级形状表整体覆盖（开发思路.txt 没提 1 级城的密铺不会被覆盖成 1 级）。
     {
@@ -511,6 +511,7 @@ void initDefaultCity(Config::City& c) {
     }
     // 同步 shapeLevelIndex（默认每个 level 一个形状；未来同级多变体时手动调整）。
     const auto syncShapeLevels = [](Config::City::TilingSet& s) {
+        if (!s.shapeLevelIndex.empty()) return;
         s.shapeLevelIndex.clear();
         for (int i = 0; i < static_cast<int>(s.shapes.size()); ++i)
             s.shapeLevelIndex.push_back(i);
@@ -1528,6 +1529,7 @@ bool Config::validate(std::string* err) const {
             if (channel < 0 || channel > 255) return fail("faction secondary color out of range");
         for (double preference : f.unitPreference)
             if (!positive(preference)) return fail("unit preference must be positive");
+        std::array<double, kArmyTypeCount> freeArmyChanceByType{};
         for (const auto& buff : f.buffs) {
             if (!finite(buff.magnitude) || buff.param < -1 || buff.param >= kArmyTypeCount)
                 return fail("faction buff is invalid");
@@ -1540,12 +1542,17 @@ bool Config::validate(std::string* err) const {
             if (buff.type == BuffType::FreeArmyChance
                 && (buff.magnitude < 0.0 || buff.magnitude > 1.0))
                 return fail("faction free army chance is invalid");
+            if (buff.type == BuffType::FreeArmyChance) {
+                freeArmyChanceByType[static_cast<size_t>(buff.param)] += buff.magnitude;
+            }
         }
+        for (double chance : freeArmyChanceByType)
+            if (!unitInterval(chance)) return fail("faction free army chance is invalid");
         if (!positive(f.speedMultAll) || !positive(f.seaMult) || !nonNegative(f.bounceMultAll)
             || !positive(f.pioneerSpeedMult) || f.extraLaserBeams < 0
             || !positive(f.laserDurationMult) || !positive(f.laserLengthMult)
             || !nonNegative(f.bombRadiusBonus) || !nonNegative(f.mineTriggerBombRadiusBonus)
-            || !unitInterval(f.freeArmyChance))
+            || !nonNegative(f.freeArmyChance))
             return fail("faction numeric range invalid");
     }
 
@@ -1637,9 +1644,13 @@ bool Config::validate(std::string* err) const {
             || std::find(techIds.begin(), techIds.end(), def.id) != techIds.end())
             return fail("tech ids must be non-empty and unique");
         techIds.push_back(def.id);
-        for (const auto& level : def.levels)
+        for (const auto& level : def.levels) {
             if (!finite(level.magnitude) || level.param < -1 || level.param >= kArmyTypeCount)
                 return fail("tech level is invalid");
+            if (level.type == BuffType::FreeArmyChance
+                && (level.param < 0 || level.magnitude < 0.0 || level.magnitude > 1.0))
+                return fail("tech free army chance is invalid");
+        }
         for (int unit : def.preferenceUnits)
             if (unit < 0 || unit >= kArmyTypeCount) return fail("tech preference unit invalid");
     }

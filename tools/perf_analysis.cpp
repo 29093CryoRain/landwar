@@ -1,13 +1,16 @@
 // perf_analysis.cpp — 无头性能剖析工具（临时，2026-08）。
-// 用法：landwar_perf [--tiling square|hex|tri] [--ticks N] [--w N] [--h N] [--seed N]
+// 用法：landwar_perf [--tiling NAME] [--ticks N] [--w N] [--h N] [--seed N]
+//       landwar_perf --tiling NAME --world-to-cell N [--w N] [--h N]
 // 作用：按指定密铺生成（或加载）~w×h 随机地图 → 构建全部默认 AI 的 Simulation →
 //       enableProfiling + 步进 N tick → 按阶段打印墙钟耗时占比（定位最耗时功能）。
 // 纯计时不消耗 RNG/改状态，不影响确定性。
 #include <cstdint>
+#include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -16,6 +19,7 @@
 #include "core/Paths.h"
 #include "core/Simulation.h"
 #include "world/MapGenerator.h"
+#include "world/tiling/Tiling.h"
 
 namespace {
 
@@ -25,6 +29,7 @@ struct Opts {
     int w = 120;
     int h = 120;
     std::uint32_t seed = 42;
+    int worldToCellCalls = 0;
 };
 
 Opts parse(int argc, char* argv[]) {
@@ -37,6 +42,7 @@ Opts parse(int argc, char* argv[]) {
         else if (a == "--w") o.w = std::stoi(next());
         else if (a == "--h") o.h = std::stoi(next());
         else if (a == "--seed") o.seed = static_cast<std::uint32_t>(std::stoul(next()));
+        else if (a == "--world-to-cell") o.worldToCellCalls = std::stoi(next());
     }
     return o;
 }
@@ -66,6 +72,39 @@ int main(int argc, char* argv[]) {
     const Opts o = parse(argc, argv);
     const auto tiling = lw::tilingFromName(o.tiling);
 
+    if (o.worldToCellCalls > 0) {
+        int cols = 0, rows = 0;
+        lw::chooseTableDomain(static_cast<int>(tiling), o.w, o.h, cols, rows);
+        const lw::TilingGeom geometry{tiling, cols, rows};
+        std::vector<std::pair<double, double>> samples;
+        const int sampleCount = std::min(geometry.cellCount(), 8192);
+        samples.reserve(static_cast<size_t>(sampleCount));
+        for (int i = 0; i < sampleCount; ++i) {
+            const int index = static_cast<int>((static_cast<std::uint64_t>(i) * 7919u) %
+                                               static_cast<std::uint64_t>(geometry.cellCount()));
+            double cx = 0.0, cy = 0.0, vx[12], vy[12];
+            geometry.cellCenter(index, cx, cy);
+            const int n = geometry.cellPolygon(index, vx, vy, 12);
+            const int vertex = i % n;
+            samples.emplace_back(0.65 * cx + 0.35 * vx[vertex],
+                                 0.65 * cy + 0.35 * vy[vertex]);
+        }
+        std::uint64_t checksum = 0;
+        const auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < o.worldToCellCalls; ++i) {
+            const auto& point = samples[static_cast<size_t>(i) % samples.size()];
+            checksum += static_cast<std::uint64_t>(geometry.worldToCell(point.first, point.second));
+        }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::steady_clock::now() - start)
+                                 .count();
+        std::cout << "worldToCell tiling=" << o.tiling << " calls=" << o.worldToCellCalls
+                  << " total_ns=" << elapsed
+                  << " ns/call=" << static_cast<double>(elapsed) / o.worldToCellCalls
+                  << " checksum=" << checksum << '\n';
+        return 0;
+    }
+
     // Generate ~o.w×o.h random map directly in memory.
     lw::MapGenParams gp;
     gp.width = o.w;
@@ -80,8 +119,6 @@ int main(int argc, char* argv[]) {
     // The generator applies the same canonical-domain normalization as Map.
     gp.width = std::clamp(gp.width, 32, 200);
     gp.height = std::clamp(gp.height, 32, 200);
-    if ((tiling == lw::TilingType::Hex || tiling == lw::TilingType::Tri) && (gp.height & 1))
-        --gp.height;
 
     lw::MapDefinition definition;
     if (!lw::MapGenerator::generate(o.seed, gp, definition, cfg.city)) {

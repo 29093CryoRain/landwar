@@ -1,4 +1,4 @@
-﻿// test_tiling_table.cpp — 表驱动半正/Laves 密铺几何单测（读取 data/tiling_specs_arch.json）。
+﻿// test_tiling_table.cpp — 表驱动规则/半正/Laves 密铺几何单测（读取 data/tiling_specs_*.json）。
 // 覆盖：格数、世界尺寸、中心→worldToCell 往返、邻接对称/边界、cellPolygon/cellEdge 一致性。
 #include <gtest/gtest.h>
 
@@ -63,11 +63,11 @@ TEST(TilingTable, DomainMappingIncludesSquareHexTri) {
     EXPECT_EQ(rows, 91);
     EXPECT_FALSE(tableInputRestriction(static_cast<int>(TilingType::Square), ra, rb));
 
-    // Hex: p/q=13/14, so 120×120 rounds to 126×117 and maps to 117×126.
+    // Hex: each orthogonal block contains two physical rows/cells.
     chooseTableDomain(static_cast<int>(TilingType::Hex), 120, 120, cols, rows);
     EXPECT_EQ(cols, 117);
-    EXPECT_EQ(rows, 126);
-    EXPECT_EQ(cols * rows, 126 * 117);
+    EXPECT_EQ(rows, 63);
+    EXPECT_EQ(2 * cols * rows, 126 * 117);
     ASSERT_TRUE(tableInputRestriction(static_cast<int>(TilingType::Hex), ra, rb));
     EXPECT_EQ(ra, 14);
     EXPECT_EQ(rb, 13);
@@ -75,16 +75,70 @@ TEST(TilingTable, DomainMappingIncludesSquareHexTri) {
     // 110 is closer to 104 than 117; this distinguishes nearest rounding from ceiling.
     chooseTableDomain(static_cast<int>(TilingType::Hex), 110, 110, cols, rows);
     EXPECT_EQ(cols, 104);
-    EXPECT_EQ(rows, 112);
+    EXPECT_EQ(rows, 56);
 
-    // Tri: p/q=4/3, and Rb is doubled to keep the resulting periodic rows even.
+    // Tri: each orthogonal block contains two physical rows and four cells.
     chooseTableDomain(static_cast<int>(TilingType::Tri), 120, 120, cols, rows);
     EXPECT_EQ(cols, 80);
-    EXPECT_EQ(rows, 90);
-    EXPECT_EQ(2 * cols * rows, 120 * 120);
+    EXPECT_EQ(rows, 45);
+    EXPECT_EQ(4 * cols * rows, 120 * 120);
     ASSERT_TRUE(tableInputRestriction(static_cast<int>(TilingType::Tri), ra, rb));
     EXPECT_EQ(ra, 3);
     EXPECT_EQ(rb, 8);
+}
+
+TEST(TilingTable, RegularSpecsUseOrthogonalBlocks) {
+    const struct Case { TilingType type; int bases; } cases[] = {
+        {TilingType::Square, 1}, {TilingType::Hex, 2}, {TilingType::Tri, 4}};
+    for (const auto& c : cases) {
+        const TilingGeom g{c.type, 5, 4};
+        EXPECT_EQ(g.baseCount(), c.bases);
+        EXPECT_EQ(g.cellCount(), 5 * 4 * c.bases);
+        EXPECT_FALSE(g.hasSkewedPeriod());
+        for (int index = 0; index < g.cellCount(); ++index) {
+            int row = -1, col = -1, base = -1;
+            g.indexToRowCol(index, row, col, base);
+            EXPECT_EQ(g.cellIndexAt(row, col, base), index);
+            double x = 0.0, y = 0.0;
+            g.cellCenter(index, x, y);
+            EXPECT_EQ(g.worldToCell(x, y), index);
+        }
+    }
+}
+
+TEST(TilingTable, Existing33336SpecsRemainSkewed) {
+    const TilingGeom arch{TilingType::Arch33336, 4, 3};
+    const TilingGeom laves{TilingType::Laves33336, 4, 3};
+    EXPECT_TRUE(arch.hasSkewedPeriod());
+    EXPECT_TRUE(laves.hasSkewedPeriod());
+}
+
+TEST(TilingTable, RegularCapitalPlacementUsesBlockBases) {
+    const Config cfg = Config::loadFromJson("{}");
+    for (TilingType type : {TilingType::Hex, TilingType::Tri}) {
+        Config::Map mapConfig = cfg.map;
+        mapConfig.tiling = tilingName(type);
+        mapConfig.width = 42;
+        mapConfig.height = 40;
+        mapConfig.capitalMinDistance = 1;
+        Map map;
+        map.configure(mapConfig);
+        map.setCityConfig(cfg.city);
+        for (int index = 0; index < map.cellCount(); ++index) {
+            map.atIndex(index).land = true;
+            map.atIndex(index).cityAllowed = true;
+        }
+        Rng rng(42);
+        ASSERT_TRUE(map.placeCapitals(rng, 8)) << tilingName(type);
+        std::set<int> bases;
+        for (int i = 0; i < map.capitalCount(); ++i) {
+            bases.insert(map.capitalB(i));
+            const int index = map.cellIndexAt(map.capitalX(i), map.capitalY(i), map.capitalB(i));
+            ASSERT_GE(index, 0);
+            EXPECT_GE(map.atIndex(index).cityId, 0);
+        }
+        EXPECT_GT(bases.size(), 1u) << tilingName(type);
+    }
 }
 
 TEST(TilingTable, ArchSpecsLoadAndCellRoundTrip) {

@@ -83,9 +83,9 @@ public:
     bool loadFromDefinition(const MapDefinition& definition, std::string* err = nullptr);
     bool loadFromLandmap(const std::string& path, std::string* err = nullptr);
     // P12：lwmap 加载（六/三角地形基图；自描述格式，见 MapGenerator）。通道语义与 BMP
-    // 格坐标 (c, r) → 格下标（P12；方 = r*width+c；六 = r*cols+c；三 = 正三角锚）。
+    // 周期块坐标 (c, r) → 基础格 0 的下标。
     int cellIndexAt(int c, int r) const;
-    // 带基础格序号的版本（半正/Laves 用；方/六忽略 b，三 = b 取 0 正/1 反）。
+    // 带周期块基础格序号的版本。
     int cellIndexAt(int c, int r, int b) const;
 
     // 邻海修正（P5/P4）：方形山格 8 邻域、其它密铺共享顶点的点邻有海格 → 置普通陆。
@@ -94,7 +94,7 @@ public:
 
     // 放置 factionCount 个首都：优先落在"可产城"格（cityAllowed，基图允许城市）；可产城格不足/太挤时
     // 放宽到任意陆地（保证游戏可玩）。随机陆地格，与已放置首都欧氏距离 >= capitalMinDistance。
-    // 每个 attempt 消耗 get(width-1) + get(height-1)。重试耗尽（病态地图）返回 false。
+    // 每个 attempt 消耗 get(cellCount-1)。重试耗尽（病态地图）返回 false。
     // An existing city at the capital cell becomes the capital; otherwise a
     // one-level city is registered.
     bool placeCapitals(Rng& rng, int factionCount = kPlayerFactionCount);
@@ -119,7 +119,7 @@ public:
     int totalCities() const { return static_cast<int>(cities_.size()); }
     int capitalX(int index) const { return capitalX_[static_cast<size_t>(index)]; }
     int capitalY(int index) const { return capitalY_[static_cast<size_t>(index)]; }
-    // 表驱动密铺的首都基础格 b（每周期域内基础格序号；方/六/三恒 0）。
+    // 首都所在周期块的基础格 b。
     int capitalB(int index) const { return capitalB_[static_cast<size_t>(index)]; }
     int capitalCount() const { return static_cast<int>(capitalX_.size()); }
 
@@ -176,7 +176,7 @@ private:
     // 形状都能出现；placeableVariant = 本列表首元素或 -1）。
     std::vector<int> placeableVariants(double level, int index, bool requireAllowed) const;
     // P1.2：将形状表 cells（世界单位 U 偏移）解析为离散格下标；所有密铺统一。
-    // 三角反锚镜像 dy；界外格返回 -1。shapeCells 与 placeableVariants 共用。
+    // 不做运行时朝向变换；界外格返回 -1。shapeCells 与 placeableVariants 共用。
     std::vector<int> resolveShapeCells(const Config::City::Shape& shape, int anchorIndex) const;
     void clear();
 
@@ -190,7 +190,7 @@ private:
     std::vector<MapCell> cells_;  // index = y*width_ + x
     std::vector<int> capitalX_;
     std::vector<int> capitalY_;
-    std::vector<int> capitalB_;   // 首都基础格序号（半正/Laves；方/六/三 = 0）
+    std::vector<int> capitalB_;   // 首都基础格序号
     std::vector<City> cities_;  // 城市注册表（P13）
 };
 

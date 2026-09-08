@@ -209,7 +209,8 @@ def main():
 
     # 读 tiling_specs：按边数分组建议（_byEdgeCount，程序不读取，供手动填 baseGroups 参考）。
     specs = {}
-    for spec_file in ("data/tiling_specs_arch.json", "data/tiling_specs_laves.json"):
+    for spec_file in ("data/tiling_specs_regular.json", "data/tiling_specs_arch.json",
+                      "data/tiling_specs_laves.json"):
         try:
             with open(spec_file, encoding="utf-8") as sf:
                 specs.update(json.load(sf))

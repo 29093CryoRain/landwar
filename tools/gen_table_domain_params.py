@@ -17,6 +17,7 @@
 import json, math, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REGULAR = os.path.join(ROOT, 'data/tiling_specs_regular.json')
 ARCH = os.path.join(ROOT, 'data/tiling_specs_arch.json')
 LAVES = os.path.join(ROOT, 'data/tiling_specs_laves.json')
 
@@ -24,12 +25,12 @@ K_MAX_GAP = 16   # 用户约束：最大输入间距（Ra/Rb 上界）
 P_MAX = 60       # p,q 搜索上界
 TEST_INPUTS = [(105, 95), (150, 80), (80, 150), (120, 120), (60, 200), (200, 60)]
 
-# 基础三密铺没有 tiling_specs JSON；几何常数与 TilingGeom 保持一致。
-# tuple = (B, s, t, p, q, Ra, Rb)，Rb 已包含 hex/tri 的偶数行约束。
+# 基础三密铺规格来自 tiling_specs_regular.json；这里保留结果表作为离线校验基准。
+# tuple = (B, s, t, p, q, Ra, Rb)，周期块已包含 Hex/Tri 的方向重复，不再额外约束偶数 rows。
 BASIC_PARAMS = {
     'square': (1, 1, 1, 1, 1, 1, 1),
-    'hex': (1, 1, 1, 13, 14, 14, 13),
-    'tri': (2, 2, 1, 4, 3, 3, 8),
+    'hex': (2, 1, 2, 13, 14, 14, 13),
+    'tri': (4, 1, 4, 2, 3, 3, 8),
 }
 
 
@@ -41,6 +42,7 @@ def gcd(a, b):
 
 def load_all():
     d = {}
+    d.update(json.load(open(REGULAR, encoding='utf-8')))
     d.update(json.load(open(ARCH, encoding='utf-8')))
     d.update(json.load(open(LAVES, encoding='utf-8')))
     return d

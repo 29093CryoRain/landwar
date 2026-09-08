@@ -95,7 +95,7 @@ bool MapDefinition::validate(std::string* err) const {
 std::string MapDefinition::toJson() const {
     Json root;
     root["format"] = "landwar.map";
-    root["version"] = 1;
+    root["version"] = 2;
     root["tiling"] = tilingName(tiling);
     root["cols"] = cols;
     root["rows"] = rows;
@@ -128,7 +128,7 @@ bool MapDefinition::fromJson(const std::string& text, MapDefinition& out, std::s
         return false;
     }
     if (!root.is_object() || root.value("format", "") != "landwar.map" ||
-        root.value("version", 0) != 1 || !root.contains("tiling") ||
+        root.value("version", 0) != 2 || !root.contains("tiling") ||
         !root["tiling"].is_string() || !root.contains("cols") ||
         !root["cols"].is_number_integer() || !root.contains("rows") ||
         !root["rows"].is_number_integer() || !root.contains("terrain") ||

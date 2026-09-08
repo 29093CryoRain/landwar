@@ -88,8 +88,7 @@ void Map::clear() {
 }
 
 void Map::configure(const Config::Map& cfg) {
-    // P12/Phase 2：所有密铺统一先把用户长宽映射到周期域列/行；square 为恒等映射。
-    // hex/tri 的映射参数同时保证垂直周期闭合所需的偶数行。
+    // 所有密铺统一先把用户长宽映射到周期块列/行；square 为恒等映射。
     int cols = cfg.width;
     int rows = cfg.height;
     chooseTableDomain(static_cast<int>(cfg.tilingType()), cfg.width, cfg.height, cols, rows);
@@ -141,6 +140,13 @@ bool Map::loadFromDefinition(const MapDefinition& definition, std::string* err) 
         if (!shape) {
             if (err) *err = "map definition city level or shapeVariant is unknown";
             return false;
+        }
+        if (shape->anchorBaseMask != 0) {
+            const int base = record.baseIndex % std::max(1, geom_.baseCount());
+            if (base >= 32 || (shape->anchorBaseMask & (1u << base)) == 0) {
+                if (err) *err = "map definition city anchor base is invalid";
+                return false;
+            }
         }
         const std::vector<int> occupied = shapeCells(record.level, record.baseIndex,
                                                       record.shapeVariant);
@@ -512,7 +518,7 @@ bool Map::placeCapitals(Rng& rng, int factionCount) {
         return true;
     }
 
-    // ---- 方/六/三：保持原语义（基线/黄金数据路径）----
+    // ---- 规则密铺：在全部周期块基础格中选择首都 ----
     int attempts = 0;
     // P5 改版：首都优先落在"可产城"格（cityAllowed = 基图允许该格成为城市，即源 g>probFloor）。
     // 这样基图"必然无城"的格子（ramp(G)=0）不会被首都强行塞进城市。
@@ -521,32 +527,28 @@ bool Map::placeCapitals(Rng& rng, int factionCount) {
     // P6 稀疏地图兜底（2026-08-06）：8 首都按全距离放不下（如 90% 海随机图）→ 距离降档
     //   （减半）重试；正常地图远用不到 → RNG 序列不变，黄金数据/基线不受影响。
     int minDist = capitalMinDistance_;
-    // P12：首都间距按格心**世界距离**（六/三角偏移行下格坐标距离是扭曲的；方 = 格距）。
-    const auto worldDist = [&](int x1, int y1, int x2, int y2) {
-        if (geom_.type == TilingType::Square)
-            return math::distance(static_cast<double>(x1), static_cast<double>(y1),
-                                  static_cast<double>(x2), static_cast<double>(y2));
+    const auto worldDist = [&](int index1, int index2) {
         double ax, ay, bx, by;
-        cellCenter(cellIndexAt(x1, y1), ax, ay);
-        cellCenter(cellIndexAt(x2, y2), bx, by);
+        cellCenter(index1, ax, ay);
+        cellCenter(index2, bx, by);
         return math::distance(ax, ay, bx, by);
     };
     // 扫描"还有可用可产城格"（用给定 dist；minDist 降档时重扫）。
     const auto scanUsable = [&](int dist, int placedCount) -> bool {
-        for (int y = 0; y < height_; ++y) {
-            for (int x = 0; x < width_; ++x) {
-                const MapCell& c = atIndex(cellIndexAt(x, y));
-                if (!c.land || !c.cityAllowed) continue;
-                bool far = true;
-                for (int j = 0; j < placedCount; ++j) {
-                    if (worldDist(x, y, capitalX_[static_cast<size_t>(j)],
-                                  capitalY_[static_cast<size_t>(j)]) < dist) {
-                        far = false;
-                        break;
-                    }
+        for (int index = 0; index < cellCount(); ++index) {
+            const MapCell& c = atIndex(index);
+            if (!c.land || !c.cityAllowed) continue;
+            bool far = true;
+            for (int j = 0; j < placedCount; ++j) {
+                const int placed = cellIndexAt(capitalX_[static_cast<size_t>(j)],
+                                               capitalY_[static_cast<size_t>(j)],
+                                               capitalB_[static_cast<size_t>(j)]);
+                if (worldDist(index, placed) < dist) {
+                    far = false;
+                    break;
                 }
-                if (far) return true;
             }
+            if (far) return true;
         }
         return false;
     };
@@ -556,8 +558,7 @@ bool Map::placeCapitals(Rng& rng, int factionCount) {
         bool anyUsableCityCell = scanUsable(minDist, i);
         // 失败重试语义与原版一致（while 内 retry 同一 slot）。
         while (true) {
-            const int rx = rng.get(width_ - 1);
-            const int ry = rng.get(height_ - 1);
+            const int candIdx = rng.get(cellCount() - 1);
             ++attempts;
             if (attempts > kCapitalMaxAttempts) {
                 // 距离降档：按当前距离放不下 → 减半重试（稀疏地图；正常地图不触发）。
@@ -570,22 +571,25 @@ bool Map::placeCapitals(Rng& rng, int factionCount) {
                 anyUsableCityCell = scanUsable(minDist, i);
                 continue;
             }
-            const int candIdx = cellIndexAt(rx, ry);
             const MapCell& cand = atIndex(candIdx);
             if (!cand.land) continue;
             if (anyUsableCityCell && !cand.cityAllowed) continue;  // 还有可产城格可用 → 只收它
             bool tooClose = false;
             for (int j = 0; j < i; ++j) {
-                if (worldDist(rx, ry, capitalX_[static_cast<size_t>(j)],
-                              capitalY_[static_cast<size_t>(j)]) < minDist) {
+                const int placed = cellIndexAt(capitalX_[static_cast<size_t>(j)],
+                                               capitalY_[static_cast<size_t>(j)],
+                                               capitalB_[static_cast<size_t>(j)]);
+                if (worldDist(candIdx, placed) < minDist) {
                     tooClose = true;
                     break;
                 }
             }
             if (tooClose) continue;
-            capitalX_[static_cast<size_t>(i)] = rx;
-            capitalY_[static_cast<size_t>(i)] = ry;
-            capitalB_[static_cast<size_t>(i)] = 0;
+            int row = 0, col = 0, base = 0;
+            geom_.indexToRowCol(candIdx, row, col, base);
+            capitalX_[static_cast<size_t>(i)] = col;
+            capitalY_[static_cast<size_t>(i)] = row;
+            capitalB_[static_cast<size_t>(i)] = base;
             break;
         }
     }
@@ -595,7 +599,8 @@ bool Map::placeCapitals(Rng& rng, int factionCount) {
         const int cx = capitalX_[static_cast<size_t>(i)];
         const int cy = capitalY_[static_cast<size_t>(i)];
         if (cx < 0) continue;  // 放置失败槽位（原语义保留）
-        if (atIndex(cellIndexAt(cx, cy)).cityId < 0) addCity(1.0, cellIndexAt(cx, cy), &rng);
+        const int index = cellIndexAt(cx, cy, capitalB_[static_cast<size_t>(i)]);
+        if (atIndex(index).cityId < 0) addCity(1.0, index, &rng);
     }
     return true;
 }
@@ -625,18 +630,16 @@ std::vector<int> Map::shapeCells(double level, int anchorIndex, int variant) con
 }
 
 // P1.2：统一形状解析。所有密铺 cells 都是相对锚格中心的世界单位 U 偏移；
-// 三角反锚时镜像 dy（形状表按正锚模式定义）。
+// 不在运行时变换朝向；形状表通过 anchorBases 明确限制基础格。
 std::vector<int> Map::resolveShapeCells(const Config::City::Shape& sh, int anchorIndex) const {
     std::vector<int> out;
     if (anchorIndex < 0 || anchorIndex >= cellCount()) return out;
     out.reserve(sh.cells.size());
     double ax, ay;
     cellCenter(anchorIndex, ax, ay);
-    const bool anchorUp = (geom_.type == TilingType::Tri) ? ((anchorIndex & 1) == 0) : true;
     for (const auto& sc : sh.cells) {
         const double wx = ax + sc.dx;
-        const double wy = ay + (anchorUp ? sc.dy : -sc.dy);
-        out.push_back(geom_.worldToCell(wx, wy));
+        out.push_back(geom_.worldToCell(wx, ay + sc.dy));
     }
     return out;
 }
@@ -672,16 +675,21 @@ void Map::updateCityGeometry(City& c) {
             c.h = 1;
             const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, c.level);
             if (sh) {
+                double minX = 0.0, maxX = 0.0, minY = 0.0, maxY = 0.0;
                 for (const auto& sc : sh->cells) {
-                    c.w = std::max(c.w, static_cast<int>(sc.dx) + 1);
-                    c.h = std::max(c.h, static_cast<int>(sc.dy) + 1);
+                    minX = std::min(minX, sc.dx);
+                    maxX = std::max(maxX, sc.dx);
+                    minY = std::min(minY, sc.dy);
+                    maxY = std::max(maxY, sc.dy);
                 }
+                c.w = std::max(1, static_cast<int>(std::lround(maxX - minX)) + 1);
+                c.h = std::max(1, static_cast<int>(std::lround(maxY - minY)) + 1);
             }
         } else {
-            // 六/三：baseX/baseY 仅供展示；baseIndex 为权威锚点——三角下标含奇偶（朝向
-            // 正/反），快照已存（旧档缺失时 deserialize 已按正锚 cellIndexAt 推回），
-            // 此处**不再重推**，避免丢失反锚朝向（旧实现强制 2*(r*cols+c) 抹掉奇偶）。
-            if (geom_.type == TilingType::Hex) c.baseIndex = c.baseY * geom_.cols + c.baseX;
+            int row = 0, col = 0, base = 0;
+            geom_.indexToRowCol(c.baseIndex, row, col, base);
+            c.baseX = col;
+            c.baseY = row;
         }
         double cx0, cy0;
         cityCenter(c, cx0, cy0);
@@ -736,13 +744,10 @@ int Map::addCity(double level, int index, Rng* rng) {
     c.area = level;
     c.baseIndex = index;
     c.shapeVariant = variant;
-    if (geom_.type == TilingType::Square) {
-        c.baseX = index % geom_.cols;
-        c.baseY = index / geom_.cols;
-    } else {
-        c.baseX = index % geom_.cols;
-        c.baseY = index / geom_.cols;
-    }
+    int row = 0, col = 0, base = 0;
+    geom_.indexToRowCol(index, row, col, base);
+    c.baseX = col;
+    c.baseY = row;
     const std::vector<int> cells = shapeCells(level, index, variant);
     for (int idx : cells)
         if (idx >= 0) atIndex(idx).cityId = id;

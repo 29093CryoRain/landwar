@@ -52,7 +52,6 @@ void Faction::initFromDef(const Config::Faction& def, const Config& cfg) {
     tech.threshold = cfg.tech.thresholdBase;
     tech.levels.assign(cfg.tech.techs.size(), 0);
     recomputeMods();
-    freeArmyChance = mods.freeArmyChance;
     bombRadiusBonus = mods.bombExplosionRadiusAdd - 1.0;
     mineTriggerBombRadiusBonus = mods.mineExplosionRadiusAdd - 1.0;
 }
@@ -64,13 +63,13 @@ void Faction::rebuildBuffsFromDef(const Config::Faction& def, const Config& cfg)
     buffs2.insert(buffs2.end(), tb.begin(), tb.end());
     buffs = std::move(buffs2);
     recomputeMods();
-    freeArmyChance = mods.freeArmyChance;
     bombRadiusBonus = mods.bombExplosionRadiusAdd - 1.0;
     mineTriggerBombRadiusBonus = mods.mineExplosionRadiusAdd - 1.0;
 }
 
 void Faction::recomputeMods() {
     mods = computeMods(buffs);
+    freeArmyChance = mods.freeArmyChance;
 }
 
 int Faction::techLevel() const {
@@ -143,13 +142,16 @@ void Faction::conquerIndex(ConquerContext& ctx, int index) {
             this->insertCity(city.id, city.level);
             city.ownerId = this->id;
             city.lastCapturedTick = ctx.tick;
-            // 任意定义了免费产兵概率的势力：整城易主一次免费产兵机会。
+            // 任意定义了免费产兵概率的势力：每个配置的兵种概率分别判定。
             // init 阶段（freeArmyEnabled=false）跳过 → 无"开局免费兵"（用户定夺 2026-08）。
-            if (ctx.freeArmyEnabled && this->freeArmyChance > 0.0
-                && this->mods.freeArmyChance > 0.0
-                && ctx.rng.chance(this->mods.freeArmyChance * this->mods.freeArmyChanceMult)) {
-                ctx.pendingSpawns.push_back(
-                    PendingSpawn{this->mods.freeArmyType, this->id, city.centerX(), city.centerY()});
+            if (ctx.freeArmyEnabled) {
+                for (int type = 0; type < kArmyTypeCount; ++type) {
+                    const double chance = this->mods.freeArmyChanceByType[static_cast<size_t>(type)]
+                                          * this->mods.freeArmyChanceMult;
+                    if (chance <= 0.0 || !ctx.rng.chance(chance)) continue;
+                    ctx.pendingSpawns.push_back(
+                        PendingSpawn{type, this->id, city.centerX(), city.centerY()});
+                }
             }
         }
     }
