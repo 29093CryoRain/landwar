@@ -25,7 +25,8 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 11;  // v11：三种规则密铺统一使用周期块索引
+constexpr int kSnapshotVersion = 12;  // v11：三种规则密铺统一使用周期块索引
+                                      // v12：map.rivers（河流系统 §5.3）
 
 void setErr(std::string* err, const std::string& msg) {
     if (err) *err = msg;
@@ -187,7 +188,7 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
     if (!integerMember(map, "width", "map.width") || !integerMember(map, "height", "map.height")
         || map["width"].get<int>() <= 0 || map["height"].get<int>() <= 0)
         return fail("invalid map dimensions");
-    for (const auto& key : {"capitalsX", "capitalsY", "capitalsB", "cells", "cities"})
+    for (const auto& key : {"capitalsX", "capitalsY", "capitalsB", "cells", "cities", "rivers"})
         if (!arrayMember(map, key, (std::string("map.") + key).c_str())) return false;
     if (map["capitalsX"].size() != map["capitalsY"].size()
         || map["capitalsX"].size() != map["capitalsB"].size())
@@ -204,6 +205,12 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
         if (!city.is_array() || city.size() != 12) return fail("bad city record");
         for (int i = 0; i < 12; ++i)
             if (!city[static_cast<size_t>(i)].is_number()) return fail("bad city record value");
+    }
+    // 河流系统 §5.3：map.rivers = [[cell,edge],...]（与地图文件同编码）。
+    for (const auto& river : map["rivers"]) {
+        if (!river.is_array() || river.size() != 2 || !river[0].is_number_integer()
+            || !river[1].is_number_integer())
+            return fail("bad map river record");
     }
 
     const Json& rng = root["rng"];
@@ -412,6 +419,10 @@ std::string Snapshot::serialize(const Simulation& sim) {
         const MapCell& c = map.atIndex(idx);
         root["map"]["cells"].push_back({c.belongi, c.land, c.mountain, c.cityId});
     }
+    // 河流系统 §5.3：河（规范 (cell,edge) 升序）。旧档不兼容（严格版本匹配）。
+    root["map"]["rivers"] = Json::array();
+    for (const MapEdgeRef& ref : map.riverEdges())
+        root["map"]["rivers"].push_back({ref.cell, ref.edge});
 
     // ---- factions ----
     root["factions"] = Json::array();
@@ -606,6 +617,18 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
         out.land = c[1].get<bool>();
         out.mountain = c[2].get<bool>();
         out.cityId = c[3].get<int>();
+    }
+    // 河流系统 §5.3：河（cells 已就绪 → 用与 Map 相同的合法性检查重建边要素索引）。
+    {
+        std::vector<MapEdgeRef> rivers;
+        rivers.reserve(mj.at("rivers").size());
+        for (const auto& rj : mj.at("rivers"))
+            rivers.push_back({rj[0].get<int>(), rj[1].get<int>()});
+        std::string riverErr;
+        if (!m.setRiversFromDefinition(rivers, &riverErr)) {
+            setErr(err, "snapshot: invalid map rivers (" + riverErr + ")");
+            return false;
+        }
     }
 
     // ---- factions ----

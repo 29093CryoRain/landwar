@@ -85,6 +85,8 @@ void Map::clear() {
     capitalY_.clear();
     capitalB_.clear();
     cities_.clear();
+    edgeFeatures_.clear();
+    riverEdges_.clear();
 }
 
 void Map::configure(const Config::Map& cfg) {
@@ -130,6 +132,8 @@ bool Map::loadFromDefinition(const MapDefinition& definition, std::string* err) 
         if (value == MapTerrain::City) cell.mountain = false;
         cell.cityAllowed = cell.land;
     }
+    // 河（§5.2）：地形已就绪（land 已知）→ 建边要素索引与规范边列表。
+    if (!setRiversFromDefinition(definition.rivers, err)) return false;
     for (const auto& record : definition.cities) {
         if (record.baseIndex < 0 || record.baseIndex >= cellCount()) {
             if (err) *err = "map definition city baseIndex is out of range";
@@ -793,6 +797,59 @@ MapCell& Map::at(int x, int y) {
 
 const MapCell& Map::at(int x, int y) const {
     return cells_[static_cast<size_t>(y) * width_ + x];
+}
+
+// ---- 边要素：河流（§5.2）----
+
+bool Map::setRiversFromDefinition(const std::vector<MapEdgeRef>& rivers, std::string* err) {
+    std::vector<MapEdgeRef> normalized;
+    if (!normalizeRiverRefs(
+            geom_, rivers,
+            [this](int index) {
+                return index >= 0 && index < cellCount() && atIndex(index).land;
+            },
+            normalized, err))
+        return false;
+    // 索引与规范边列表同源一次构建，二者不会漂移。
+    std::vector<std::pair<std::uint64_t, std::uint8_t>> features;
+    features.reserve(normalized.size());
+    for (const MapEdgeRef& ref : normalized) {
+        const std::uint64_t key = geom_.edgeKey(ref.cell, ref.edge);
+        if (key == 0) {
+            if (err) *err = "river edge key is invalid";
+            return false;
+        }
+        features.push_back({key, static_cast<std::uint8_t>(EdgeFeature::River)});
+    }
+    std::sort(features.begin(), features.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    edgeFeatures_ = std::move(features);
+    riverEdges_ = std::move(normalized);
+    return true;
+}
+
+bool Map::hasEdgeFeature(int cell, int k, EdgeFeature feature) const {
+    const std::uint64_t key = geom_.edgeKey(cell, k);
+    if (key == 0) return false;
+    const auto it = std::lower_bound(
+        edgeFeatures_.begin(), edgeFeatures_.end(), key,
+        [](const std::pair<std::uint64_t, std::uint8_t>& entry, std::uint64_t wanted) {
+            return entry.first < wanted;
+        });
+    if (it == edgeFeatures_.end() || it->first != key) return false;
+    return (it->second & static_cast<std::uint8_t>(feature)) != 0;
+}
+
+bool Map::hasRiverBetween(int cellA, int cellB) const {
+    const std::uint64_t key = geom_.edgeKeyBetween(cellA, cellB);
+    if (key == 0) return false;
+    const auto it = std::lower_bound(
+        edgeFeatures_.begin(), edgeFeatures_.end(), key,
+        [](const std::pair<std::uint64_t, std::uint8_t>& entry, std::uint64_t wanted) {
+            return entry.first < wanted;
+        });
+    if (it == edgeFeatures_.end() || it->first != key) return false;
+    return (it->second & static_cast<std::uint8_t>(EdgeFeature::River)) != 0;
 }
 
 }  // namespace lw

@@ -52,6 +52,12 @@ struct MapCell {
     int cityId = -1;
 };
 
+// 通用边要素位掩码（河流系统 §5.2/R9）：河是第一个使用者；铁路/城墙/桥/防线可加位。
+// 河是**边**属性，不是格属性（MapCell 不加字段）。
+enum class EdgeFeature : std::uint8_t {
+    River = 1u << 0,
+};
+
 class Map {
     friend class Snapshot;  // 读档直接重建 cells_/capitals_/cities_（Phase 6）
 
@@ -165,6 +171,18 @@ public:
     // Populate exact city records for an in-memory random map.
     void populateRandomCities(Rng& rng, double cityDensity, double mountainWeight = 0.3);
 
+    // ---- 边要素：河流（§5.2，R9）----
+    // 热路径：每次跨格一次 edgeKey（O(1)）+ 有序表 binary_search（河数几百 → ≤10 次比较）。
+    bool hasEdgeFeature(int cell, int k, EdgeFeature feature) const;
+    bool hasRiverEdge(int cell, int k) const { return hasEdgeFeature(cell, k, EdgeFeature::River); }
+    // 便捷版（方形路径备用）：两格之间是否有河；非边邻返回 false。
+    bool hasRiverBetween(int cellA, int cellB) const;
+    // 规范 (cell,edge)、升序 → 渲染/编辑器遍历。
+    const std::vector<MapEdgeRef>& riverEdges() const { return riverEdges_; }
+    // 用定义里的河重建运行时索引：校验越界/边界/两侧非陆地/重复（§5.1，R5 严格口径），
+    // 失败返回 false 且不改动已有数据。要求 cells_ 已就绪（land 已知）。
+    bool setRiversFromDefinition(const std::vector<MapEdgeRef>& rivers, std::string* err = nullptr);
+
 private:
     void updateCityGeometry(City& city);
     // canPlaceCity 的实现；requireAllowed=false 时跳过"锚点可成城"校验（首都回退到任意陆地）。
@@ -192,6 +210,10 @@ private:
     std::vector<int> capitalY_;
     std::vector<int> capitalB_;   // 首都基础格序号
     std::vector<City> cities_;  // 城市注册表（P13）
+    // 边要素（§5.2）：first = 规范边键，second = EdgeFeature 位掩码；按 key 升序。
+    std::vector<std::pair<std::uint64_t, std::uint8_t>> edgeFeatures_;
+    // 河流边的规范 (cell,edge)，按 (cell,edge) 升序（渲染/编辑器遍历用；与 edgeFeatures_ 同步构建）。
+    std::vector<MapEdgeRef> riverEdges_;
 };
 
 }  // namespace lw

@@ -362,6 +362,60 @@ TEST(Snapshot, OldVersionRejected) {
     EXPECT_NE(err.find("unsupported version"), std::string::npos);
 }
 
+// ---- 河流系统 R2（§5.3）：快照读写与非法拒绝 ----
+
+// 全陆地方形定义（河测试用；48×48 保证首都放置能成功）。
+MapDefinition allLandRiverDefinition() {
+    MapDefinition definition;
+    definition.cols = 48;
+    definition.rows = 48;
+    definition.tiling = TilingType::Square;
+    definition.terrain.assign(48u * 48u, MapTerrain::Land);
+    return definition;
+}
+
+TEST(Snapshot, RiverEdgesRoundTripAndRejectInvalid) {
+    Config cfg = lwtest::loadCfg();
+    MapDefinition definition = allLandRiverDefinition();
+    definition.rivers = {{0, 3}, {0, 0}};
+    Simulation sim(cfg, 9);
+    sim.setMapDefinition(definition);
+    ASSERT_TRUE(sim.init());
+    ASSERT_EQ(sim.map().riverEdges().size(), 2u);
+
+    const std::string json = Snapshot::serialize(sim);
+    auto parsed = nlohmann::json::parse(json);
+    ASSERT_TRUE(parsed["map"].contains("rivers"));
+    ASSERT_EQ(parsed["map"]["rivers"].size(), 2u);
+
+    Simulation restored(cfg, 9);
+    std::string err;
+    ASSERT_TRUE(Snapshot::deserialize(restored, json, &err)) << err;
+    EXPECT_EQ(restored.map().riverEdges(), sim.map().riverEdges());
+    EXPECT_TRUE(restored.map().hasRiverEdge(0, 3));
+    EXPECT_TRUE(restored.map().hasRiverEdge(1, 2));   // 对侧同一条边
+    EXPECT_TRUE(restored.map().hasRiverEdge(0, 0));
+    EXPECT_FALSE(restored.map().hasRiverEdge(0, 1));  // 边界边
+    EXPECT_TRUE(restored.map().hasRiverBetween(0, 1));
+
+    // 临海/边界边 → 读档明确报错（与 Map 同一套校验）。
+    parsed["map"]["rivers"] = nlohmann::json::array({{0, 1}});
+    Simulation rejected(cfg, 9);
+    std::string badErr;
+    EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
+    EXPECT_NE(badErr.find("rivers"), std::string::npos);
+
+    // 缺 rivers 键 → 头校验失败（v12 起为必需字段）。
+    parsed["map"].erase("rivers");
+    EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
+
+    // 旧版本号（v11，无 rivers）被严格拒绝。
+    parsed["map"]["rivers"] = nlohmann::json::array();
+    parsed["version"] = 11;
+    EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
+    EXPECT_NE(badErr.find("unsupported version"), std::string::npos);
+}
+
 TEST(Snapshot, MalformedV6RejectedWithoutMutatingTarget) {
     Simulation target = makeSim(43, 10);
     const auto beforeTick = target.tickCount();

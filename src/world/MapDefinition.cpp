@@ -52,7 +52,55 @@ bool parseTerrain(const Json& value, MapTerrain& out) {
     return false;
 }
 
+bool lessEdgeRef(const MapEdgeRef& a, const MapEdgeRef& b) {
+    return a.cell != b.cell ? a.cell < b.cell : a.edge < b.edge;
+}
+
+bool sameEdgeRef(const MapEdgeRef& a, const MapEdgeRef& b) {
+    return a.cell == b.cell && a.edge == b.edge;
+}
+
+// 把 (cell,edge) 折到规范侧（同一条几何边两侧编码同一键）。无邻居/越界时原样返回。
+MapEdgeRef canonicalEdgeRef(const TilingGeom& geometry, const MapEdgeRef& ref) {
+    int cell = -1, edge = -1;
+    const std::uint64_t key = geometry.edgeKey(ref.cell, ref.edge);
+    if (key != 0 && geometry.edgeFromKey(key, cell, edge)) return {cell, edge};
+    return ref;
+}
+
 }  // namespace
+
+bool normalizeRiverRefs(const TilingGeom& geometry, const std::vector<MapEdgeRef>& input,
+                        const std::function<bool(int)>& isLand, std::vector<MapEdgeRef>& out,
+                        std::string* err) {
+    out.clear();
+    out.reserve(input.size());
+    for (const MapEdgeRef& ref : input) {
+        if (ref.cell < 0 || ref.cell >= geometry.cellCount() || ref.edge < 0 ||
+            ref.edge >= geometry.neighborCount(ref.cell)) {
+            setError(err, "river edge reference is out of range");
+            return false;
+        }
+        const MapEdgeRef canonical = canonicalEdgeRef(geometry, ref);
+        int a = -1, b = -1;
+        geometry.edgeCells(canonical.cell, canonical.edge, a, b);
+        if (b < 0) {
+            setError(err, "river edge lies on the map boundary");
+            return false;
+        }
+        if (!isLand(a) || !isLand(b)) {
+            setError(err, "river edge touches sea");
+            return false;
+        }
+        out.push_back(canonical);
+    }
+    std::sort(out.begin(), out.end(), lessEdgeRef);
+    if (std::adjacent_find(out.begin(), out.end(), sameEdgeRef) != out.end()) {
+        setError(err, "river edge appears more than once");
+        return false;
+    }
+    return true;
+}
 
 bool MapDefinition::validate(std::string* err) const {
     if (cols <= 0 || rows <= 0) {
@@ -89,6 +137,14 @@ bool MapDefinition::validate(std::string* err) const {
             return false;
         }
     }
+    std::vector<MapEdgeRef> normalizedRivers;
+    if (!normalizeRiverRefs(
+            geometry, rivers,
+            [this](int index) {
+                return terrain[static_cast<size_t>(index)] != MapTerrain::Sea;
+            },
+            normalizedRivers, err))
+        return false;
     return true;
 }
 
@@ -99,8 +155,9 @@ std::string MapDefinition::toJson() const {
     root["tiling"] = tilingName(tiling);
     root["cols"] = cols;
     root["rows"] = rows;
+    const TilingGeom geometry{tiling, cols, rows};
+    const int baseCount = std::max(1, geometry.baseCount());
     root["terrain"] = Json::array();
-    const int baseCount = std::max(1, TilingGeom{tiling, cols, rows}.baseCount());
     for (int row = 0; row < rows; ++row) {
         std::string encoded;
         encoded.reserve(static_cast<size_t>(cols * baseCount));
@@ -116,6 +173,15 @@ std::string MapDefinition::toJson() const {
                                    {"baseIndex", city.baseIndex},
                                    {"shapeVariant", city.shapeVariant}});
     }
+    // 河（§5.1）：始终输出（空数组也输出，便于人读与 diff）；规范 + 升序 + 去重，
+    // 保证同一逻辑内容字节稳定。非法引用（临海/边界）由 validate() 拦截，不在此报错。
+    std::vector<MapEdgeRef> ordered;
+    ordered.reserve(rivers.size());
+    for (const MapEdgeRef& ref : rivers) ordered.push_back(canonicalEdgeRef(geometry, ref));
+    std::sort(ordered.begin(), ordered.end(), lessEdgeRef);
+    ordered.erase(std::unique(ordered.begin(), ordered.end(), sameEdgeRef), ordered.end());
+    root["rivers"] = Json::array();
+    for (const MapEdgeRef& ref : ordered) root["rivers"].push_back({ref.cell, ref.edge});
     return root.dump(2);
 }
 
@@ -201,6 +267,22 @@ bool MapDefinition::fromJson(const std::string& text, MapDefinition& out, std::s
         }
         parsed.cities.push_back({value["level"].get<double>(), value["baseIndex"].get<int>(),
                                  value["shapeVariant"].get<int>()});
+    }
+    // 河（§5.1）：缺键 = 无河；存在则逐项解析，合法性交给 validate()（越界/临海/重复）。
+    if (root.contains("rivers")) {
+        if (!root["rivers"].is_array()) {
+            setError(err, "map definition rivers is not an array");
+            return false;
+        }
+        parsed.rivers.reserve(root["rivers"].size());
+        for (const auto& value : root["rivers"]) {
+            if (!value.is_array() || value.size() != 2 || !value[0].is_number_integer() ||
+                !value[1].is_number_integer()) {
+                setError(err, "map definition has an invalid river record");
+                return false;
+            }
+            parsed.rivers.push_back({value[0].get<int>(), value[1].get<int>()});
+        }
     }
     if (!parsed.validate(err)) return false;
     out = std::move(parsed);
