@@ -151,4 +151,43 @@ TEST(Determinism, SmallTiledAllTilingsSameSeedSameHash) {
     }
 }
 
+// 河流系统 R7（§9.9）：**带河随机图**语义基线 —— 否则"河 → 山 → 敌 + 反弹不占领"
+// 的河骰行为没有回归红线。参数与上面的随机图基线一致，仅河密度用已确认的菜单默认 0.02
+// （河数 = round(0.02 × 总格数)）；同样只断言"同 seed 两次一致"（跨平台浮点安全）。
+std::uint64_t runRiverBaseline(lw::TilingType t, int ticks = 2500) {
+    lw::Config cfg = lwtest::loadCfg();
+    cfg.map.tiling = lw::tilingName(t);
+    lw::MapGenParams gp{120, 120, 0.5, 0.1, 0.015, /*riverDensity=*/0.02, 0.3,
+                        /*forceCoast=*/true, t};
+    lw::MapDefinition definition;
+    EXPECT_TRUE(lw::MapGenerator::generate(42, gp, definition, cfg.city, cfg.river.gen));
+    EXPECT_FALSE(definition.rivers.empty()) << "河密度 0.02 应生成河";
+    cfg.map.width = definition.cols;
+    cfg.map.height = definition.rows;
+    cfg.map.tiling = lw::tilingName(definition.tiling);
+    lw::Simulation sim(cfg, 42, 42);
+    sim.setMapDefinition(std::move(definition));
+    EXPECT_TRUE(sim.init());
+    for (int i = 0; i < ticks; ++i) sim.tick();
+    return semanticBaselineHash(sim);
+}
+
+TEST(Determinism, BaselineWithRivers_2500Ticks_SameSeedSameHash) {
+    EXPECT_EQ(runRiverBaseline(lw::TilingType::Square, 2500),
+              runRiverBaseline(lw::TilingType::Square, 2500));
+}
+
+// 密铺（六）带河路径同一基线（河骰走 moveArmyTiled 的 crossEdge 边序号）。
+TEST(Determinism, BaselineWithRiversHex_1000Ticks_SameSeedSameHash) {
+    EXPECT_EQ(runRiverBaseline(lw::TilingType::Hex, 1000),
+              runRiverBaseline(lw::TilingType::Hex, 1000));
+}
+
+// 河确实改变局面：同一 seed/参数下，带河与无河的 300-tick 语义哈希不同
+// （河骰 + 河图 RNG 顺序改变城市分布 → 必然不同；用于证明河骰真的接进了模拟）。
+TEST(Determinism, RiversChangeSimulationOutcome) {
+    EXPECT_NE(runRiverBaseline(lw::TilingType::Square, 300),
+              runRandomBaseline(lw::TilingType::Square, 300));
+}
+
 }  // namespace
