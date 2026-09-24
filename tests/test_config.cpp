@@ -352,6 +352,63 @@ TEST(Config, InvalidTypesFallBackToDefaults) {
     EXPECT_EQ(cfg.factions[1].color, (std::array<int, 3>{255, 0, 0}));
 }
 
+TEST(Config, TypeErrorKeepsOtherKeysInsteadOfGlobalFallback) {
+    // M1：单键类型错误只回退该键，不能整份配置回退内置默认。
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "map": { "blockSize": 15.0, "panelWidth": 555, "capitalMinDistance": 42 }
+    })");
+    EXPECT_EQ(cfg.map.blockSize, 15);        // 15.0 非整数 → 该键回退默认
+    EXPECT_EQ(cfg.map.panelWidth, 555);      // 其余键仍生效（未被全局回退吞掉）
+    EXPECT_EQ(cfg.map.capitalMinDistance, 42);
+}
+
+TEST(Config, UnknownBuffParamIsSkippedNotAppliedToAllUnits) {
+    // M2：拼错的兵种名不能静默变成 -1（全兵种），改为跳过该条 buff。
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "factions": [{
+            "id": 1,
+            "buffs": [
+                {"type": "UnitSpeedAdd", "param": "pioner", "magnitude": 0.5},
+                {"type": "UnitSpeedAdd", "param": "pioneer", "magnitude": 0.25}
+            ]
+        }]
+    })");
+    ASSERT_EQ(cfg.factions[1].buffs.size(), 1u);  // 拼错的一条被跳过
+    EXPECT_EQ(cfg.factions[1].buffs[0].param, static_cast<int>(lw::ArmyType::pioneer));
+    EXPECT_DOUBLE_EQ(cfg.factions[1].speedMultAll, 1.0);  // 未被误加到全兵种
+}
+
+TEST(Config, UnknownBuffTypeIsSkipped) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "factions": [{
+            "id": 1,
+            "buffs": [
+                {"type": "NoSuchBuff", "param": "all", "magnitude": 0.5},
+                {"type": "SeaChanceMult", "param": "all", "magnitude": 0.5}
+            ]
+        }]
+    })");
+    ASSERT_EQ(cfg.factions[1].buffs.size(), 1u);
+    EXPECT_EQ(cfg.factions[1].buffs[0].type, lw::BuffType::SeaChanceMult);
+}
+
+TEST(Config, MultipleSameKindBuffsAccumulateInLegacyFields) {
+    // M6：旧兼容汇总字段与 sim/Buff.cpp 的 computeMods 语义一致（加算累加、乘算连乘）。
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "factions": [{
+            "id": 1,
+            "buffs": [
+                {"type": "UnitSpeedAdd", "param": "all", "magnitude": 0.5},
+                {"type": "UnitSpeedAdd", "param": "all", "magnitude": 0.25},
+                {"type": "SeaChanceMult", "param": "all", "magnitude": 0.5},
+                {"type": "SeaChanceMult", "param": "all", "magnitude": 0.5}
+            ]
+        }]
+    })");
+    EXPECT_DOUBLE_EQ(cfg.factions[1].speedMultAll, 1.75);
+    EXPECT_DOUBLE_EQ(cfg.factions[1].seaMult, 0.25);
+}
+
 TEST(Config, ValidateReportsInvalidRuntimeState) {
     lw::Config cfg = lw::Config::loadFromJson("{}");
     cfg.sim.tickRate = 0.0;
@@ -386,6 +443,27 @@ TEST(Config, NewTilingCitySetsRoundTrip) {
     EXPECT_NEAR(backSet.shapes[2].cells[1].dx, 1.5, 1e-12);
     EXPECT_NEAR(backSet.shapes[2].cells[2].dy, 1.5, 1e-12);
     EXPECT_EQ(backSet.shapes[2].anchorBaseMask, (1u << 3) | (1u << 7));
+}
+
+TEST(Config, ShapeForHandlesNonContiguousVariants) {
+    // T1：同级变体在 shapes 中非连续排列时，variantCount 与 shapeFor 必须一致。
+    lw::Config::City::TilingSet set;
+    set.levels = {1.0, 2.0};
+    set.shapes.resize(3);
+    set.shapes[0].cells = {{0.0, 0.0}};                    // level 1.0 variant 0
+    set.shapes[1].cells = {{0.0, 0.0}, {1.0, 0.0}};        // level 2.0
+    set.shapes[2].cells = {{0.0, 0.0}, {0.0, 1.0}};        // level 1.0 variant 1（被 level 2.0 隔开）
+    set.shapeLevelIndex = {0, 1, 0};
+
+    EXPECT_EQ(set.variantCount(1.0), 2);
+    ASSERT_NE(set.shapeFor(1.0, 0), nullptr);
+    EXPECT_EQ(set.shapeFor(1.0, 0)->cells.size(), 1u);
+    ASSERT_NE(set.shapeFor(1.0, 1), nullptr);
+    EXPECT_EQ(set.shapeFor(1.0, 1)->cells.size(), 2u);
+    EXPECT_EQ(set.shapeFor(1.0, 2), nullptr);
+    ASSERT_NE(set.shapeFor(2.0, 0), nullptr);
+    EXPECT_EQ(set.shapeFor(2.0, 0)->cells.size(), 2u);
+    EXPECT_EQ(set.shapeFor(2.0, 1), nullptr);
 }
 
 TEST(Config, CityShapesFileProvidesSquareHexTri) {

@@ -13,15 +13,26 @@ find_package(SDL2 REQUIRED)
 find_package(SDL2_image REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
-# EnTT 是 header-only。优先找系统包；找不到时允许本地 _deps/entt/include 兜底（Linux 友好）。
-find_package(EnTT QUIET)
-if(NOT EnTT_FOUND)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/_deps/entt/include/entt/entt.hpp")
-        add_library(EnTT INTERFACE)
-        target_include_directories(EnTT INTERFACE "${CMAKE_SOURCE_DIR}/_deps/entt/include")
-        add_library(EnTT::EnTT ALIAS EnTT)
-    else()
-        message(FATAL_ERROR "EnTT not found. Install EnTT or put headers in _deps/entt/include")
+# EnTT 是 header-only。
+# 非 Windows：优先使用仓库内 _deps/entt/include（CI 也按此路径准备），避免 WSL 等环境因
+#   继承 Windows PATH 而误命中 MSYS2 的 EnTT——那会把 MinGW 头（assert.h 等）注入 -isystem，
+#   使 Linux 编译在 nlohmann/json 处报 "_assert was not declared"。
+# Windows：保持原行为（系统包优先，_deps 兜底）。
+set(LANDWAR_VENDORED_ENTT "${CMAKE_SOURCE_DIR}/_deps/entt/include")
+if(NOT WIN32 AND EXISTS "${LANDWAR_VENDORED_ENTT}/entt/entt.hpp")
+    add_library(EnTT INTERFACE)
+    target_include_directories(EnTT INTERFACE "${LANDWAR_VENDORED_ENTT}")
+    add_library(EnTT::EnTT ALIAS EnTT)
+else()
+    find_package(EnTT QUIET)
+    if(NOT EnTT_FOUND)
+        if(EXISTS "${LANDWAR_VENDORED_ENTT}/entt/entt.hpp")
+            add_library(EnTT INTERFACE)
+            target_include_directories(EnTT INTERFACE "${LANDWAR_VENDORED_ENTT}")
+            add_library(EnTT::EnTT ALIAS EnTT)
+        else()
+            message(FATAL_ERROR "EnTT not found. Install EnTT or put headers in _deps/entt/include")
+        endif()
     endif()
 endif()
 

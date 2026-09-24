@@ -12,6 +12,12 @@ namespace lw::render {
 
 namespace {
 constexpr int kSpriteSize = 32;  // 激光火花原尺寸（scale 1）
+
+// 爆炸世界半径（U）= sqrt(elapsed * expansionRate + 1) * p0。剔除与绘制共用，
+// 避免改公式时两份实现漏改（2026-09 修复）。
+double bombRadiusWorld(int elapsedTicks, double expansionRate, double p0) {
+    return std::sqrt(static_cast<double>(elapsedTicks) * expansionRate + 1.0) * p0;
+}
 }  // namespace
 
 CombatEffectRenderer::CombatEffectRenderer(
@@ -38,11 +44,8 @@ void CombatEffectRenderer::draw(const Simulation& sim) {
         const CombatEffectType et = reg.get<comp::CombatEffectTypeId>(e).type;
         const double worldRadius =
             (et == CombatEffectType::bomb)
-                ? std::sqrt(static_cast<double>(elapsedTicks)
-                                * sim.config().effect.bomb.expansionRate
-                            + 1.0)
-                      * params.p0
-                    + 1.0
+                ? bombRadiusWorld(elapsedTicks, sim.config().effect.bomb.expansionRate, params.p0)
+                      + 1.0
                 : ((et == CombatEffectType::laser) ? params.p1 + 2.0 : 2.0);
         if (!render::isVisibleOnScreen(cam_, pos.x, pos.y, worldRadius)) continue;
         const int cx = cam_.toScreenXi(pos.x);
@@ -59,13 +62,11 @@ void CombatEffectRenderer::draw(const Simulation& sim) {
                 // 爆炸：半透明实心圆，与 CombatEffectSystem 使用同一扩散公式。
                 const auto& bombCfg = sim.config().effect.bomb;
                 if (elapsedTicks < 0 || elapsedTicks > bombCfg.lifetimeTicks) break;
-                const double rWorld =
-                    std::sqrt(static_cast<double>(elapsedTicks) * bombCfg.expansionRate + 1.0)
-                    * params.p0;
+                const double rWorld = bombRadiusWorld(elapsedTicks, bombCfg.expansionRate, params.p0);
                 const int alpha = static_cast<int>(
                     (static_cast<double>(bombCfg.lifetimeTicks + 1) - elapsedTicks)
                     / static_cast<double>(bombCfg.lifetimeTicks + 1) * 255.0);
-                r.fillCircle(cx, cy, static_cast<int>(rWorld * cam_.cellPx()),
+                r.fillCircle(cx, cy, static_cast<int>(std::lround(rWorld * cam_.cellPx())),
                              Renderer::toColor(color, alpha));
                 break;
             }

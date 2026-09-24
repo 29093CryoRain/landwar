@@ -59,11 +59,13 @@ public:
     }
 
     // ---- 屏幕像素 → 世界坐标（反向；点选/锚点）----
+    // 统一委托 tf_ 的反变换：与正向 toXf/toYf 使用同一份字段（原先 toWorldY 手写展开
+    // 只用 tf_.mapHeight，与 configure 的 mapHeight 参数存在隐式耦合的隐患）。
     double toWorldX(double screenX) const {
-        return ((screenX - panX_) / zoom_ - tf_.panelWidth) / tf_.blockSize;
+        return tf_.toWorldXf((screenX - panX_) / zoom_);
     }
     double toWorldY(double screenY) const {
-        return tf_.mapHeight - (screenY - panY_) / zoom_ / tf_.blockSize;
+        return tf_.toWorldYf((screenY - panY_) / zoom_);
     }
 
     // 可见世界坐标范围（剔除用）。屏幕 y=0 = 顶 = 世界 y=mapHeight。

@@ -35,9 +35,11 @@ public:
     // 现代随机种子：时间驱动（每次启动不同；显式 --seed 仍确定性，见 Cli::seedSet）。
     static std::uint32_t randomSeed();
 
-    // 可序列化状态（存档/回放用，Phase 6）。
+    // 可序列化状态（存档/回放用，Phase 6）。state() 只含 mt19937 内部序列，不含 seed_；
+    // 恢复方须自行以正确 seed 构造（见 replay/Snapshot.cpp）。
     std::string state() const;
-    void setState(const std::string& s);
+    // 恢复 mt19937 状态。非法/损坏字符串 → 返回 false 且**不修改**当前状态（不再留下未定义状态）。
+    bool setState(const std::string& s);
 
 private:
     std::mt19937 mt_{};

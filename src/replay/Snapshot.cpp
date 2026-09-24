@@ -549,7 +549,10 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
     // ---- rng：恢复 mt19937 完整内部状态（seed 仅供展示/复现，序列以 state 为准）----
     const auto& rj = root["rng"];
     sim.rng_ = std::make_unique<Rng>(rj.at("seed").get<std::uint32_t>());
-    sim.rng_->setState(rj["state"].get<std::string>());
+    if (!sim.rng_->setState(rj["state"].get<std::string>())) {
+        if (err) *err = "snapshot rng state is corrupt";
+        return false;
+    }
     // P6：地图种子值恢复（主面板显示；mapRng_ 仅在 init 时消费，读档后无需重建状态）。
     sim.mapSeed_ = root.at("mapSeed").get<std::uint32_t>();
 

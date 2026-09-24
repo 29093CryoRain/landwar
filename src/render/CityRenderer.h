@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -105,8 +106,9 @@ private:
     TintCache tower10_;                    // 10级+统一贴图（data/tower/tower10.png）
     double tower10Aspect_ = 0.0;           // tower10 源纵横比 高/宽（0 → 按 1.0）
     TintCache capital_;                    // 首都图标贴图（data/tower/capital.png，P15）
-    mutable std::unordered_set<std::string> warnedMissingFits_;
-    mutable std::unordered_set<std::string> warnedMissingOffsets_;
+    // 告警去重集合：用整数键（原先每帧每城拼 std::string + 字符串哈希，2026-09 性能修复）。
+    mutable std::unordered_set<std::uint64_t> warnedMissingFits_;
+    mutable std::unordered_set<std::uint64_t> warnedMissingOffsets_;
 };
 
 }  // namespace lw::render

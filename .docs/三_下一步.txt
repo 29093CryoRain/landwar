@@ -1,2 +1,0 @@
-将square/hex/tri密铺移出tiling_specs_arch.json, 转而放到新的一个json里. 顺便适配读取代码
-性能优化: 重点优化square/hex/tri/arch 33336/ laves 33336. 先根据代码看一下worldtocell功能对这五个怎么处理的, square/hex/tri可解析几何优化.

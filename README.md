@@ -31,8 +31,21 @@ build-release/landwar.exe
 build-release/landwar.exe --headless --seed 42 --ticks 1000 --summary
 ```
 
-Linux 构建和测试由 GitHub Actions 自动执行。完整依赖、版本和许可证说明见
-[`THIRD_PARTY.md`](../THIRD_PARTY.md)，构建与运行细节见 [`README.md`](../README.md)。
+WSL / Linux（Ubuntu、Debian）构建与测试：
+
+```bash
+sudo apt-get install -y cmake ninja-build g++ pkg-config \
+    libsdl2-dev libsdl2-image-dev nlohmann-json3-dev libspdlog-dev libgtest-dev
+cmake --preset linux
+cmake --build --preset linux
+ctest --preset linux --output-on-failure
+```
+
+> 首次构建需在 `_deps/` 准备锁定版本的 Dear ImGui 与 EnTT（与 CI 相同）。
+> 完整步骤、依赖清单与 WSL 注意事项见 [`运行说明.md`](运行说明.md) 的「WSL / Linux 本地构建」。
+
+Linux 构建和测试同样由 GitHub Actions 自动执行。完整依赖、版本和许可证说明见
+[`THIRD_PARTY.md`](THIRD_PARTY.md)。
 
 ## 配置与扩展
 

@@ -150,8 +150,9 @@ public:
 
     Map& map() { return map_; }
     const Map& map() const { return map_; }
-    Faction& faction(int id) { return factions_[static_cast<size_t>(id)]; }
-    const Faction& faction(int id) const { return factions_[static_cast<size_t>(id)]; }
+    // 越界 id 抛 std::out_of_range（.at），不再 UB（2026-09 修复 M4）。内部调用方 id 均受控。
+    Faction& faction(int id) { return factions_.at(static_cast<size_t>(id)); }
+    const Faction& faction(int id) const { return factions_.at(static_cast<size_t>(id)); }
     const std::vector<Faction>& factions() const { return factions_; }
     std::vector<Faction>& factions() { return factions_; }
     int factionCount() const { return static_cast<int>(factions_.size()); }

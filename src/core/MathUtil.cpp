@@ -31,11 +31,17 @@ double getRandomAngle(Rng& rng) {
 }
 
 unsigned mixColor(unsigned color1, unsigned color2, double rate) {
-    int r = static_cast<int>(((color1 >> 16) & 0xFF) * rate + ((color2 >> 16) & 0xFF) * (1 - rate));
-    int g = static_cast<int>(((color1 >> 8) & 0xFF) * rate + ((color2 >> 8) & 0xFF) * (1 - rate));
-    int b = static_cast<int>((color1 & 0xFF) * rate + (color2 & 0xFF) * (1 - rate));
-    return 0xFF000000u | (static_cast<unsigned>(r) << 16) | (static_cast<unsigned>(g) << 8)
-           | static_cast<unsigned>(b);
+    // rate 越界/NaN 时通道值可能溢出并污染相邻通道 → 逐通道 clamp 到 [0,255]（L5）。
+    const auto channel = [rate](unsigned c1, unsigned c2) {
+        const double v = c1 * rate + c2 * (1.0 - rate);
+        if (!(v > 0.0)) return 0u;  // NaN / <=0（NaN 比较恒 false，走此分支，避免 int 转换 UB）
+        if (v > 255.0) return 255u;
+        return static_cast<unsigned>(v);  // 与旧实现一致的截断语义
+    };
+    const unsigned r = channel((color1 >> 16) & 0xFF, (color2 >> 16) & 0xFF);
+    const unsigned g = channel((color1 >> 8) & 0xFF, (color2 >> 8) & 0xFF);
+    const unsigned b = channel(color1 & 0xFF, color2 & 0xFF);
+    return 0xFF000000u | (r << 16) | (g << 8) | b;
 }
 
 // 连续版（唯一实现）：toScreenXf/Yf 保留小数；int 版 = f 版显式截断（2026-08 收敛）。

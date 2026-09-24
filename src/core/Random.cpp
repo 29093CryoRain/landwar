@@ -1,8 +1,11 @@
 #include "core/Random.h"
 
+#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <sstream>
+
+#include <spdlog/spdlog.h>
 
 namespace lw {
 
@@ -12,6 +15,7 @@ void Rng::seed(std::uint32_t s) {
 }
 
 int Rng::get(int n) {
+    assert(n >= 0);       // 防御：GetRand 语义要求 n>=0（下方 return 0 仅为 release 兜底）
     if (n < 0) return 0;  // 防御：GetRand 语义要求 n>=0
     // 无取模偏差：阈值拒绝法。v ∈ [0, 2^32) 均匀；limit = floor(2^32/range)*range 为 range 的
     // 倍数，拒绝 v>=limit 后 v%range 在 [0, n] 均匀。portable，Python 黄金数据脚本可精确复刻。
@@ -53,9 +57,16 @@ std::string Rng::state() const {
     return oss.str();
 }
 
-void Rng::setState(const std::string& s) {
+bool Rng::setState(const std::string& s) {
     std::istringstream iss(s);
-    iss >> mt_;
+    std::mt19937 restored;
+    if (!(iss >> restored)) {
+        // 损坏/不完整状态：保持当前状态不变（原先会留下未定义状态，破坏确定性契约）。
+        spdlog::error("Rng::setState: invalid mt19937 state string; state unchanged");
+        return false;
+    }
+    mt_ = restored;
+    return true;
 }
 
 }  // namespace lw

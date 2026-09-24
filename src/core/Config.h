@@ -275,12 +275,17 @@ struct Config {
                 return n;
             }
             const Shape* shapeFor(double level, int variant = 0) const {
-                const int s0 = firstShapeIndex(level);
-                if (s0 < 0) return nullptr;
-                const int s = s0 + variant;
-                if (s < 0 || s >= static_cast<int>(shapes.size())) return nullptr;
-                if (shapeLevelIndex[static_cast<size_t>(s)] != levelIndex(level)) return nullptr;
-                return &shapes[static_cast<size_t>(s)];
+                const int li = levelIndex(level);
+                if (li < 0 || variant < 0) return nullptr;
+                // 不假设同级变体在 shapes 中连续（T1）：按出现顺序取第 variant 个。
+                int seen = 0;
+                for (int s = 0; s < static_cast<int>(shapeLevelIndex.size()); ++s) {
+                    if (s >= static_cast<int>(shapes.size())) break;
+                    if (shapeLevelIndex[static_cast<size_t>(s)] != li) continue;
+                    if (seen == variant) return &shapes[static_cast<size_t>(s)];
+                    ++seen;
+                }
+                return nullptr;
             }
         };
         // alpha：n 级城经济收入 = n^alpha × 1 级城（>=1，数值待实验；P14 经济重构读取）。
@@ -488,6 +493,9 @@ struct Config {
     // 校验已解析配置的类型派生值、数值域和跨字段约束。
     bool validate(std::string* err = nullptr) const;
 };
+
+// 仅填充内置默认势力表（0..8），不构造完整 Config、不触碰磁盘（M5：供 Simulation 兜底复用）。
+void initDefaultFactions(std::vector<Config::Faction>& v);
 
 // 单位实际山地进入概率 = 基础 × 兵种乘数（封顶 1.0）。细节改进：开拓兵更高（阻挡概率降低）。
 inline double mountainEnterChanceFor(const Config& cfg, int unitType) {

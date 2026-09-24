@@ -145,14 +145,19 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         if (c.id < 0 || static_cast<size_t>(c.id) >= capitalStatus.size()) return 0;
         return capitalStatus[static_cast<size_t>(c.id)];
     };
+    // 密铺名/下标在循环外只算一次（原先每城每帧构造 std::string 并做字符串哈希，2026-09 性能修复）。
+    const TilingType tilingType = map.tiling();
+    const std::string tiling = tilingName(tilingType);
+    const std::uint64_t tilingKey =
+        static_cast<std::uint64_t>(static_cast<std::uint32_t>(tilingType));
     for (const City& c : map.cities()) {
         // 等级塔/首都图标缩放表按贴图等级索引（1..9；实数等级四舍五入，10+ 统一贴图）。
-        const int texLevel = map.cityConfig().setFor(map.tiling()).iconLevelFor(c.level);
+        const int texLevel = map.cityConfig().setFor(tilingType).iconLevelFor(c.level);
         if (texLevel < 1) continue;  // 防御：非法等级
         const int status = statusOf(c);
         const bool isCapital = (status == 1 || status == 2);  // 正式首都 / 候补（都用首都图标）
 
-        const bool tiled = map.tiling() != TilingType::Square;
+        const bool tiled = tilingType != TilingType::Square;
         SDL_Rect block{0, 0, 0, 0};
         // 形状占格（P12 六/三/半正/Laves）：本城形状格集合。整城只解析一次（存本城市）。
         // 供视野剔除 AABB、高缩放外廓细线、图标拟合兜底三方共用（旧代码每处重复 cityCells）。
@@ -239,7 +244,7 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         double normalFitW = 0.0;
         double normalIconCx = c.centerX(), normalIconCy = c.centerY();
         bool haveFit = false;
-        const auto tIt = rc.city.iconFitScale.find(tilingName(map.tiling()));
+        const auto tIt = rc.city.iconFitScale.find(tiling);
         if (tIt != rc.city.iconFitScale.end()) {
             const auto lIt = tIt->second.find(texLevel);
             if (lIt != tIt->second.end() && lIt->second > 0.0) {
@@ -247,14 +252,14 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
                 haveFit = true;
             }
         }
-        const std::string tiling = tilingName(map.tiling());
-        const std::string fitKey = tiling + ":" + std::to_string(texLevel);
+        // 去重键用整数（tiling 下标 << 16 | texLevel），不再每城每帧拼字符串哈希。
+        const std::uint64_t fitKey = (tilingKey << 16) | static_cast<std::uint64_t>(texLevel & 0xFFFF);
         if (!haveFit && warnedMissingFits_.insert(fitKey).second)
             spdlog::warn("city icon fit missing for tiling '{}' texture level {}; using 1x AABB fallback",
                          tiling, texLevel);
         // 竖直平移（世界单位）：每形状变体 × 每锚基础格类一条（2026-08-26 去重：bases = 该类的
         // 全部基础格，命中 = iconLevel+variant 匹配 且 城市实际 anchorB ∈ bases）。
-        const auto oIt = rc.city.iconFitOffsetY.find(tilingName(map.tiling()));
+        const auto oIt = rc.city.iconFitOffsetY.find(tiling);
         const int anchorB = (map.geom().baseCount() > 0)
                                 ? (c.baseIndex % map.geom().baseCount())
                                 : 0;
@@ -273,8 +278,11 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
             }
         }
         if (!haveOffset) {
-            const std::string offsetKey = tiling + ":" + std::to_string(texLevel) + ":" +
-                                           std::to_string(c.shapeVariant) + ":" + std::to_string(anchorB);
+            // 整数去重键：anchorB | shapeVariant | texLevel | tiling 下标（各占一段，无重叠）。
+            const std::uint64_t offsetKey =
+                (tilingKey << 40) | (static_cast<std::uint64_t>(texLevel & 0xFF) << 32)
+                | (static_cast<std::uint64_t>(c.shapeVariant & 0xFFFF) << 16)
+                | static_cast<std::uint64_t>(anchorB & 0xFFFF);
             if (warnedMissingOffsets_.insert(offsetKey).second)
                 spdlog::warn("city icon offsetY missing for tiling '{}' texture level {}; using 0",
                              tiling, texLevel);

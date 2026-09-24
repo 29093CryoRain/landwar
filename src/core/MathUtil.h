@@ -52,6 +52,10 @@ struct ScreenTransform {
     // int 版（历史逐像素路径；截断语义与旧版一致）。新代码用 f 版 + 显式取整。
     int toX(double x) const { return toScreenX(x, blockSize, panelWidth); }
     int toY(double y) const { return toScreenY(y, blockSize, mapHeight); }
+    // 反向变换（屏幕逻辑像素 → 世界 U）：正向 toXf/toYf 的显式反演。
+    // Camera 反变换统一委托这两个函数，避免手写展开与正向变换各用一份字段（2026-09 修复隐式耦合）。
+    double toWorldXf(double sx) const { return (sx - panelWidth) / blockSize; }
+    double toWorldYf(double sy) const { return mapHeight - sy / blockSize; }
 };
 
 }  // namespace lw::math

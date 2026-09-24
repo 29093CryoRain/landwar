@@ -24,9 +24,12 @@ namespace lw {
 
 namespace {
 // 内置默认势力表（Config.cpp 内置；当 config_ 未走 loadFromJson 时补齐，保证 0..8 齐全）。
+// 走 initDefaultFactions 而非 Config::loadFromJson("{}")：后者会构造完整 Config 并读取
+// data/city_shapes.jsonc（隐藏的重复磁盘 I/O，M5）。
 std::vector<Config::Faction> defaultFactions() {
-    Config def = Config::loadFromJson("{}");
-    return def.factions;
+    std::vector<Config::Faction> factions;
+    initDefaultFactions(factions);
+    return factions;
 }
 }  // namespace
 
@@ -229,12 +232,22 @@ bool Simulation::choosePlayerTech(int techIndex) {
 }
 
 void Simulation::conquer(int x, int y, int factionId, bool freeArmyEnabled) {
+    if (factionId < 0 || factionId >= factionCount()) {
+        spdlog::error("Simulation::conquer: factionId {} out of range [0,{}); ignored", factionId,
+                      factionCount());
+        return;
+    }
     ConquerContext ctx{map_, factions_, *rng_, pendingSpawns_, freeArmyEnabled, tickCount_};
     factions_[static_cast<size_t>(factionId)].conquer(ctx, x, y);
 }
 
 // P12：按格下标征服（密铺统一路径；首都多格城逐格征服用）。
 void Simulation::conquerIndex(int index, int factionId, bool freeArmyEnabled) {
+    if (factionId < 0 || factionId >= factionCount()) {
+        spdlog::error("Simulation::conquerIndex: factionId {} out of range [0,{}); ignored",
+                      factionId, factionCount());
+        return;
+    }
     ConquerContext ctx{map_, factions_, *rng_, pendingSpawns_, freeArmyEnabled, tickCount_};
     factions_[static_cast<size_t>(factionId)].conquerIndex(ctx, index);
 }

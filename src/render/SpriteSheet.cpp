@@ -21,8 +21,17 @@ SDL_Rect SpriteSheet::unitRect(int type) const {
     // 兵种 → 行号映射。行 0-5 = 原 6 兵种；行 6/7 为激光火花/光束（特效用，rect() 保留）；
     // 行 8 = 子弹；行 9 = 手枪；行 10 = 霰弹（P9 用户新增贴图，army_base.png 最底 3 格）。
     static constexpr int kUnitRow[kArmyTypeCount] = {0, 1, 2, 3, 4, 5, 9, 10};
-    const int row = (type >= 0 && type < kArmyTypeCount) ? kUnitRow[type] : type;
-    return SDL_Rect{0, row * kSourceSpriteSize, kSourceSpriteSize, kSourceSpriteSize};
+    if (type < 0 || type >= kArmyTypeCount) {
+        // 越界时原先回退"type 当行号"→ srcrect 超出纹理，SDL_RenderCopy 静默失败、实体消失且无日志。
+        // 改为 clamp 到行 0 并只告警一次（2026-09 修复）。
+        static bool warned = false;
+        if (!warned) {
+            spdlog::warn("SpriteSheet::unitRect: invalid army type {}; using row 0", type);
+            warned = true;
+        }
+        return SDL_Rect{0, 0, kSourceSpriteSize, kSourceSpriteSize};
+    }
+    return SDL_Rect{0, kUnitRow[type] * kSourceSpriteSize, kSourceSpriteSize, kSourceSpriteSize};
 }
 
 SDL_Rect SpriteSheet::bulletRect() const {

@@ -189,8 +189,9 @@ void MapRenderer::drawGrid(const Map& map, const SDL_Color& color) {
     const double vy0 = cam_.viewWorldY0(), vy1 = cam_.viewWorldY1();
     int r0, r1, c0, c1;
     g.rowRange(vx0, vy0, vx1, vy1, r0, r1);
-    std::vector<SDL_Vertex> vertices;
-    vertices.reserve(6000);
+    std::vector<SDL_Vertex>& vertices = vertexScratch_;
+    vertices.clear();
+    if (vertices.capacity() < 6000) vertices.reserve(6000);
     const auto flush = [&]() {
         if (vertices.empty()) return;
         SDL_RenderGeometry(ren_, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr,
@@ -221,10 +222,11 @@ void MapRenderer::drawGrid(const Map& map, const SDL_Color& color) {
 void MapRenderer::drawSquare(const Map& map, const std::vector<std::array<int, 3>>& tileColors) {
     if (tileColors.empty()) return;
     const int colorGroups = static_cast<int>(tileColors.size());
-    std::vector<std::vector<SDL_Rect>> batches(tileColors.size());
-    std::vector<SDL_Color> groupColor(tileColors.size());
+    if (squareBatches_.size() != tileColors.size()) squareBatches_.resize(tileColors.size());
+    for (auto& batch : squareBatches_) batch.clear();
+    groupColors_.resize(tileColors.size());
     for (int f = 0; f < colorGroups; ++f)
-        groupColor[static_cast<size_t>(f)] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
+        groupColors_[static_cast<size_t>(f)] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
     Renderer r(ren_);
     const int i0 = std::clamp(static_cast<int>(std::floor(cam_.viewWorldX0())), 0, map.width() - 1);
     const int i1 = std::clamp(static_cast<int>(std::ceil(cam_.viewWorldX1())), 0, map.width() - 1);
@@ -235,11 +237,12 @@ void MapRenderer::drawSquare(const Map& map, const std::vector<std::array<int, 3
             const MapCell& cell = map.at(i, j);
             if (!cell.land) continue;
             const int group = std::clamp(static_cast<int>(cell.belongi), 0, colorGroups - 1);
-            batches[static_cast<size_t>(group)].push_back(cam_.cellRect(i, j));
+            squareBatches_[static_cast<size_t>(group)].push_back(cam_.cellRect(i, j));
         }
     for (int group = 0; group < colorGroups; ++group)
-        if (!batches[static_cast<size_t>(group)].empty())
-            r.fillRects(batches[static_cast<size_t>(group)], groupColor[static_cast<size_t>(group)]);
+        if (!squareBatches_[static_cast<size_t>(group)].empty())
+            r.fillRects(squareBatches_[static_cast<size_t>(group)],
+                        groupColors_[static_cast<size_t>(group)]);
 
     for (int j = j0; j <= j1; ++j)
         for (int i = i0; i <= i1; ++i) {
@@ -290,9 +293,9 @@ void MapRenderer::drawTiled(
     const TilingGeom& g = map.geom();
     Renderer r(ren_);
     const int colorGroups = static_cast<int>(tileColors.size());
-    std::vector<SDL_Color> groupColorArr(tileColors.size());
+    groupColors_.resize(tileColors.size());
     for (int f = 0; f < colorGroups; ++f)
-        groupColorArr[static_cast<size_t>(f)] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
+        groupColors_[static_cast<size_t>(f)] = Renderer::toColor(tileColors[static_cast<size_t>(f)]);
     const bool graded = !gradeColors.empty();
     const int paletteSize = graded ? static_cast<int>(gradeColors.size()) : 0;
     const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
@@ -300,8 +303,9 @@ void MapRenderer::drawTiled(
     int r0, r1, c0, c1;
     g.rowRange(vx0, vy0, vx1, vy1, r0, r1);
     constexpr int kBatchVerts = 6000;
-    std::vector<SDL_Vertex> verts;
-    verts.reserve(kBatchVerts);
+    std::vector<SDL_Vertex>& verts = vertexScratch_;
+    verts.clear();
+    if (verts.capacity() < kBatchVerts) verts.reserve(kBatchVerts);
     const auto flush = [&]() {
         if (verts.empty()) return;
         SDL_RenderGeometry(ren_, nullptr, verts.data(), static_cast<int>(verts.size()), nullptr, 0);
@@ -320,7 +324,7 @@ void MapRenderer::drawTiled(
                 const std::size_t base = polyCache_.cellOffset[static_cast<std::size_t>(idx)];
                 const int faction = std::clamp(static_cast<int>(cell.belongi), 0, colorGroups - 1);
                 const SDL_Color color = !graded
-                                            ? groupColorArr[static_cast<size_t>(faction)]
+                                            ? groupColors_[static_cast<size_t>(faction)]
                                             : Renderer::toColor(gradeColors[static_cast<size_t>(
                                                   std::clamp(g.tileColorIndex(idx), 0, paletteSize - 1))]
                                                                       [static_cast<size_t>(faction)]);

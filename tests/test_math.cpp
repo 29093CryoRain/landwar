@@ -2,6 +2,8 @@
 // point_distance_from_segment 的垂足在段内/段外情况。
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include "core/MathUtil.h"
 #include "core/Random.h"
 
@@ -33,6 +35,12 @@ TEST(MathUtil, MixColor) {
     EXPECT_EQ(mixColor(0xFFFFFFFFu, 0x00000000u, 0.5), 0xFF7F7F7Fu);
     // 红黑混合 0.8 → (204,0,0)。
     EXPECT_EQ(mixColor(0xFFFF0000u, 0x00000000u, 0.8), 0xFFCC0000u);
+    // L5：rate 越界时通道 clamp 到 [0,255]，不溢出污染相邻通道。
+    EXPECT_EQ(mixColor(0xFFFFFFFFu, 0x00000000u, 2.0), 0xFFFFFFFFu);   // 255*2 → 255
+    EXPECT_EQ(mixColor(0x00000000u, 0xFFFFFFFFu, 2.0), 0xFF000000u);   // 255*(1-2) → 0
+    EXPECT_EQ(mixColor(0xFFFFFFFFu, 0x00000000u, -1.0), 0xFF000000u);  // 255*(-1) → 0
+    // NaN → 逐通道 0（截断前已防护，不产生 UB）。
+    EXPECT_EQ(mixColor(0xFFFFFFFFu, 0xFFFFFFFFu, std::nan("")), 0xFF000000u);
 }
 
 TEST(MathUtil, RandomAngleRange) {

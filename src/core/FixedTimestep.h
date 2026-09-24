@@ -6,12 +6,17 @@
 // 暂停/单步由调用方在 consume 之外处理（本类不感知）。
 #pragma once
 
+#include <cassert>
+
 namespace lw {
 
 class FixedTimestep {
 public:
     explicit FixedTimestep(double stepSeconds, double maxAccumSeconds = 0.25)
-        : step_(stepSeconds), maxAccum_(maxAccumSeconds) {}
+        : step_(stepSeconds), maxAccum_(maxAccumSeconds) {
+        // step<=0 会让 consumeTicks 的 while 条件恒真 → 死循环（2026-09 修复 L1）。
+        assert(step_ > 0.0);
+    }
 
     // 推进虚拟时间（帧秒数 × 倍速）。
     void advance(double dtSeconds) {
@@ -21,6 +26,7 @@ public:
 
     // 本帧应执行的逻辑步数（每步 step_ 秒）。不消耗累计外的语义。
     int consumeTicks() {
+        if (step_ <= 0.0) return 0;  // release 兜底：避免非法步长导致死循环
         int n = 0;
         while (acc_ >= step_) {
             acc_ -= step_;

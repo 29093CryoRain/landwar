@@ -83,6 +83,13 @@ TEST(Options, MapRandomParamsDefaultAndRoundTrip) {
     EXPECT_EQ(j1, j2);
 }
 
+TEST(Options, MapSectionWithoutKindKeepsRandomDefault) {
+    // L3：map 段存在但缺 kind 键时保持 MapSelection 默认 Random（不硬编码回退 "file"）。
+    lw::Options o = lw::Options::loadFromJson(R"({"map":{"width":70}})");
+    EXPECT_EQ(o.map.kind, lw::MapSelection::Kind::Random);
+    EXPECT_EQ(o.map.width, 70);
+}
+
 TEST(Options, MissingFileFallsBackToDefaults) {
     const lw::Options o = lw::Options::loadFromFile("tests/data/nonexistent_options.json");
     for (int i = 0; i < lw::kPlayerFactionCount; ++i) {

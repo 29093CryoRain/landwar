@@ -93,31 +93,48 @@ bool parseJsonc(const std::string& text, Json& out, std::string* error = nullptr
 }
 
 // 数值读取辅助：缺键/类型不符时返回默认值。
+// 类型不符只记警告并把该键退回默认，**不抛异常**——抛异常会被 loadConfigText 的外层 catch
+// 捕获并整份回退内置默认，玩家一处手误就会丢失全部自定义配置（2026-09 修复，见 M1）。
 double getNum(const Json& j, const char* key, double def) {
     if (j.contains(key)) {
-        if (!j[key].is_number()) throw std::runtime_error(std::string(key) + " must be a number");
+        if (!j[key].is_number()) {
+            spdlog::warn("config key '{}' must be a number (got {}); using default {}", key,
+                         j[key].type_name(), def);
+            return def;
+        }
         return j[key].get<double>();
     }
     return def;
 }
 int getInt(const Json& j, const char* key, int def) {
     if (j.contains(key)) {
-        if (!j[key].is_number_integer())
-            throw std::runtime_error(std::string(key) + " must be an integer");
+        if (!j[key].is_number_integer()) {
+            spdlog::warn("config key '{}' must be an integer (got {}); using default {}", key,
+                         j[key].type_name(), def);
+            return def;
+        }
         return j[key].get<int>();
     }
     return def;
 }
 std::string getStr(const Json& j, const char* key, const std::string& def) {
     if (j.contains(key)) {
-        if (!j[key].is_string()) throw std::runtime_error(std::string(key) + " must be a string");
+        if (!j[key].is_string()) {
+            spdlog::warn("config key '{}' must be a string (got {}); using default '{}'", key,
+                         j[key].type_name(), def);
+            return def;
+        }
         return j[key].get<std::string>();
     }
     return def;
 }
 bool getBool(const Json& j, const char* key, bool def) {
     if (j.contains(key)) {
-        if (!j[key].is_boolean()) throw std::runtime_error(std::string(key) + " must be boolean");
+        if (!j[key].is_boolean()) {
+            spdlog::warn("config key '{}' must be boolean (got {}); using default {}", key,
+                         j[key].type_name(), def);
+            return def;
+        }
         return j[key].get<bool>();
     }
     return def;
@@ -210,7 +227,8 @@ PeriodicAction periodicFromName(const std::string& s) {
     return PeriodicAction::none;
 }
 
-// BuffType 枚举字符串映射（config JSON ↔ 枚举）。未知值回退 UnitSpeedAdd（默认）。
+// BuffType 枚举字符串映射（config JSON ↔ 枚举）。未知值由 buffTypeFromName 返回 false，
+// 调用方（parseBuffDefs）记警告并跳过该条 buff（不再静默回退 UnitSpeedAdd，2026-09 修复 M2）。
 std::string buffTypeName(BuffType t) {
     switch (t) {
         case BuffType::UnitCostMult: return "UnitCostMult";
@@ -234,42 +252,64 @@ std::string buffTypeName(BuffType t) {
     }
     return "UnitSpeedAdd";
 }
-BuffType buffTypeFromName(const std::string& s) {
-    if (s == "UnitCostMult") return BuffType::UnitCostMult;
-    if (s == "UnitSpeedAdd") return BuffType::UnitSpeedAdd;
-    if (s == "SeaChanceMult") return BuffType::SeaChanceMult;
-    if (s == "BounceChanceMult") return BuffType::BounceChanceMult;
-    if (s == "EconomyGainAdd") return BuffType::EconomyGainAdd;
-    if (s == "ExplosionRadiusAdd") return BuffType::ExplosionRadiusAdd;
-    if (s == "BombExplosionRadiusAdd") return BuffType::BombExplosionRadiusAdd;
-    if (s == "MineExplosionRadiusAdd") return BuffType::MineExplosionRadiusAdd;
-    if (s == "LaserDurationAdd") return BuffType::LaserDurationAdd;
-    if (s == "LaserLengthAdd") return BuffType::LaserLengthAdd;
-    if (s == "LaserWidthAdd") return BuffType::LaserWidthAdd;
-    if (s == "LaserExtraBeams") return BuffType::LaserExtraBeams;
-    if (s == "MineTimeoutAdd") return BuffType::MineTimeoutAdd;
-    if (s == "FreeArmyChanceMult") return BuffType::FreeArmyChanceMult;
-    if (s == "FreeArmyChance") return BuffType::FreeArmyChance;
-    if (s == "UnitActionRateAdd") return BuffType::UnitActionRateAdd;
-    if (s == "ProjectileCountExtra") return BuffType::ProjectileCountExtra;
-    if (s == "TechGainAdd") return BuffType::TechGainAdd;
-    throw std::runtime_error("unknown buff type: " + s);
+// 已知 type 名 → out，返回 true；未知返回 false（由调用方警告并跳过，避免静默误配）。
+bool buffTypeFromName(const std::string& s, BuffType& out) {
+    if (s == "UnitCostMult") { out = BuffType::UnitCostMult; return true; }
+    if (s == "UnitSpeedAdd") { out = BuffType::UnitSpeedAdd; return true; }
+    if (s == "SeaChanceMult") { out = BuffType::SeaChanceMult; return true; }
+    if (s == "BounceChanceMult") { out = BuffType::BounceChanceMult; return true; }
+    if (s == "EconomyGainAdd") { out = BuffType::EconomyGainAdd; return true; }
+    if (s == "ExplosionRadiusAdd") { out = BuffType::ExplosionRadiusAdd; return true; }
+    if (s == "BombExplosionRadiusAdd") { out = BuffType::BombExplosionRadiusAdd; return true; }
+    if (s == "MineExplosionRadiusAdd") { out = BuffType::MineExplosionRadiusAdd; return true; }
+    if (s == "LaserDurationAdd") { out = BuffType::LaserDurationAdd; return true; }
+    if (s == "LaserLengthAdd") { out = BuffType::LaserLengthAdd; return true; }
+    if (s == "LaserWidthAdd") { out = BuffType::LaserWidthAdd; return true; }
+    if (s == "LaserExtraBeams") { out = BuffType::LaserExtraBeams; return true; }
+    if (s == "MineTimeoutAdd") { out = BuffType::MineTimeoutAdd; return true; }
+    if (s == "FreeArmyChanceMult") { out = BuffType::FreeArmyChanceMult; return true; }
+    if (s == "FreeArmyChance") { out = BuffType::FreeArmyChance; return true; }
+    if (s == "UnitActionRateAdd") { out = BuffType::UnitActionRateAdd; return true; }
+    if (s == "ProjectileCountExtra") { out = BuffType::ProjectileCountExtra; return true; }
+    if (s == "TechGainAdd") { out = BuffType::TechGainAdd; return true; }
+    return false;
 }
 
 void parseBuffDefs(const Json& owner, const char* key, std::vector<BuffDef>& out) {
     if (!owner.contains(key)) return;
-    if (!owner[key].is_array()) throw std::runtime_error(std::string(key) + " must be an array");
+    if (!owner[key].is_array()) {
+        spdlog::warn("config key '{}' must be an array (got {}); ignored", key,
+                     owner[key].type_name());
+        return;
+    }
     out.clear();
     for (const auto& bj : owner[key]) {
         if (!bj.is_object()) continue;
         BuffDef buff;
-        buff.type = buffTypeFromName(getStr(bj, "type", ""));
+        const std::string typeName = getStr(bj, "type", "");
+        if (!buffTypeFromName(typeName, buff.type)) {
+            spdlog::warn("unknown buff type '{}'; buff skipped", typeName);
+            continue;
+        }
         if (bj.contains("param")) {
             if (bj["param"].is_number_integer()) {
                 buff.param = bj["param"].get<int>();
+            } else if (bj["param"].is_string()) {
+                const std::string param = bj["param"].get<std::string>();
+                if (param == "all") {
+                    buff.param = -1;
+                } else {
+                    const int unit = unitIndex(param);
+                    if (unit < 0) {
+                        // 拼错的兵种名若回退 -1 会静默变成"全兵种"（危险放大），改为跳过并告警。
+                        spdlog::warn("unknown buff param unit '{}'; buff skipped", param);
+                        continue;
+                    }
+                    buff.param = unit;
+                }
             } else {
-                const std::string param = getStr(bj, "param", "all");
-                buff.param = (param == "all") ? -1 : unitIndex(param);
+                spdlog::warn("buff param has unsupported type ({}); treated as 'all'",
+                             bj["param"].type_name());
             }
         }
         buff.magnitude = getNum(bj, "magnitude", buff.magnitude);
@@ -289,17 +329,21 @@ void syncFactionLegacyFields(Config::Faction& faction) {
     faction.mineTriggerBombRadiusBonus = 0.0;
     faction.freeArmyChance = 0.0;
     for (const auto& buff : faction.buffs) {
+        // 汇总语义与 sim/Buff.cpp 的 computeMods 保持一致（2026-09 修复 M6）：
+        // 加算类累加（初值 1.0/0），乘算类连乘（初值 1.0），条数类累加。
         switch (buff.type) {
             case BuffType::UnitSpeedAdd:
-                if (buff.param < 0) faction.speedMultAll = 1.0 + buff.magnitude;
+                if (buff.param < 0) faction.speedMultAll += buff.magnitude;
                 else if (buff.param == static_cast<int>(ArmyType::pioneer))
-                    faction.pioneerSpeedMult = 1.0 + buff.magnitude;
+                    faction.pioneerSpeedMult += buff.magnitude;
                 break;
-            case BuffType::SeaChanceMult: faction.seaMult = buff.magnitude; break;
-            case BuffType::BounceChanceMult: faction.bounceMultAll = buff.magnitude; break;
-            case BuffType::LaserExtraBeams: faction.extraLaserBeams = static_cast<int>(buff.magnitude); break;
-            case BuffType::LaserDurationAdd: faction.laserDurationMult = 1.0 + buff.magnitude; break;
-            case BuffType::LaserLengthAdd: faction.laserLengthMult = 1.0 + buff.magnitude; break;
+            case BuffType::SeaChanceMult: faction.seaMult *= buff.magnitude; break;
+            case BuffType::BounceChanceMult: faction.bounceMultAll *= buff.magnitude; break;
+            case BuffType::LaserExtraBeams:
+                faction.extraLaserBeams += static_cast<int>(buff.magnitude);
+                break;
+            case BuffType::LaserDurationAdd: faction.laserDurationMult += buff.magnitude; break;
+            case BuffType::LaserLengthAdd: faction.laserLengthMult += buff.magnitude; break;
             case BuffType::BombExplosionRadiusAdd:
                 faction.bombRadiusBonus += buff.magnitude;
                 break;
@@ -371,7 +415,8 @@ void parseTilingSetJson(const Json& sub, Config::City::TilingSet& set) {
                 }
             }
             for (const auto& cl : s["cells"]) {
-                if (!cl.is_array() || cl.size() < 2) continue;
+                if (!cl.is_array() || cl.size() < 2 || !cl[0].is_number() || !cl[1].is_number())
+                    continue;
                 sh.cells.push_back({cl[0].get<double>(), cl[1].get<double>()});
             }
             set.shapes.push_back(std::move(sh));
@@ -524,7 +569,7 @@ void initDefaultCity(Config::City& c) {
 }
 
 // 内置默认势力表（0..8，下标即 id），与翻新计划 §2.7/§2.8 一致。
-void initDefaultFactions(std::vector<Config::Faction>& v) {
+void initDefaultFactionsImpl(std::vector<Config::Faction>& v) {
     v.clear();
     v.resize(static_cast<std::size_t>(kFactionTotal));
 
@@ -896,7 +941,7 @@ Config::City::City() { initDefaultCity(*this); }
 Config loadConfigText(const std::string& jsonText, bool* loaded) {
     if (loaded) *loaded = false;
     Config cfg;
-    initDefaultFactions(cfg.factions);
+    initDefaultFactionsImpl(cfg.factions);
 
     Json root;
     std::string parseError;
@@ -1028,17 +1073,25 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
                     if (color.is_string()) fdef.nameColors.push_back(color.get<std::string>());
             }
             if (factionJson.contains("color") && factionJson["color"].is_array()
-                && factionJson["color"].size() == 3) {
+                && factionJson["color"].size() == 3
+                && std::all_of(factionJson["color"].begin(), factionJson["color"].end(),
+                               [](const Json& v) { return v.is_number(); })) {
                 fdef.color[0] = factionJson["color"][0].get<int>();
                 fdef.color[1] = factionJson["color"][1].get<int>();
                 fdef.color[2] = factionJson["color"][2].get<int>();
+            } else if (factionJson.contains("color")) {
+                spdlog::warn("faction {} color must be an array of 3 numbers; using default", id);
             }
             // 双色系统（⑫）：副色（浅灰默认；缺键保持默认）。
             if (factionJson.contains("secondary") && factionJson["secondary"].is_array()
-                && factionJson["secondary"].size() == 3) {
+                && factionJson["secondary"].size() == 3
+                && std::all_of(factionJson["secondary"].begin(), factionJson["secondary"].end(),
+                               [](const Json& v) { return v.is_number(); })) {
                 fdef.secondary[0] = factionJson["secondary"][0].get<int>();
                 fdef.secondary[1] = factionJson["secondary"][1].get<int>();
                 fdef.secondary[2] = factionJson["secondary"][2].get<int>();
+            } else if (factionJson.contains("secondary")) {
+                spdlog::warn("faction {} secondary must be an array of 3 numbers; using default", id);
             }
             // P11 改版：兵种偏好系数（原 costDiv 价格折扣已移除）。
             if (factionJson.contains("unitPreference") && factionJson["unitPreference"].is_object()) {
@@ -1299,7 +1352,7 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
     if (!cfg.validate(&validationError)) {
         spdlog::error("config validation failed: {}; using built-in defaults", validationError);
         Config fallback;
-        initDefaultFactions(fallback.factions);
+        initDefaultFactionsImpl(fallback.factions);
         return fallback;
     }
     if (loaded) *loaded = true;
@@ -1307,7 +1360,7 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
     } catch (const std::exception& e) {
         spdlog::error("config load failed: {}; using built-in defaults", e.what());
         Config fallback;
-        initDefaultFactions(fallback.factions);
+        initDefaultFactionsImpl(fallback.factions);
         return fallback;
     }
 }
@@ -1320,7 +1373,7 @@ Config Config::loadFromJson(const std::string& jsonText) {
 Config Config::loadFromFile(const std::string& path) {
     const auto builtInDefaults = [] {
         Config cfg;
-        initDefaultFactions(cfg.factions);
+        initDefaultFactionsImpl(cfg.factions);
         return cfg;
     };
     const auto loadCandidate = [&](const std::string& candidate) -> std::pair<Config, bool> {
@@ -1728,6 +1781,13 @@ std::string Config::toJson() const {
                               {"bulletSpreadJitterFrac", units[static_cast<size_t>(i)].bulletSpreadJitterFrac}});
     }
 
+    // buff param 序列化：<0 → "all"；合法兵种 → 名称；越界 → 保留数值。
+    // 若越界也写 unitName() 会得到 "?"，读回按未知名处理 → 往返不对称（T2 修复）。
+    const auto paramJson = [](int param) -> Json {
+        if (param < 0) return "all";
+        if (param < kArmyTypeCount) return unitName(param);
+        return param;
+    };
     j["factions"] = Json::array();
     for (const auto& f : factions) {
         Json fj;
@@ -1744,7 +1804,7 @@ std::string Config::toJson() const {
         Json buffsJ = Json::array();
         for (const auto& buff : f.buffs)
             buffsJ.push_back({{"type", buffTypeName(buff.type)},
-                              {"param", buff.param < 0 ? "all" : unitName(buff.param)},
+                              {"param", paramJson(buff.param)},
                               {"magnitude", buff.magnitude}});
         fj["buffs"] = std::move(buffsJ);
         j["factions"].push_back(std::move(fj));
@@ -1781,10 +1841,11 @@ std::string Config::toJson() const {
             Json cells = Json::array();
             for (const auto& c : set.shapes[static_cast<size_t>(s)].cells)
                 cells.push_back({c.dx, c.dy});
-            const int li = (s < static_cast<int>(set.shapeLevelIndex.size()))
-                               ? set.shapeLevelIndex[static_cast<size_t>(s)]
-                               : 0;
-            Json shapeJ = {{"level", set.levels[static_cast<size_t>(li)]},
+            int li = (s < static_cast<int>(set.shapeLevelIndex.size()))
+                         ? set.shapeLevelIndex[static_cast<size_t>(s)]
+                         : 0;
+            if (li < 0 || li >= static_cast<int>(set.levels.size())) li = 0;  // 独立防护：未 validate 也能安全序列化
+            Json shapeJ = {{"level", set.levels.empty() ? 0.0 : set.levels[static_cast<size_t>(li)]},
                            {"cells", cells}};
             if (set.shapes[static_cast<size_t>(s)].anchorBaseMask != 0)
                 shapeJ["anchorBases"] = anchorMaskToBases(
@@ -1889,7 +1950,7 @@ std::string Config::toJson() const {
         Json levelsJ = Json::array();
         for (const auto& lv : t.levels) {
             levelsJ.push_back({{"type", buffTypeName(lv.type)},
-                               {"param", lv.param < 0 ? "all" : unitName(lv.param)},
+                               {"param", paramJson(lv.param)},
                                {"magnitude", lv.magnitude}});
         }
         tj["levels"] = std::move(levelsJ);
@@ -1954,5 +2015,9 @@ std::array<int, 3> Config::factionSpawnArrowColor(int id) const {
     return weightedMix3(f.color, f.secondary, {0, 0, 0}, render.city.spawnArrow.primary,
                         render.city.spawnArrow.secondary, render.city.spawnArrow.black);
 }
+
+// 公开入口（M5）：只填充内置默认势力表，不构造完整 Config，避免触发 data/city_shapes.jsonc
+// 等磁盘 I/O。供 Simulation 的默认势力兜底复用。
+void initDefaultFactions(std::vector<Config::Faction>& v) { initDefaultFactionsImpl(v); }
 
 }  // namespace lw

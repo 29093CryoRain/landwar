@@ -86,7 +86,11 @@ Options Options::loadFromJson(const std::string& jsonText) {
         int i = 0;
         for (const auto& slotJson : root["factions"]) {
             if (i >= kMaxFactionCount - 1) break;
-            if (!slotJson.is_object()) continue;
+            // i 表示数组槽位，非 object 元素也要递增，否则后续旧格式条目的回退 id 会整体偏移（L4）。
+            if (!slotJson.is_object()) {
+                ++i;
+                continue;
+            }
             FactionSlot slot;
             // 新格式用 id；旧 options.json 没有 id 时按旧数组位置映射 1..8。
             slot.factionId = getInt(slotJson, "id", i + 1);
@@ -99,8 +103,11 @@ Options Options::loadFromJson(const std::string& jsonText) {
 
     if (root.contains("map") && root["map"].is_object()) {
         const auto& mapJson = root["map"];
-        const std::string kind = getStr(mapJson, "kind", "file");
-        o.map.kind = (kind == "random") ? MapSelection::Kind::Random : MapSelection::Kind::File;
+        // 缺 kind 键时保持 MapSelection 默认（Random），不再硬编码回退 "file"（L3）。
+        if (mapJson.contains("kind") && mapJson["kind"].is_string()) {
+            o.map.kind = (mapJson["kind"].get<std::string>() == "random") ? MapSelection::Kind::Random
+                                                                         : MapSelection::Kind::File;
+        }
         o.map.file = getStr(mapJson, "file", o.map.file);
         o.map.randomSeed = static_cast<std::uint32_t>(getInt(mapJson, "randomSeed", 0));
         // P6 随机图参数：缺键回退默认（旧 options.json 无这些键也能读）。

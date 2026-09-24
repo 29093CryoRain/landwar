@@ -10,6 +10,7 @@
 #endif
 #include <windows.h>
 #else
+#include <cerrno>
 #include <sys/stat.h>
 #endif
 
@@ -46,7 +47,12 @@ bool ensureDirExists(const std::string& path) {
         cur += c;
         if (c != '/' && !(i + 1 >= path.size())) continue;
         if (cur == "." || cur == "/" || cur == "..") continue;
-        if (mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST) return false;
+        if (mkdir(cur.c_str(), 0755) != 0) {
+            if (errno != EEXIST) return false;
+            // EEXIST 也可能是同名**文件**：复核确为目录，否则视为失败（L7）。
+            struct stat st{};
+            if (stat(cur.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return false;
+        }
     }
     return true;
 #endif

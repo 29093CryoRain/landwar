@@ -59,6 +59,21 @@ TEST(Rng, SeedValue) {
     EXPECT_EQ(rng.seedValue(), 12345u);
 }
 
+TEST(Rng, SetStateRejectsCorruptStateWithoutMutating) {
+    // M3：损坏状态 → 返回 false 且不修改当前状态（原先会留下未定义状态，破坏确定性）。
+    lw::Rng a(7);
+    a.get(100);
+    const std::string before = a.state();
+
+    lw::Rng b(999);
+    EXPECT_FALSE(b.setState("not-a-valid-mt-state"));
+    lw::Rng c(999);
+    for (int i = 0; i < 5; ++i) EXPECT_EQ(b.get(1000), c.get(1000));
+
+    EXPECT_TRUE(b.setState(before));
+    for (int i = 0; i < 5; ++i) EXPECT_EQ(a.get(1000), b.get(1000));
+}
+
 TEST(Rng, UnitAndRange) {
     // 现代化补充 API：unit() ∈ [0,1)，range() ∈ [lo,hi)。
     lw::Rng rng(5);

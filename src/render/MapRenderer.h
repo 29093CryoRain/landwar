@@ -79,6 +79,10 @@ private:
     std::vector<std::array<int, 3>> mountainColors_;
     std::vector<MountainScale> mountainScales_;
     CellPolyCache polyCache_;
+    // 逐帧复用缓冲（保留容量，避免每帧重建批次容器；2026-09 性能修复）。
+    std::vector<std::vector<SDL_Rect>> squareBatches_;  // drawSquare：按势力分组的格矩形
+    std::vector<SDL_Color> groupColors_;                // drawSquare/drawTiled：势力→颜色
+    std::vector<SDL_Vertex> vertexScratch_;             // drawGrid/drawTiled：顶点批次
 };
 
 }  // namespace lw::render
