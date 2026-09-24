@@ -33,6 +33,10 @@
     "mountainEnterChance": 0.5, // 普通兵进入山地的基础概率，范围 [0,1]。
     "mountainSpeedMult": 0.5 // 进入山地后的速度乘数，必须 > 0。
   },
+  "river": { // 河流系统：河是地块边属性；河边两侧必须都是陆地。
+    "_comment": "过河判定：只有『陆→陆』跨边才可能触发河骰，顺序为 河 → 山 → 敌；失败反弹、不占领。",
+    "crossChance": 0.5 // 过河概率基线（实际概率 = clamp(此值 × 兵种 riverCrossMult, 0, 1)），范围 [0,1]。
+  },
   "effect": { // tick 间隔必须 > 0（armTicks 可为 0）；倍率/半径必须 > 0。
     "bomb": {
       "lifetimeTicks": 16,

@@ -677,7 +677,7 @@ void validateConfigKeys(const Json& root) {
     warnUnknownKeys(root,
                     {"map", "army", "sea", "terrain", "units", "factions", "effect",
                      "projectile", "economy", "city", "capital", "sim", "render",
-                     "ui", "tech"},
+                     "ui", "tech", "river"},
                     "<root>");
     // 对象取值辅助（不存在/非对象 → 空对象，warnUnknownKeys 自动跳过）。
     auto obj = [&root](const char* name) -> const Json& {
@@ -771,7 +771,8 @@ void validateConfigKeys(const Json& root) {
                          "mountainEnterMult", "mountainNoSlow", "deathEffect",
                          "periodic",      "periodTicks",       "bulletSpeed",
                          "bulletSpeedJitter", "bulletCount",   "bulletLifespanTicks",
-                         "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac"};
+                         "bulletSize",    "bulletSpreadPIFrac", "bulletSpreadJitterFrac",
+                         "riverCrossMult"};
     const V kFactionKeys = {"id", "name", "description", "nameColors", "color", "secondary",
                             "unitPreference", "buffs"};
     const V kTechKeys = {"id", "name", "desc", "levels", "preferenceUnits"};
@@ -866,7 +867,7 @@ void warnMissingKeys(const Json& obj, std::initializer_list<const char*> require
 void warnMissingConfigKeys(const Json& root) {
     warnMissingKeys(root, {"map", "army", "sea", "terrain", "units", "factions", "effect",
                            "projectile", "economy", "city", "capital", "sim", "render", "ui",
-                           "tech"}, "<root>");
+                           "tech", "river"}, "<root>");
     const auto object = [&root](const char* key) -> const Json& {
         static const Json empty = Json::object();
         return root.contains(key) && root[key].is_object() ? root[key] : empty;
@@ -1007,6 +1008,12 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
             getNum(tJson, "mountainSpeedMult", cfg.terrain.mountainSpeedMult);
     }
 
+    // ---- river（河流系统 §6.4）----
+    if (root.contains("river") && root["river"].is_object()) {
+        const auto& riverJson = root["river"];
+        cfg.river.crossChance = getNum(riverJson, "crossChance", cfg.river.crossChance);
+    }
+
     // ---- units ----
     if (root.contains("units") && root["units"].is_array()) {
         for (const auto& unitJson : root["units"]) {
@@ -1021,6 +1028,8 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
                 getNum(unitJson, "visualRadius", cfg.units[idx].visualRadius);
             cfg.units[idx].mountainEnterMult =
                 getNum(unitJson, "mountainEnterMult", cfg.units[idx].mountainEnterMult);
+            cfg.units[idx].riverCrossMult =
+                getNum(unitJson, "riverCrossMult", cfg.units[idx].riverCrossMult);
             cfg.units[idx].mountainNoSlow =
                 getBool(unitJson, "mountainNoSlow", cfg.units[idx].mountainNoSlow);
             // P9 行为：死亡特效 / 周期动作 / 间隔（缺键保持默认）。
@@ -1577,6 +1586,7 @@ bool Config::validate(std::string* err) const {
         || terrain.probFloor > 255 || terrain.probScale <= 0
         || !unitInterval(terrain.mountainEnterChance) || !positive(terrain.mountainSpeedMult))
         return fail("terrain numeric range invalid");
+    if (!unitInterval(river.crossChance)) return fail("river.crossChance must be in [0,1]");
 
     for (const auto& u : units) {
         if (!positive(u.cost) || !positive(u.speedMult) || !positive(u.sizeMult)
@@ -1584,7 +1594,8 @@ bool Config::validate(std::string* err) const {
             || !nonNegative(u.mountainEnterMult) || u.periodTicks < 0
             || !nonNegative(u.bulletSpeed) || !nonNegative(u.bulletSpeedJitter)
             || u.bulletCount <= 0 || u.bulletLifespanTicks < 0 || !positive(u.bulletSize)
-            || !nonNegative(u.bulletSpreadPIFrac) || !nonNegative(u.bulletSpreadJitterFrac))
+            || !nonNegative(u.bulletSpreadPIFrac) || !nonNegative(u.bulletSpreadJitterFrac)
+            || !nonNegative(u.riverCrossMult))
             return fail("unit numeric range invalid");
         if (u.periodic != PeriodicAction::none && u.periodTicks <= 0)
             return fail("periodic unit must have positive periodTicks");
@@ -1788,6 +1799,8 @@ std::string Config::toJson() const {
                     {"mountainEnterChance", terrain.mountainEnterChance},
                     {"mountainSpeedMult", terrain.mountainSpeedMult}};
 
+    j["river"] = {{"crossChance", river.crossChance}};
+
     j["units"] = Json::array();
     for (int i = 0; i < kArmyTypeCount; ++i) {
         j["units"].push_back({{"type", unitName(i)},
@@ -1807,7 +1820,8 @@ std::string Config::toJson() const {
                               {"bulletLifespanTicks", units[static_cast<size_t>(i)].bulletLifespanTicks},
                               {"bulletSize", units[static_cast<size_t>(i)].bulletSize},
                               {"bulletSpreadPIFrac", units[static_cast<size_t>(i)].bulletSpreadPIFrac},
-                              {"bulletSpreadJitterFrac", units[static_cast<size_t>(i)].bulletSpreadJitterFrac}});
+                              {"bulletSpreadJitterFrac", units[static_cast<size_t>(i)].bulletSpreadJitterFrac},
+                              {"riverCrossMult", units[static_cast<size_t>(i)].riverCrossMult}});
     }
 
     // buff param 序列化：<0 → "all"；合法兵种 → 名称；越界 → 保留数值。

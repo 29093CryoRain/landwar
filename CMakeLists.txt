@@ -263,8 +263,9 @@ add_executable(landwar_tests
     tests/test_perf.cpp
     tests/test_player.cpp
     tests/test_projectile.cpp
-    tests/test_rng.cpp
+    tests/test_river.cpp
     tests/test_river_render.cpp
+    tests/test_rng.cpp
     tests/test_sim.cpp
     tests/test_snapshot.cpp
     tests/test_stats.cpp

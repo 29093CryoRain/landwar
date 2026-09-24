@@ -98,7 +98,8 @@ TEST(Config, JsonOverrides) {
         "map": { "blockSize": 20, "forceCoastRangeMultiplier": 2.5,
                  "forceCoastStrengthMultiplier": 1.75 },
         "army": { "baseSpeed": 0.5, "bounceJitterRangeRad": 0.07, "spawnAngleStep": 0.25 },
-        "units": [ { "type": "laser", "cost": 99.0 } ],
+        "units": [ { "type": "laser", "cost": 99.0, "riverCrossMult": 2.5 } ],
+        "river": { "crossChance": 0.25 },
         "factions": [ { "id": 1, "color": [1,2,3], "secondary": [4,5,6],
                         "unitPreference": { "normal": 2.5 } } ],
         "render": { "mountain": { "sourceWidth": 256, "strokeWidthPx": 8.0,
@@ -123,6 +124,9 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(cfg.render.mountain.areaReference, 2.0, 1e-12);
     ASSERT_EQ(cfg.render.mountain.segments.size(), 1u);
     EXPECT_NEAR(cfg.units[3].cost, 99.0, 1e-12);
+    EXPECT_NEAR(cfg.units[3].riverCrossMult, 2.5, 1e-12);
+    EXPECT_NEAR(cfg.units[0].riverCrossMult, 1.0, 1e-12);  // 未覆盖的保持默认
+    EXPECT_NEAR(cfg.river.crossChance, 0.25, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);  // 未覆盖的保持默认
     EXPECT_EQ(cfg.factions[1].color[0], 1);
     EXPECT_EQ(cfg.factions[1].color[1], 2);
@@ -143,6 +147,8 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(riverRoundTrip.render.river.thicknessPx, 5.5, 1e-12);
     EXPECT_EQ(riverRoundTrip.render.river.color, (std::array<int, 3>{12, 34, 56}));
     EXPECT_NEAR(riverRoundTrip.render.river.minCellPx, 4.0, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.river.crossChance, 0.25, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.units[3].riverCrossMult, 2.5, 1e-12);
     EXPECT_NEAR(cfg.economy.initialEconomy, 5.0, 1e-12);
     EXPECT_NEAR(cfg.economy.perLandIncome, 0.5, 1e-12);
     EXPECT_NEAR(cfg.economy.cityBaseMult, 3.0, 1e-12);
@@ -313,6 +319,8 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.render.river.thicknessPx, 3.0, 1e-9);   // data/render.jsonc
     EXPECT_EQ(cfg.render.river.color, (std::array<int, 3>{0, 0, 0}));
     EXPECT_NEAR(cfg.render.river.minCellPx, 0.0, 1e-9);
+    EXPECT_NEAR(cfg.river.crossChance, 0.5, 1e-9);   // data/config.jsonc
+    EXPECT_NEAR(cfg.units[0].riverCrossMult, 1.0, 1e-9);  // units.jsonc 未显式给出 → 默认
     EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.5, 1e-9);
     EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.5, 1e-9);
     EXPECT_EQ(cfg.factions[9].name, "测试");

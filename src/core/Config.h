@@ -91,6 +91,12 @@ struct Config {
         double mountainSpeedMult = 0.5;    // 山地内速度乘数（进入 ×、离开 /，互逆）
     } terrain;
 
+    // 河流系统（§6.4 玩法层）：河是**边**属性（world/Map.h 的 EdgeFeature），不是格属性；
+    // 河边两侧必须都是陆地（加载/编辑器校验保证），因此只有"陆→陆"跨边才可能触发河骰。
+    struct River {
+        double crossChance = 0.5;  // 过河概率基线（clamp [0,1]；占位待实验）
+    } river;
+
     // 兵种基础定义（下标 = ArmyType）。
     struct Unit {
         double cost = 1.0;        // 产兵经济成本
@@ -120,16 +126,20 @@ struct Config {
         //（霰弹 40° = 2π/9；手枪单发 → 0）。单颗在均布占位上加 ±(frac·半角) 抖动。
         double bulletSpreadPIFrac = 0.0;      // 散射总角（π 的分数；0 = 无散射）
         double bulletSpreadJitterFrac = 0.3;  // 角度抖动（半角的分数，均布上的轻度扰动）
+        // 河流系统 §6.4：过河概率乘数（与 mountainEnterMult 同型；河骰通过率 =
+        // clamp(cfg.river.crossChance × 本值, 0, 1)）。字段置于末尾：8 行聚合初始化逐行补位即可，
+        // 不改变既有字段的位置（漏补会静默错位，见开发文档 §6.4）。
+        double riverCrossMult = 1.0;
     };
     std::array<Unit, 8> units = {{
-        /* normal   */ {1.0, 1.0, 1.0, 1.0, 12.0, 1.0, false, DeathEffect::none,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
-        /* vanguard */ {3.97, 2.0, 1.0, 0.4, 13.0, 1.0, false, DeathEffect::none,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
-        /* pioneer  */ {4.03, 1.0, 1.0, 1.0, 15.0, 1.6, true,  DeathEffect::none,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
-        /* laser    */ {17.0, 0.6, 1.8, 1.0, 20.0, 1.0, false, DeathEffect::laser,  PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
-        /* bomb     */ {23.0, 0.6, 1.8, 1.0, 21.0, 1.0, false, DeathEffect::bomb,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
-        /* mine     */ {13.0, 0.6, 1.4, 1.0, 17.0, 1.0, false, DeathEffect::mine,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3},
-        /* pistol   */ {80.0, 0.5, 1.3, 1.0, 14.0, 1.0, false, DeathEffect::none,   PeriodicAction::firePistol,  120, 0.5,     0.0,     1, 90, 0.3, 0.0,     0.3},
-        /* shotgun  */ {120.0, 0.5, 1.3, 1.0, 16.0, 1.0, false, DeathEffect::none,  PeriodicAction::fireShotgun, 180, 1.0/3.0, 0.2/3.0, 3, 60, 0.3, 2.0/9.0, 0.3},
+        /* normal   */ {1.0, 1.0, 1.0, 1.0, 12.0, 1.0, false, DeathEffect::none,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3, 1.0},
+        /* vanguard */ {3.97, 2.0, 1.0, 0.4, 13.0, 1.0, false, DeathEffect::none,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3, 1.0},
+        /* pioneer  */ {4.03, 1.0, 1.0, 1.0, 15.0, 1.6, true,  DeathEffect::none,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3, 1.0},
+        /* laser    */ {17.0, 0.6, 1.8, 1.0, 20.0, 1.0, false, DeathEffect::laser,  PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3, 1.0},
+        /* bomb     */ {23.0, 0.6, 1.8, 1.0, 21.0, 1.0, false, DeathEffect::bomb,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3, 1.0},
+        /* mine     */ {13.0, 0.6, 1.4, 1.0, 17.0, 1.0, false, DeathEffect::mine,   PeriodicAction::none, 0, 0.0, 0.0, 1, 0,  0.3, 0.0,     0.3, 1.0},
+        /* pistol   */ {80.0, 0.5, 1.3, 1.0, 14.0, 1.0, false, DeathEffect::none,   PeriodicAction::firePistol,  120, 0.5,     0.0,     1, 90, 0.3, 0.0,     0.3, 1.0},
+        /* shotgun  */ {120.0, 0.5, 1.3, 1.0, 16.0, 1.0, false, DeathEffect::none,  PeriodicAction::fireShotgun, 180, 1.0/3.0, 0.2/3.0, 3, 60, 0.3, 2.0/9.0, 0.3, 1.0},
     }};
 
     struct Faction {
