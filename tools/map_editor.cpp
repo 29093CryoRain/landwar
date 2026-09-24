@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
             editorConfig.factions[0].secondary = {232, 216, 120};
         }
         cityRenderer.bake(editorConfig);
-        lw::render::MapRenderer mapRenderer(renderer, camera, config.render.mountain);
+        lw::render::MapRenderer mapRenderer(renderer, camera, config.render.mountain, config.render.river);
         const std::vector<std::array<int, 3>> editorColors = {
             {0, 0, 0}, {104, 133, 94}, {133, 116, 92}, {232, 195, 64}};
         mapRenderer.bake(editorColors);

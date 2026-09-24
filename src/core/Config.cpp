@@ -730,7 +730,7 @@ void validateConfigKeys(const Json& root) {
     const Json& ren = obj("render");
     warnUnknownKeys(ren,
                      {"windowWidth", "windowHeight", "armyDrawSize", "city", "capital", "tile",
-                      "mountain", "player"},
+                      "mountain", "player", "river"},
                     "render");
     warnUnknownKeys(child(ren, "mountain"),
                     {"sourceWidth", "sourceHeight", "strokeWidthPx", "areaReference", "colorDarken",
@@ -755,6 +755,7 @@ void validateConfigKeys(const Json& root) {
                     {"hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin",
                      "markerArrowGap"},
                     "render.player");
+    warnUnknownKeys(child(ren, "river"), {"thicknessPx", "color", "minCellPx"}, "render.river");
     // city（顶层，P13 城市系统 + P12 按密铺形状表）。
     const Json& cityJ = obj("city");
     warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri",
@@ -899,7 +900,7 @@ void warnMissingConfigKeys(const Json& root) {
                      "beamSpreadPIFrac"},
                     "effect.laser");
     warnMissingKeys(object("render"), {"windowWidth", "windowHeight", "armyDrawSize", "tile",
-                                       "mountain", "city", "capital", "player"}, "render");
+                                       "mountain", "city", "capital", "player", "river"}, "render");
     warnMissingKeys(object("render").value("tile", Json::object()),
                     {"primary", "secondary", "white", "variation"}, "render.tile");
     warnMissingKeys(object("render").value("mountain", Json::object()),
@@ -916,6 +917,8 @@ void warnMissingConfigKeys(const Json& root) {
                     {"hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin",
                      "markerArrowGap"},
                     "render.player");
+    warnMissingKeys(object("render").value("river", Json::object()),
+                    {"thicknessPx", "color", "minCellPx"}, "render.river");
     warnMissingKeys(object("tech"), {"thresholdBase", "thresholdStep", "pointsPerCityLevel",
                                       "preferencePerLevel", "playerCandidateCount", "techs"}, "tech");
     if (root.contains("units") && root["units"].is_array()) {
@@ -1308,6 +1311,28 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
             cfg.render.player.markerArrowGap =
                 getNum(playerJson, "markerArrowGap", cfg.render.player.markerArrowGap);
         }
+        // 河流渲染（河流系统 §10）：线宽（逻辑像素）/颜色/LOD。
+        if (renderJson.contains("river") && renderJson["river"].is_object()) {
+            const auto& riverJson = renderJson["river"];
+            cfg.render.river.thicknessPx =
+                getNum(riverJson, "thicknessPx", cfg.render.river.thicknessPx);
+            cfg.render.river.minCellPx =
+                getNum(riverJson, "minCellPx", cfg.render.river.minCellPx);
+            const auto& colorJson = riverJson.contains("color") ? riverJson["color"] : Json();
+            if (colorJson.is_array() && colorJson.size() == 3) {
+                std::array<int, 3> color = cfg.render.river.color;
+                bool ok = true;
+                for (int i = 0; i < 3; ++i) {
+                    const auto& channel = colorJson[static_cast<std::size_t>(i)];
+                    if (!channel.is_number_integer()) {
+                        ok = false;
+                        break;
+                    }
+                    color[static_cast<std::size_t>(i)] = channel.get<int>();
+                }
+                if (ok) cfg.render.river.color = color;
+            }
+        }
     }
 
     // ---- ui（消息面板 P4）----
@@ -1659,6 +1684,10 @@ bool Config::validate(std::string* err) const {
         || !finite(render.player.markerRotateSpeed) || !nonNegative(render.player.markerRingMargin)
         || !nonNegative(render.player.markerArrowGap) || ui.messageMaxShown <= 0)
         return fail("render.player or ui numeric range invalid");
+    if (!positive(render.river.thicknessPx) || !nonNegative(render.river.minCellPx) ||
+        render.river.color[0] < 0 || render.river.color[0] > 255 || render.river.color[1] < 0 ||
+        render.river.color[1] > 255 || render.river.color[2] < 0 || render.river.color[2] > 255)
+        return fail("render.river numeric range invalid");
 
     const auto validateSet = [&](const City::TilingSet& set, const char* name) {
         if (set.levels.empty() || set.shapeLevelIndex.size() != set.shapes.size())
@@ -1929,6 +1958,10 @@ std::string Config::toJson() const {
                               {"markerRotateSpeed", render.player.markerRotateSpeed},
                               {"markerRingMargin", render.player.markerRingMargin},
                               {"markerArrowGap", render.player.markerArrowGap}};
+        renderJ["river"] = {{"thicknessPx", render.river.thicknessPx},
+                             {"color", {render.river.color[0], render.river.color[1],
+                                        render.river.color[2]}},
+                             {"minCellPx", render.river.minCellPx}};
 
         j["render"] = std::move(renderJ);
     }

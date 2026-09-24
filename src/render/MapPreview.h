@@ -17,4 +17,8 @@ namespace lw::render {
 //   返回纹理由调用方释放（须先于 SDL_DestroyRenderer）；失败返回 nullptr（spdlog 记错）。
 SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW);
 
+// 同上，但只光栅化成 RGBA32 表面（不建纹理、不需要 renderer）——单测/工具直接读像素用。
+// 调用方负责 SDL_FreeSurface；失败返回 nullptr。
+SDL_Surface* renderMapPreviewSurface(const Map& map, int previewW);
+
 }  // namespace lw::render

@@ -107,7 +107,8 @@ TEST(Config, JsonOverrides) {
                     "tile": { "primary": 0.4, "secondary": 0.3, "white": 0.3 },
                     "city": { "mix": { "primary": 0.7, "secondary": 0.1, "black": 0.2 },
                                "spawnArrow": { "primary": 0.5, "secondary": 0.2, "black": 0.3,
-                                                "areaDivisor": 4.0 } } },
+                                                "areaDivisor": 4.0 } },
+                     "river": { "thicknessPx": 5.5, "color": [12, 34, 56], "minCellPx": 4.0 } },
         "economy": { "initialEconomy": 5.0, "perLandIncome": 0.5, "cityBaseMult": 3.0 }
     })";
     const lw::Config cfg = lw::Config::loadFromJson(json);
@@ -134,6 +135,14 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.primary, 0.5, 1e-12);
     EXPECT_NEAR(cfg.render.city.spawnArrow.secondary, 0.2, 1e-12);
     EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 4.0, 1e-12);
+    EXPECT_NEAR(cfg.render.river.thicknessPx, 5.5, 1e-12);
+    EXPECT_EQ(cfg.render.river.color, (std::array<int, 3>{12, 34, 56}));
+    EXPECT_NEAR(cfg.render.river.minCellPx, 4.0, 1e-12);
+    // 河流渲染键往返（loadFromJson(toJson) 无损）。
+    const lw::Config riverRoundTrip = lw::Config::loadFromJson(cfg.toJson());
+    EXPECT_NEAR(riverRoundTrip.render.river.thicknessPx, 5.5, 1e-12);
+    EXPECT_EQ(riverRoundTrip.render.river.color, (std::array<int, 3>{12, 34, 56}));
+    EXPECT_NEAR(riverRoundTrip.render.river.minCellPx, 4.0, 1e-12);
     EXPECT_NEAR(cfg.economy.initialEconomy, 5.0, 1e-12);
     EXPECT_NEAR(cfg.economy.perLandIncome, 0.5, 1e-12);
     EXPECT_NEAR(cfg.economy.cityBaseMult, 3.0, 1e-12);
@@ -301,6 +310,9 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.black, 0.3, 1e-9);
     EXPECT_NEAR(cfg.render.player.hoverCityRadius, 2.0, 1e-9);
     EXPECT_NEAR(cfg.render.player.markerRingMargin, 1.5, 1e-9);
+    EXPECT_NEAR(cfg.render.river.thicknessPx, 3.0, 1e-9);   // data/render.jsonc
+    EXPECT_EQ(cfg.render.river.color, (std::array<int, 3>{0, 0, 0}));
+    EXPECT_NEAR(cfg.render.river.minCellPx, 0.0, 1e-9);
     EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.5, 1e-9);
     EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.5, 1e-9);
     EXPECT_EQ(cfg.factions[9].name, "测试");

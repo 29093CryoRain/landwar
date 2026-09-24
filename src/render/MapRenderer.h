@@ -23,8 +23,9 @@ namespace lw::render {
 
 class MapRenderer {
 public:
-    MapRenderer(SDL_Renderer* ren, const Camera& cam, const Config::Render::Mountain& config)
-        : ren_(ren), cam_(cam), mountainConfig_(config) {}
+    MapRenderer(SDL_Renderer* ren, const Camera& cam, const Config::Render::Mountain& config,
+                Config::Render::River riverConfig = {})
+        : ren_(ren), cam_(cam), mountainConfig_(config), riverConfig_(riverConfig) {}
 
     // 设置山纹颜色（colors 下标即势力 id，含中立 0 共 9 项）；面积变体在首次绘制地图时烘焙。
     // 可重复调用（F5/F6 重烘焙）。
@@ -71,11 +72,14 @@ private:
     void drawTiled(const Map& map, const std::vector<std::array<int, 3>>& tileColors,
                    const std::vector<std::vector<std::array<int, 3>>>& gradeColors);
     void ensureTiledVertices(const Map& map);
+    // 河流系统 §7.2：逐条河边画粗线段 + 拐角补圆（在 drawBoundaryOutline 之前调用）。
+    void drawRivers(const Map& map);
     // P12 决策 3：一圈灰线描出地图边界（任意密铺；实心粗线段）。
     void drawBoundaryOutline(const Map& map);
     SDL_Renderer* ren_;
     const Camera& cam_;
     const Config::Render::Mountain& mountainConfig_;
+    const Config::Render::River riverConfig_;
     std::vector<std::array<int, 3>> mountainColors_;
     std::vector<MountainScale> mountainScales_;
     CellPolyCache polyCache_;

@@ -18,10 +18,61 @@ constexpr Uint8 kLandR = 100, kLandG = 100, kLandB = 96;   // 中性灰陆
 constexpr Uint8 kMtnR = 150, kMtnG = 128, kMtnB = 92;      // 褐山
 constexpr Uint8 kCityR = 232, kCityG = 216, kCityB = 120;  // 亮黄城
 
+// 预览用实心圆点（坐标四舍五入后裁剪）。
+void plotDisc(Uint32* px, int tw, int th, double x, double y, int radius, Uint32 col) {
+    const int cx = static_cast<int>(std::lround(x));
+    const int cy = static_cast<int>(std::lround(y));
+    for (int dy = -radius; dy <= radius; ++dy) {
+        const int py = cy + dy;
+        if (py < 0 || py >= th) continue;
+        const int hw = static_cast<int>(
+            std::sqrt(std::max(0.0, static_cast<double>(radius * radius - dy * dy))));
+        for (int dx = -hw; dx <= hw; ++dx) {
+            const int pxx = cx + dx;
+            if (pxx < 0 || pxx >= tw) continue;
+            px[static_cast<std::size_t>(py) * tw + pxx] = col;
+        }
+    }
+}
+
+// 河流系统 §7.3：把河边画到缩略图上（黑色，1..2 px；预览很小，不做粗线）。
+// 用 gridVertex（非斜周期 = 世界坐标）保证与上面的多边形填充同一坐标系。
+// 变换：sx = (x - ox)·cell，sy = (th - 0.5) - (y - oy)·cell（与 fillPoly 的 y 翻转一致）。
+void plotPreviewRivers(Uint32* px, int tw, int th, const Map& map, double ox, double oy,
+                       double cell, Uint32 col) {
+    if (map.riverEdges().empty()) return;
+    const TilingGeom& g = map.geom();
+    const int radius = std::max(1, static_cast<int>(std::lround(cell * 0.5)));
+    for (const MapEdgeRef& ref : map.riverEdges()) {
+        int vA = -1, vB = -1;
+        if (!g.cellEdgeVertices(ref.cell, ref.edge, vA, vB)) continue;
+        double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
+        g.gridVertex(ref.cell, vA, x0, y0);
+        g.gridVertex(ref.cell, vB, x1, y1);
+        const double sx0 = (x0 - ox) * cell, sy0 = (th - 0.5) - (y0 - oy) * cell;
+        const double sx1 = (x1 - ox) * cell, sy1 = (th - 0.5) - (y1 - oy) * cell;
+        const int steps =
+            std::max(1, static_cast<int>(std::ceil(std::hypot(sx1 - sx0, sy1 - sy0))));
+        for (int s = 0; s <= steps; ++s) {
+            const double t = static_cast<double>(s) / static_cast<double>(steps);
+            plotDisc(px, tw, th, sx0 + t * (sx1 - sx0), sy0 + t * (sy1 - sy0), radius, col);
+        }
+    }
+}
+
 }  // namespace
 
 SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
     if (!ren) return nullptr;
+    SDL_Surface* surf = renderMapPreviewSurface(map, previewW);
+    if (!surf) return nullptr;
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
+    SDL_FreeSurface(surf);
+    if (!tex) spdlog::error("MapPreview: texture create failed: {}", SDL_GetError());
+    return tex;
+}
+
+SDL_Surface* renderMapPreviewSurface(const Map& map, int previewW) {
     if (map.width() <= 0 || map.height() <= 0) return nullptr;
 
     if (map.tiling() == TilingType::Square) {
@@ -66,12 +117,11 @@ SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
                 }
             }
         }
-        SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
-        SDL_FreeSurface(surf);
-        if (!tex) spdlog::error("MapPreview: texture create failed: {}", SDL_GetError());
-        return tex;
+        // 河流系统 §7.3：方形单位格世界坐标即 [0,width]x[0,height] → 原点 (0,0)。
+        plotPreviewRivers(px, tw, th, map, 0.0, 0.0, static_cast<double>(cell),
+                          SDL_MapRGBA(surf->format, 0, 0, 0, 255));
+        return surf;
     }
-
     // P12 六/三角：逐格凸多边形扫描线填充（真实密铺形状，杜绝"横纹/单朝向块"假象）。
     // 2026-08 斜周期（33336 系）：世界为平行四边形（W.y/H.x 剪切）。若按世界坐标画格
     // 多边形，地图在缩略图中呈斜向细带（"只能看到地图一角"）。改为**旋转到常规矩形**：
@@ -163,10 +213,10 @@ SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
         const int n = vn[static_cast<size_t>(idx)];
         if (n >= 3) fillPoly(vxSt[static_cast<size_t>(idx)], col);
     }
-    SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
-    SDL_FreeSurface(surf);
-    if (!tex) spdlog::error("MapPreview: texture create failed: {}", SDL_GetError());
-    return tex;
+    // 河流系统 §7.3：与上面的多边形同一坐标系（斜周期 = 格坐标）与同一原点。
+    plotPreviewRivers(px, tw, th, map, sxmin, symin, cell,
+                      SDL_MapRGBA(surf->format, 0, 0, 0, 255));
+    return surf;
 }
 
 }  // namespace lw::render

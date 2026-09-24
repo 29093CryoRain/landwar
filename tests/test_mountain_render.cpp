@@ -49,7 +49,7 @@ TEST(MountainRender, BakesAndDrawsAllTilingScales) {
         camera.configure(lw::math::ScreenTransform{15.0, 0, map.worldHeight()}, 800, 600,
                          map.worldWidth(), map.worldHeight());
         {
-            lw::render::MapRenderer mapRenderer(renderer, camera, cfg.render.mountain);
+            lw::render::MapRenderer mapRenderer(renderer, camera, cfg.render.mountain, cfg.render.river);
             mapRenderer.bake(colors);
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
             SDL_RenderClear(renderer);
