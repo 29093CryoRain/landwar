@@ -1,6 +1,7 @@
 #include "editor/MapEditorModel.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <utility>
 #include <unordered_set>
@@ -26,6 +27,23 @@ MapEditorCell paintedCell(const MapEditorCell& current, MapTerrain terrain) {
             break;
     }
     return next;
+}
+
+bool lessEdgeRef(const MapEdgeRef& a, const MapEdgeRef& b) {
+    return a.cell != b.cell ? a.cell < b.cell : a.edge < b.edge;
+}
+
+bool sameEdgeRef(const MapEdgeRef& a, const MapEdgeRef& b) {
+    return a.cell == b.cell && a.edge == b.edge;
+}
+
+// 点到线段距离（世界单位）。
+double pointSegmentDistance(double px, double py, double x0, double y0, double x1, double y1) {
+    const double dx = x1 - x0, dy = y1 - y0;
+    const double len2 = dx * dx + dy * dy;
+    if (len2 <= 1e-18) return std::hypot(px - x0, py - y0);
+    const double t = std::clamp(((px - x0) * dx + (py - y0) * dy) / len2, 0.0, 1.0);
+    return std::hypot(px - (x0 + t * dx), py - (y0 + t * dy));
 }
 
 }  // namespace
@@ -63,11 +81,18 @@ bool MapEditorModel::configureCanonical(TilingType tiling, int cols, int rows, s
     batchCityMarkIncrease_ = 0;
     shapeOffsetCache_.clear();
     resolutionCache_.clear();
+    rivers_.clear();
+    riverViolations_.clear();
+    riverViolationsDirty_ = true;
     return true;
 }
 
 bool MapEditorModel::loadDefinition(const MapDefinition& definition, std::string* err) {
-    if (!definition.validate(err)) return false;
+    // 河流**宽松载入**（§8.1）：非法河（临海/边界边）保留为可见标记 + 违规计数，故先清空
+    // rivers 再做严格校验（校验只覆盖地形/城市/尺寸），河在下面单独规范化。
+    MapDefinition sanitized = definition;
+    sanitized.rivers.clear();
+    if (!sanitized.validate(err)) return false;
     if (!configureCanonical(definition.tiling, definition.cols, definition.rows, err)) return false;
     for (std::size_t i = 0; i < definition.terrain.size(); ++i) {
         cells_[i].terrain = definition.terrain[i];
@@ -92,7 +117,20 @@ bool MapEditorModel::loadDefinition(const MapDefinition& definition, std::string
         }
         if (!valid) warnings_.push_back("city record has cells outside the editor geometry");
     }
+    // 河：只丢弃"越界到无法标记"的项；界内但临海的项保留（违规计数 + 可见标记）。
+    rivers_.clear();
+    for (const MapEdgeRef& ref : definition.rivers) {
+        if (!validIndex(ref.cell) || ref.edge < 0 ||
+            ref.edge >= geometry_.neighborCount(ref.cell)) {
+            warnings_.push_back("河流记录越界，已忽略（无法标记）");
+            continue;
+        }
+        rivers_.push_back(canonicalRiverRef(ref));
+    }
+    std::sort(rivers_.begin(), rivers_.end(), lessEdgeRef);
+    rivers_.erase(std::unique(rivers_.begin(), rivers_.end(), sameEdgeRef), rivers_.end());
     mountainCoastViolationsDirty_ = true;
+    riverViolationsDirty_ = true;
     rebuildResolution();
     return true;
 }
@@ -143,6 +181,7 @@ bool MapEditorModel::applyCell(int index, const MapEditorCell& next) {
                             next.terrain == MapTerrain::City;
     current = next;
     mountainCoastViolationsDirty_ = true;
+    riverViolationsDirty_ = true;  // 地形改海/改陆 → 相邻河边合法性变化
     if (cityStateAffected) rebuildResolution({index});
     if (batchActive_) {
         batchChanged_ = true;
@@ -156,8 +195,10 @@ bool MapEditorModel::applyCell(int index, const MapEditorCell& next) {
 
 MapEditorModel::State MapEditorModel::snapshot() const {
     ensureMountainCoastViolations();
-    return {cells_, resolvedCities_, resolvedCityIds_, unresolvedMarks_, mountainCoastViolations_,
-            warnings_};
+    ensureRiverViolations();
+    return {cells_,       resolvedCities_,      resolvedCityIds_,
+            unresolvedMarks_, mountainCoastViolations_, warnings_,
+            rivers_,      riverViolations_};
 }
 
 void MapEditorModel::restore(State state) {
@@ -168,6 +209,9 @@ void MapEditorModel::restore(State state) {
     mountainCoastViolations_ = std::move(state.mountainCoastViolations);
     mountainCoastViolationsDirty_ = false;
     warnings_ = std::move(state.warnings);
+    rivers_ = std::move(state.rivers);
+    riverViolations_ = std::move(state.riverViolations);
+    riverViolationsDirty_ = false;
     resolutionCache_.clear();
     rebuildResolution();
 }
@@ -563,6 +607,105 @@ void MapEditorModel::rebuildResolution(const std::vector<int>& changedIndices) {
     rebuildResolvedViews();
 }
 
+// ---- 河流（§8.1）----
+
+MapEdgeRef MapEditorModel::canonicalRiverRef(const MapEdgeRef& ref) const {
+    int cell = -1, edge = -1;
+    const std::uint64_t key = geometry_.edgeKey(ref.cell, ref.edge);
+    if (key != 0 && geometry_.edgeFromKey(key, cell, edge)) return {cell, edge};
+    return ref;
+}
+
+bool MapEditorModel::riverEdgeLegal(const MapEdgeRef& ref) const {
+    if (!validIndex(ref.cell) || ref.edge < 0 || ref.edge >= geometry_.neighborCount(ref.cell))
+        return false;
+    int a = -1, b = -1;
+    geometry_.edgeCells(ref.cell, ref.edge, a, b);
+    if (b < 0) return false;  // 地图边界边：河边必须有第二个邻块
+    return terrainAt(a) != MapTerrain::Sea && terrainAt(b) != MapTerrain::Sea;
+}
+
+void MapEditorModel::rebuildRiverViolations() const {
+    riverViolations_.clear();
+    for (const MapEdgeRef& ref : rivers_)
+        if (!riverEdgeLegal(ref)) riverViolations_.push_back(ref);
+    riverViolationsDirty_ = false;
+}
+
+void MapEditorModel::ensureRiverViolations() const {
+    if (riverViolationsDirty_) rebuildRiverViolations();
+}
+
+bool MapEditorModel::riverMarked(int cell, int edge) const {
+    if (!validIndex(cell) || edge < 0 || edge >= geometry_.neighborCount(cell)) return false;
+    const MapEdgeRef ref = canonicalRiverRef({cell, edge});
+    return std::binary_search(rivers_.begin(), rivers_.end(), ref, lessEdgeRef);
+}
+
+bool MapEditorModel::setRiver(int cell, int edge, bool marked) {
+    if (!validIndex(cell) || edge < 0 || edge >= geometry_.neighborCount(cell)) return false;
+    const MapEdgeRef ref = canonicalRiverRef({cell, edge});
+    const auto it = std::lower_bound(rivers_.begin(), rivers_.end(), ref, lessEdgeRef);
+    const bool present = it != rivers_.end() && sameEdgeRef(*it, ref);
+    if (present == marked) return false;
+    if (marked && !riverEdgeLegal(ref)) {
+        int a = -1, b = -1;
+        geometry_.edgeCells(ref.cell, ref.edge, a, b);
+        warnings_.push_back(b < 0 ? "河不能落在地图边界边上（已拒绝）"
+                                  : "河边两侧必须都是陆地（已拒绝临海河）");
+        return false;
+    }
+    const State before = batchActive_ ? State{} : snapshot();
+    if (marked)
+        rivers_.insert(it, ref);
+    else
+        rivers_.erase(it);
+    riverViolationsDirty_ = true;
+    if (batchActive_) {
+        batchChanged_ = true;
+    } else {
+        lastCityMarkIncrease_ = 0;
+        beginOperation(before);
+    }
+    return true;
+}
+
+int MapEditorModel::nearestRiverEdge(int cell, double wx, double wy, double& outDistance) const {
+    outDistance = 0.0;
+    if (!validIndex(cell)) return -1;
+    int best = -1;
+    double bestDistance = 0.0;
+    for (int k = 0; k < geometry_.neighborCount(cell); ++k) {
+        if (geometry_.neighbor(cell, k) < 0) continue;  // 地图边界边不可画
+        double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
+        if (!geometry_.cellEdge(cell, k, x0, y0, x1, y1)) continue;
+        const double distance = pointSegmentDistance(wx, wy, x0, y0, x1, y1);
+        if (best < 0 || distance < bestDistance) {
+            best = k;
+            bestDistance = distance;
+        }
+    }
+    outDistance = bestDistance;
+    return best;
+}
+
+int MapEditorModel::paintRiverNearest(int cell, double wx, double wy) {
+    double distance = 0.0;
+    const int edge = nearestRiverEdge(cell, wx, wy, distance);
+    if (edge < 0) return 0;
+    // 命中太远（> 0.5 格 = 0.5·√面积）忽略，避免误画。
+    if (distance > 0.5 * std::sqrt(std::max(1e-9, geometry_.cellArea(cell)))) return 0;
+    return setRiver(cell, edge, true) ? 1 : 0;
+}
+
+int MapEditorModel::eraseRiverNearest(int cell, double wx, double wy) {
+    double distance = 0.0;
+    const int edge = nearestRiverEdge(cell, wx, wy, distance);
+    if (edge < 0) return 0;
+    if (distance > 0.5 * std::sqrt(std::max(1e-9, geometry_.cellArea(cell)))) return 0;
+    return setRiver(cell, edge, false) ? 1 : 0;
+}
+
 MapDefinition MapEditorModel::toDefinition() const {
     MapDefinition definition;
     definition.cols = geometry_.cols;
@@ -580,6 +723,10 @@ MapDefinition MapEditorModel::toDefinition() const {
             definition.terrain.push_back(cell.terrain);
     }
     definition.cities = resolvedCities_;
+    // 河（§8.1）：**非法项不导出**（运行时不可含非法河）——保存前由编辑器弹确认告警提示会丢弃。
+    definition.rivers.reserve(rivers_.size());
+    for (const MapEdgeRef& ref : rivers_)
+        if (riverEdgeLegal(ref)) definition.rivers.push_back(ref);
     return definition;
 }
 

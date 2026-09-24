@@ -56,6 +56,24 @@ public:
         return static_cast<int>(mountainCoastViolations_.size());
     }
 
+    // ---- 河流（河流系统 §8.1）：河是**边**属性，用"离点击位置最近的边"落笔 ----
+    bool riverMarked(int cell, int edge) const;
+    // 一次可撤销操作：置/清一条河边。置河要求"界内 + 非地图边界边 + 两侧地形都不是海"，
+    // 不合法时拒绝并写入 warnings（不产生 undo 记录）。
+    bool setRiver(int cell, int edge, bool marked = true);
+    // 画/擦"离世界点 (wx,wy) 最近的边"：返回 0/1（是否改变）。命中太远（> 0.5 格）忽略。
+    int paintRiverNearest(int cell, double wx, double wy);
+    int eraseRiverNearest(int cell, double wx, double wy);
+    // 规范 (cell,edge)、升序、去重；**含非法项**（地形被改成海后仍保留可见标记）。
+    const std::vector<MapEdgeRef>& rivers() const { return rivers_; }
+    // 非法河（临海/地图边界边）：与 mountainCoastViolation 同型（懒计算）。
+    const std::vector<MapEdgeRef>& riverViolations() const {
+        ensureRiverViolations();
+        return riverViolations_;
+    }
+    bool hasRiverViolations() const { return !riverViolations().empty(); }
+    int riverSeaViolationCount() const { return static_cast<int>(riverViolations().size()); }
+
     // Each successful call is one undoable operation. No-op calls do not add history.
     bool paintCell(int index, MapTerrain terrain);
     bool setCityMark(int index, bool marked = true);
@@ -90,6 +108,8 @@ private:
         std::vector<int> unresolved;
         std::vector<int> mountainCoastViolations;
         std::vector<std::string> warnings;
+        std::vector<MapEdgeRef> rivers;
+        std::vector<MapEdgeRef> riverViolations;
     };
 
     struct ShapeCellOffset {
@@ -114,6 +134,14 @@ private:
 
     bool validIndex(int index) const;
     bool applyCell(int index, const MapEditorCell& next);
+    // (cell,edge) 折到规范侧（越界/无邻居时原样返回）。
+    MapEdgeRef canonicalRiverRef(const MapEdgeRef& ref) const;
+    // 合法河边：界内 ∧ 非地图边界边 ∧ 两侧地形都不是海。
+    bool riverEdgeLegal(const MapEdgeRef& ref) const;
+    // 离 (wx,wy) 最近的**非地图边界**边序号；无 → -1。outDistance = 点到线段的距离（世界单位）。
+    int nearestRiverEdge(int cell, double wx, double wy, double& outDistance) const;
+    void rebuildRiverViolations() const;
+    void ensureRiverViolations() const;
     State snapshot() const;
     void restore(State state);
     void beginOperation(const State& before);
@@ -134,6 +162,9 @@ private:
     std::vector<int> unresolvedMarks_;
     mutable std::vector<int> mountainCoastViolations_;
     mutable bool mountainCoastViolationsDirty_ = true;
+    std::vector<MapEdgeRef> rivers_;                  // 规范、升序、去重（含非法项）
+    mutable std::vector<MapEdgeRef> riverViolations_;  // 非法项（临海/边界边）
+    mutable bool riverViolationsDirty_ = true;
     std::vector<std::string> warnings_;
     std::vector<State> undo_;
     mutable std::vector<ShapeOffsetCacheEntry> shapeOffsetCache_;

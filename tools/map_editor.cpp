@@ -19,6 +19,7 @@
 #include "render/Camera.h"
 #include "render/CityRenderer.h"
 #include "render/MapRenderer.h"
+#include "render/Renderer.h"
 #include "ui/ImGuiSetup.h"
 #include "world/Map.h"
 #include "world/tiling/Tiling.h"
@@ -200,6 +201,9 @@ int main(int argc, char** argv) {
         int brushMode = 0;
         int brushSize = 1;
         bool eraseCityMarks = false;
+        // 河流工具（§8.2）：0=关、1=画河、2=擦河。独立于地形 paintChoice（河是边级 +
+        // 需要"最近边"命中），非 0 时鼠标编辑走河逻辑、不走地形笔刷。
+        int riverTool = 0;
         bool savePopup = false;
         bool largeOperationPopup = false;
         bool saveResult = false;
@@ -336,8 +340,18 @@ int main(int argc, char** argv) {
         };
         const auto editAt = [&](int x, int y) {
             if (!isMapPointer(x, y)) return;
-            const int index = model.geometry().worldToCell(camera.toWorldX(x), camera.toWorldY(y));
+            const double worldX = camera.toWorldX(x);
+            const double worldY = camera.toWorldY(y);
+            const int index = model.geometry().worldToCell(worldX, worldY);
             if (index < 0) return;
+            if (riverTool != 0) {
+                // 河：最近边命中（跳过地图边界边与过远命中）→ 一次可撤销操作。
+                // 河是稀疏数据 → 直接全量重建预览（省掉边级的增量同步）。
+                const int changed = riverTool == 1 ? model.paintRiverNearest(index, worldX, worldY)
+                                                   : model.eraseRiverNearest(index, worldX, worldY);
+                if (changed > 0) previewDirty = true;
+                return;
+            }
             const bool cityEdit = paintChoice == 3;
             const std::vector<int> affected = brushMode == 0 && !cityEdit
                                                   ? brushCells(model, index, brushSize)
@@ -442,6 +456,19 @@ int main(int argc, char** argv) {
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
             SDL_RenderClear(renderer);
             mapRenderer.draw(previewMap, editorColors);
+            // 非法河（临海/边界）用红色可见标记：合法河由 MapRenderer 画黑线，
+            // 但非法河不导出（toDefinition 过滤）→ 不进 previewMap，必须在此单独提示。
+            if (model.hasRiverViolations()) {
+                lw::render::Renderer riverRenderer(renderer);
+                const lw::render::Camera& rcam = camera;
+                for (const lw::MapEdgeRef& ref : model.riverViolations()) {
+                    double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
+                    if (!model.geometry().cellEdge(ref.cell, ref.edge, x0, y0, x1, y1)) continue;
+                    riverRenderer.fillThickSegment(rcam.toScreenXi(x0), rcam.toScreenYi(y0),
+                                                   rcam.toScreenXi(x1), rcam.toScreenYi(y1), 4,
+                                                   SDL_Color{220, 40, 40, 255});
+                }
+            }
             if (camera.cellPx() >= kGridLineMinCellPx) mapRenderer.drawGrid(previewMap);
             cityRenderer.drawFrame(cityFrame, config.render);
 
@@ -483,6 +510,14 @@ int main(int argc, char** argv) {
                 ImGui::RadioButton(label, &paintChoice, value);
             }
             if (paintChoice == 3) ImGui::Checkbox("擦除城市标记", &eraseCityMarks);
+            ImGui::TextUnformatted("河流（边级工具，独立于上面的填充内容）");
+            ImGui::RadioButton("关##river", &riverTool, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("画河", &riverTool, 1);
+            ImGui::SameLine();
+            ImGui::RadioButton("擦河", &riverTool, 2);
+            if (riverTool != 0)
+                ImGui::TextUnformatted("提示：点击/拖拽选最近的边；河边两侧必须都是陆地。");
             ImGui::TextUnformatted("画笔");
             ImGui::RadioButton("单点笔刷", &brushMode, 0);
             ImGui::SameLine();
@@ -512,6 +547,12 @@ int main(int argc, char** argv) {
                 ImGui::Text("临海山地：%d", model.mountainCoastViolationCount());
                 ImGui::PopStyleColor();
             }
+            ImGui::Text("河段：%d", static_cast<int>(model.rivers().size()));
+            if (model.hasRiverViolations()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.65f, 0.2f, 1.0f));
+                ImGui::Text("临海河（不会保存）：%d", model.riverSeaViolationCount());
+                ImGui::PopStyleColor();
+            }
             ImGui::Separator();
             ImGui::InputText("读取路径", loadPath, sizeof(loadPath));
             if (ImGui::Button("读取地图")) load();
@@ -519,7 +560,8 @@ int main(int argc, char** argv) {
             ImGui::Separator();
             ImGui::InputText("保存路径", savePath, sizeof(savePath));
             if (ImGui::Button("保存地图")) {
-                savePopup = model.hasUnresolvedMarks() || model.hasMountainCoastViolations();
+                savePopup = model.hasUnresolvedMarks() || model.hasMountainCoastViolations() ||
+                            model.hasRiverViolations();
                 if (!savePopup) save();
             }
             if (!saveError.empty()) ImGui::TextWrapped("保存失败：%s", saveError.c_str());
@@ -533,6 +575,9 @@ int main(int argc, char** argv) {
                     ImGui::TextWrapped("未分派城市格将保留为城格颜色，但不会生成城市记录。");
                 if (model.hasMountainCoastViolations())
                     ImGui::TextWrapped("存在临海山地，请确认保存。");
+                if (model.hasRiverViolations())
+                    ImGui::TextWrapped("存在 %d 条临海/边界河，它们不会被保存（会被丢弃）。",
+                                       model.riverSeaViolationCount());
                 if (ImGui::Button("确定", ImVec2(120.0f, 0.0f))) save();
                 ImGui::SameLine();
                 if (ImGui::Button("取消", ImVec2(120.0f, 0.0f))) {
