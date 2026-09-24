@@ -89,7 +89,10 @@ std::uint64_t semanticBaselineHash(const lw::Simulation& sim) {
 std::uint64_t runRandomBaseline(lw::TilingType t, int ticks = 2500) {
     lw::Config cfg = lwtest::loadCfg();
     cfg.map.tiling = lw::tilingName(t);
-    lw::MapGenParams gp{120, 120, 0.5, 0.1, 0.015, 0.3, /*forceCoast=*/true, t};
+    // 河流系统 §9.9：显式 riverDensity = 0 —— 这三条基线的原意是"纯陆/海/山/城的移动与
+    // 势力确定性"，无河路径不消耗任何 RNG → 与历史输出逐字节一致。
+    lw::MapGenParams gp{120, 120, 0.5, 0.1, 0.015, /*riverDensity=*/0.0, 0.3,
+                        /*forceCoast=*/true, t};
     lw::MapDefinition definition;
     EXPECT_TRUE(lw::MapGenerator::generate(42, gp, definition, cfg.city));
     cfg.map.width = definition.cols;
@@ -129,7 +132,7 @@ TEST(Determinism, SmallTiledAllTilingsSameSeedSameHash) {
     for (lw::TilingType t : tilings) {
         lw::Config cfg = lwtest::loadCfg();
         cfg.map.tiling = lw::tilingName(t);
-        lw::MapGenParams gp{32, 32, 0.40, 0.05, 0.01, 0.3, false, t};
+        lw::MapGenParams gp{32, 32, 0.40, 0.05, 0.01, /*riverDensity=*/0.0, 0.3, false, t};
         lw::MapDefinition definition;
         ASSERT_TRUE(lw::MapGenerator::generate(777, gp, definition, cfg.city));
         cfg.map.width = definition.cols;

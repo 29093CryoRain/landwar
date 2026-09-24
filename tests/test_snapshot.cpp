@@ -442,6 +442,28 @@ TEST(Snapshot, InvalidEntityTypeRejected) {
 
 // ---- CLI 解析 ----
 
+// 河流系统 §9.1：--river-density 覆盖随机图河密度（默认 0.02；显式 0 = 无河回归路径）。
+TEST(Cli, ParsesRiverDensity) {
+    {
+        const char* argv[] = {"landwar", "--headless", "--river-density", "0.05"};
+        const auto o = parseCli(2 + 2, const_cast<char**>(argv));
+        EXPECT_TRUE(o.riverDensitySet);
+        EXPECT_DOUBLE_EQ(o.riverDensity, 0.05);
+        EXPECT_TRUE(o.headless);
+    }
+    {
+        const char* argv[] = {"landwar", "--headless", "--river-density", "0"};
+        const auto o = parseCli(2 + 2, const_cast<char**>(argv));
+        EXPECT_DOUBLE_EQ(o.riverDensity, 0.0);
+    }
+    {
+        const char* argv[] = {"landwar", "--headless"};
+        const auto o = parseCli(2, const_cast<char**>(argv));
+        EXPECT_FALSE(o.riverDensitySet);
+        EXPECT_DOUBLE_EQ(o.riverDensity, 0.02);  // 与菜单默认一致
+    }
+}
+
 TEST(Cli, ParsesFlags) {
     const char* argv[] = {"landwar", "--headless", "--seed", "7", "--ticks", "100",
                           "--config", "a.json",    "--map",   "b.landmap",

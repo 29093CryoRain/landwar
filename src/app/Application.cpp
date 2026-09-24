@@ -960,12 +960,13 @@ void Application::resolveMapSelection(Config& cfg) {
         const std::uint32_t mapSeed = effectiveMapSeed() == 0 ? seed_ : effectiveMapSeed();
         const MapGenParams p{options_.map.width,   options_.map.height,
                              options_.map.seaRatio, options_.map.mountainDensity,
-                              options_.map.cityDensity, cfg.map.cityMountainWeight,
+                              options_.map.cityDensity, options_.map.riverDensity,
+                              cfg.map.cityMountainWeight,
                               options_.map.forceCoast, tilingFromName(options_.map.tiling),
                               cfg.map.forceCoastRangeMultiplier,
                               cfg.map.forceCoastStrengthMultiplier};
         MapDefinition definition;
-        if (MapGenerator::generate(mapSeed, p, definition, cfg.city)) {
+        if (MapGenerator::generate(mapSeed, p, definition, cfg.city, cfg.river.gen)) {
             resolvedMapDefinition_ = std::move(definition);
             cfg.map.width = resolvedMapDefinition_->cols;
             cfg.map.height = resolvedMapDefinition_->rows;

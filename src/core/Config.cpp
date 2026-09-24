@@ -756,6 +756,11 @@ void validateConfigKeys(const Json& root) {
                      "markerArrowGap"},
                     "render.player");
     warnUnknownKeys(child(ren, "river"), {"thicknessPx", "color", "minCellPx"}, "render.river");
+    warnUnknownKeys(child(obj("river"), "gen"),
+                    {"gradientWeight", "flowDownhill", "straightnessWeight", "mouthWeight",
+                     "temperature", "maxStepsPerRiver", "sourceRetryPerRiver"},
+                    "river.gen");
+    warnUnknownKeys(obj("river"), {"crossChance", "gen"}, "river");
     // city（顶层，P13 城市系统 + P12 按密铺形状表）。
     const Json& cityJ = obj("city");
     warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri",
@@ -920,6 +925,11 @@ void warnMissingConfigKeys(const Json& root) {
                     "render.player");
     warnMissingKeys(object("render").value("river", Json::object()),
                     {"thicknessPx", "color", "minCellPx"}, "render.river");
+    warnMissingKeys(object("river"), {"crossChance", "gen"}, "river");
+    warnMissingKeys(object("river").value("gen", Json::object()),
+                    {"gradientWeight", "flowDownhill", "straightnessWeight", "mouthWeight",
+                     "temperature", "maxStepsPerRiver", "sourceRetryPerRiver"},
+                    "river.gen");
     warnMissingKeys(object("tech"), {"thresholdBase", "thresholdStep", "pointsPerCityLevel",
                                       "preferencePerLevel", "playerCandidateCount", "techs"}, "tech");
     if (root.contains("units") && root["units"].is_array()) {
@@ -1012,6 +1022,22 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
     if (root.contains("river") && root["river"].is_object()) {
         const auto& riverJson = root["river"];
         cfg.river.crossChance = getNum(riverJson, "crossChance", cfg.river.crossChance);
+        const auto& genJson =
+            riverJson.contains("gen") ? riverJson["gen"] : Json::object();
+        if (genJson.is_object()) {
+            cfg.river.gen.gradientWeight =
+                getNum(genJson, "gradientWeight", cfg.river.gen.gradientWeight);
+            cfg.river.gen.flowDownhill =
+                getBool(genJson, "flowDownhill", cfg.river.gen.flowDownhill);
+            cfg.river.gen.straightnessWeight =
+                getNum(genJson, "straightnessWeight", cfg.river.gen.straightnessWeight);
+            cfg.river.gen.mouthWeight = getNum(genJson, "mouthWeight", cfg.river.gen.mouthWeight);
+            cfg.river.gen.temperature = getNum(genJson, "temperature", cfg.river.gen.temperature);
+            cfg.river.gen.maxStepsPerRiver =
+                getInt(genJson, "maxStepsPerRiver", cfg.river.gen.maxStepsPerRiver);
+            cfg.river.gen.sourceRetryPerRiver =
+                getInt(genJson, "sourceRetryPerRiver", cfg.river.gen.sourceRetryPerRiver);
+        }
     }
 
     // ---- units ----
@@ -1587,6 +1613,10 @@ bool Config::validate(std::string* err) const {
         || !unitInterval(terrain.mountainEnterChance) || !positive(terrain.mountainSpeedMult))
         return fail("terrain numeric range invalid");
     if (!unitInterval(river.crossChance)) return fail("river.crossChance must be in [0,1]");
+    if (!finite(river.gen.gradientWeight) || !finite(river.gen.straightnessWeight) ||
+        !finite(river.gen.mouthWeight) || !positive(river.gen.temperature) ||
+        river.gen.maxStepsPerRiver < 0 || river.gen.sourceRetryPerRiver < 0)
+        return fail("river.gen numeric range invalid");
 
     for (const auto& u : units) {
         if (!positive(u.cost) || !positive(u.speedMult) || !positive(u.sizeMult)
@@ -1799,7 +1829,15 @@ std::string Config::toJson() const {
                     {"mountainEnterChance", terrain.mountainEnterChance},
                     {"mountainSpeedMult", terrain.mountainSpeedMult}};
 
-    j["river"] = {{"crossChance", river.crossChance}};
+    j["river"] = {{"crossChance", river.crossChance},
+                  {"gen",
+                   {{"gradientWeight", river.gen.gradientWeight},
+                    {"flowDownhill", river.gen.flowDownhill},
+                    {"straightnessWeight", river.gen.straightnessWeight},
+                    {"mouthWeight", river.gen.mouthWeight},
+                    {"temperature", river.gen.temperature},
+                    {"maxStepsPerRiver", river.gen.maxStepsPerRiver},
+                    {"sourceRetryPerRiver", river.gen.sourceRetryPerRiver}}}};
 
     j["units"] = Json::array();
     for (int i = 0; i < kArmyTypeCount; ++i) {

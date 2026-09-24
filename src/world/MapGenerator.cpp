@@ -5,6 +5,8 @@
 // ⑥ 输出 fully-resolved terrain and city records.
 #include "world/MapGenerator.h"
 
+#include "world/RiverGenerator.h"
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -94,8 +96,15 @@ private:
 
 // 用邻格中心的二维位移拟合局部平面，返回单位距离上的海拔变化。
 // 直接取邻格差值最大值会偏向邻居更多或中心距更大的大多边形。
-double estimateGradient(const TilingGeom& g, int index, const std::vector<double>& height,
-                        bool gridCoordinates) {
+// 返回值：vector = 拟合梯度向量（det≈0 退化时 {0,0}）；magnitude = 原标量（含 maxSlope 回退），
+// 山分布/语义基线逐位不变（§9.5）。
+struct GradientFit {
+    GradVec vector;
+    double magnitude = 0.0;
+};
+
+GradientFit estimateGradientVector(const TilingGeom& g, int index,
+                                   const std::vector<double>& height, bool gridCoordinates) {
     auto position = [&](int idx, double& x, double& y) {
         if (gridCoordinates)
             g.gridCenter(idx, x, y);
@@ -128,10 +137,10 @@ double estimateGradient(const TilingGeom& g, int index, const std::vector<double
         maxSlope = std::max(maxSlope, std::fabs(dh) / std::sqrt(d2));
     }
     const double det = xx * yy - xy * xy;
-    if (det <= 1e-12) return maxSlope;
+    if (det <= 1e-12) return {GradVec{0.0, 0.0}, maxSlope};
     const double gx = (bx * yy - by * xy) / det;
     const double gy = (by * xx - bx * xy) / det;
-    return std::hypot(gx, gy);
+    return {GradVec{gx, gy}, std::hypot(gx, gy)};
 }
 
 bool hasOutsidePointNeighbor(const TilingGeom& g, int index) {
@@ -164,13 +173,14 @@ void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
 
 // 前向声明（generate 分派用；实现见文件后部）。
 static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
-                           const Config::City& cityConfig);
+                           const Config::City& cityConfig, const Config::River::Gen& riverGen);
 static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
-                          const Config::City& cityConfig);
+                          const Config::City& cityConfig, const Config::River::Gen& riverGen);
 
 static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
                              const Config::City& cityConfig, const std::vector<bool>& land,
-                             const std::vector<bool>& mountain, Rng& rng) {
+                             const std::vector<bool>& mountain,
+                             const std::vector<MapEdgeRef>& rivers, Rng& rng) {
     out.cols = p.width;
     out.rows = p.height;
     out.tiling = p.tiling;
@@ -188,6 +198,7 @@ static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
         map.atIndex(idx).mountain = mountain[static_cast<size_t>(idx)];
         map.atIndex(idx).cityAllowed = map.atIndex(idx).land;
     }
+    out.rivers = rivers;  // 河（§9.2）：只序列化边，顶点由边导出
     map.populateRandomCities(rng, p.cityDensity, p.cityMountainWeight);
     out.cities.reserve(map.cityCount());
     for (const City& city : map.cities()) {
@@ -199,15 +210,19 @@ static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
 }
 
 static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
-                                   const Config::City& cityConfig, const TilingGeom& geometry,
+                                   const Config::City& cityConfig,
+                                   const Config::River::Gen& riverGen, const TilingGeom& geometry,
                                    std::vector<double>& height, bool gridCoordinates, Rng& rng) {
     applyCoastElevationFalloff(height, p.forceCoast, geometry, p.forceCoastRangeMultiplier,
                                p.forceCoastStrengthMultiplier);
 
     std::vector<double> grad(height.size(), 0.0);
-    for (int index = 0; index < geometry.cellCount(); ++index)
-        grad[static_cast<size_t>(index)] =
-            estimateGradient(geometry, index, height, gridCoordinates);
+    std::vector<GradVec> gradVec(height.size());
+    for (int index = 0; index < geometry.cellCount(); ++index) {
+        const GradientFit fit = estimateGradientVector(geometry, index, height, gridCoordinates);
+        grad[static_cast<size_t>(index)] = fit.magnitude;  // 与旧 estimateGradient 逐位一致
+        gradVec[static_cast<size_t>(index)] = fit.vector;
+    }
 
     std::vector<double> sorted = height;
     std::sort(sorted.begin(), sorted.end());
@@ -255,7 +270,12 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         isMountain[orderH[i]] = true;
     for (size_t i = 0; i < rangeCount && i < orderG.size(); ++i)
         isMountain[orderG[i]] = true;
-    return finishDefinition(out, p, cityConfig, land, isMountain, rng);
+    // 河流系统 §9.2（R6）：**山地之后、建城之前** → RNG 顺序 = 海拔/山 → 河 → 城。
+    // 密度 0 时不进入生成器、不消耗 RNG（旧输出逐字节不变，§9.9）。
+    const std::vector<MapEdgeRef> rivers =
+        generateRivers(geometry, land, isMountain, gradVec, p.riverDensity, riverGen,
+                       gridCoordinates, rng);
+    return finishDefinition(out, p, cityConfig, land, isMountain, rivers, rng);
 }
 
 MapGenParams normalizedParams(const MapGenParams& raw) {
@@ -265,6 +285,7 @@ MapGenParams normalizedParams(const MapGenParams& raw) {
     p.seaRatio = std::clamp(p.seaRatio, 0.0, 0.90);
     p.mountainDensity = std::clamp(p.mountainDensity, 0.0, 0.9);
     p.cityDensity = std::clamp(p.cityDensity, 0.0, 0.9);
+    p.riverDensity = std::clamp(p.riverDensity, 0.0, 0.9);
     const auto normalizeMultiplier = [](double value) {
         return std::isfinite(value) && value >= 0.0 ? value : 1.0;
     };
@@ -277,12 +298,14 @@ MapGenParams normalizedParams(const MapGenParams& raw) {
     return p;
 }
 
-std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p) {
+std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p,
+                                      const Config::River::Gen& /*riverGen*/) {
     const MapGenParams n = normalizedParams(p);
     std::ostringstream key;
     key << kMapDataDir << "/gen_" << seed << "_" << tilingName(n.tiling) << "_"
         << n.width << "x" << n.height << "_sea" << std::fixed << std::setprecision(9)
          << n.seaRatio << "_mtn" << n.mountainDensity << "_city" << n.cityDensity
+         << "_river" << n.riverDensity
          << "_coast" << (n.forceCoast ? 1 : 0)
          << "_coastRange" << n.forceCoastRangeMultiplier
          << "_coastStrength" << n.forceCoastStrengthMultiplier
@@ -291,12 +314,12 @@ std::string MapGenerator::defaultPath(std::uint32_t seed, const MapGenParams& p)
 }
 
 bool MapGenerator::generate(std::uint32_t seed, const MapGenParams& raw, MapDefinition& out,
-                            const Config::City& cityConfig) {
+                            const Config::City& cityConfig, const Config::River::Gen& riverGen) {
     const MapGenParams p = normalizedParams(raw);
     out = MapDefinition{};
     if (p.tiling == TilingType::Square)
-        return generateSquare(out, seed, p, cityConfig);
-    return generateTiled(out, seed, p, cityConfig);
+        return generateSquare(out, seed, p, cityConfig, riverGen);
+    return generateTiled(out, seed, p, cityConfig, riverGen);
 }
 
 bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const MapGenParams& raw) {
@@ -319,7 +342,7 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
 
 // Square tiling terrain generation.
 static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
-                           const Config::City& cityConfig) {
+                           const Config::City& cityConfig, const Config::River::Gen& riverGen) {
     const int w = p.width, h = p.height;
     Rng rng(seed);
     ValueNoise2D noise(rng);
@@ -333,14 +356,14 @@ static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenP
         }
     }
     const TilingGeom squareGeom{TilingType::Square, w, h};
-    return finishGeneratedTerrain(out, p, cityConfig, squareGeom, height, false, rng);
+    return finishGeneratedTerrain(out, p, cityConfig, riverGen, squareGeom, height, false, rng);
 }
 
 // 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
 // 后处理；2026-08-15 用户拍板回退，先以纯净基线定位"横纹/同向三角"现象），其余流程与
 // 方形一致（分位数切海陆 + 内陆山 + 城权重），输出 native terrain records。
 static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
-                          const Config::City& cityConfig) {
+                          const Config::City& cityConfig, const Config::River::Gen& riverGen) {
     const TilingGeom g{p.tiling, p.width, p.height};
     const int cellCount = g.cellCount();
     Rng rng(seed);
@@ -361,7 +384,7 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
             g.cellCenter(idx, gx, gy);
         height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
     }
-    return finishGeneratedTerrain(out, p, cityConfig, g, height, skew, rng);
+    return finishGeneratedTerrain(out, p, cityConfig, riverGen, g, height, skew, rng);
 }
 
 }  // namespace lw

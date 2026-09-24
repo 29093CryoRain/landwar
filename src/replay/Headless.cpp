@@ -81,12 +81,12 @@ int runHeadless(const CliOptions& opts) {
             const TilingType tiling = opts.tilingSet ? tilingFromName(opts.tiling)
                                                      : cfg.map.tilingType();
             MapGenParams params{cfg.map.width, cfg.map.height, 0.40, 0.08, 0.02,
-                                cfg.map.cityMountainWeight, false, tiling,
+                                opts.riverDensity, cfg.map.cityMountainWeight, false, tiling,
                                 cfg.map.forceCoastRangeMultiplier,
                                 cfg.map.forceCoastStrengthMultiplier};
             MapDefinition definition;
             const std::uint32_t mapSeed = opts.mapSeedSet ? opts.mapSeed : seed;
-            if (!MapGenerator::generate(mapSeed, params, definition, cfg.city)) {
+            if (!MapGenerator::generate(mapSeed, params, definition, cfg.city, cfg.river.gen)) {
                 spdlog::error("random map generation failed");
                 return 1;
             }

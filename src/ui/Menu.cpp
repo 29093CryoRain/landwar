@@ -53,6 +53,8 @@ const char* baseName(const std::string& path) {
 // 滑条位置存在 MenuState（mtnT/cityT）跨帧稳定——ImGui 直改它，不每帧从密度重算（手感修正）。
 constexpr float kMtnLo = 0.0f, kMtnHi = 0.60f;
 constexpr float kCityLo = 0.0005f, kCityHi = 0.30f;
+// 河密度（河流系统 §9.1）：与山/城同款平方映射；显式 0 = 无河（无河回归）。
+constexpr float kRiverLo = 0.0f, kRiverHi = 0.30f;
 float squareTToDensity(float t, float lo, float hi) {
     return lo + (hi - lo) * t * t;
 }
@@ -72,6 +74,7 @@ void commitDrafts(MenuState& st, Options& options) {
         options.map.seaRatio = st.seaRatio;
         options.map.mountainDensity = st.mtnDensity;
         options.map.cityDensity = st.cityDensity;
+        options.map.riverDensity = st.riverDensity;
         options.map.forceCoast = st.forceCoast;
     } else {
         options.map.kind = MapSelection::Kind::File;
@@ -92,8 +95,10 @@ void initDrafts(MenuState& st, const Options& options) {
     st.seaRatio = static_cast<float>(options.map.seaRatio);
     st.mtnDensity = static_cast<float>(options.map.mountainDensity);
     st.cityDensity = static_cast<float>(options.map.cityDensity);
+    st.riverDensity = static_cast<float>(options.map.riverDensity);
     st.mtnT = squareDensityToT(st.mtnDensity, kMtnLo, kMtnHi);   // 密度 → 滑条位置（平方域）
     st.cityT = squareDensityToT(st.cityDensity, kCityLo, kCityHi);
+    st.riverT = squareDensityToT(st.riverDensity, kRiverLo, kRiverHi);
     st.forceCoast = options.map.forceCoast;
     st.tiling = tilingFromName(options.map.tiling);  // P12：密铺（默认 square）
     st.seededOnce = true;
@@ -129,15 +134,16 @@ SDL_Texture* filePreview(MenuState& st, SDL_Renderer* ren, const Config& cfg,
 // 生成随机图（确定性：seed+params）并直接预览内存定义。
 bool generateRandomMap(MenuState& st, const Config& cfg, SDL_Renderer* ren) {
     const MapGenParams p{st.randW, st.randH, st.seaRatio, st.mtnDensity, st.cityDensity,
-                         cfg.map.cityMountainWeight, st.forceCoast, st.tiling,
+                         st.riverDensity, cfg.map.cityMountainWeight, st.forceCoast, st.tiling,
                          cfg.map.forceCoastRangeMultiplier, cfg.map.forceCoastStrengthMultiplier};
     st.genKey = "random:" + std::to_string(st.draftSeed) + ":" + tilingName(st.tiling) + ":" +
                 std::to_string(st.randW) + "x" + std::to_string(st.randH) + ":" +
                 std::to_string(st.seaRatio) + ":" + std::to_string(st.mtnDensity) + ":" +
-                std::to_string(st.cityDensity) + ":" + (st.forceCoast ? "1" : "0");
+                std::to_string(st.cityDensity) + ":" + std::to_string(st.riverDensity) + ":" +
+                (st.forceCoast ? "1" : "0");
     st.genError.clear();
     MapDefinition definition;
-    if (!MapGenerator::generate(st.draftSeed, p, definition, cfg.city)) {
+    if (!MapGenerator::generate(st.draftSeed, p, definition, cfg.city, cfg.river.gen)) {
         st.genError = "随机图生成失败";
         return false;
     }
@@ -480,6 +486,19 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         st.cityDensity = squareTToDensity(st.cityT, kCityLo, kCityHi);
         ImGui::SameLine();
         ImGui::TextDisabled("%.4f", st.cityDensity);
+
+        // 河密度（河流系统 §9.1）：河数 = round(密度 × **总格数**)——与城密度"占陆地格"语义不同；
+        // 拉到底（0）= 无河，可用于无河回归对照。
+        ImGui::SliderFloat("河密度##river", &st.riverT, 0.0f, 1.0f, "");
+        st.riverDensity = squareTToDensity(st.riverT, kRiverLo, kRiverHi);
+        ImGui::SameLine();
+        ImGui::TextDisabled("%.4f", st.riverDensity);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(共 %d 段)",
+                            static_cast<int>(std::llround(
+                                static_cast<double>(st.riverDensity) *
+                                static_cast<double>(TilingGeom{st.tiling, st.randW, st.randH}
+                                                        .cellCount()))));
         if (ImGui::Button("生成并预览")) generateRandomMap(st, cfg, ren);
 
         int tw = 0, th = 0;

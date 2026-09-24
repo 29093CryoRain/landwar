@@ -95,6 +95,16 @@ struct Config {
     // 河边两侧必须都是陆地（加载/编辑器校验保证），因此只有"陆→陆"跨边才可能触发河骰。
     struct River {
         double crossChance = 0.5;  // 过河概率基线（clamp [0,1]；占位待实验）
+        // 随机成河参数（§9.8）。全部进 config.jsonc，供"我调整并观察效果"。
+        struct Gen {
+            double gradientWeight = 1.0;      // 梯度项权重（含大小 → 坡陡处方向性更强）
+            bool flowDownhill = true;         // true = 顺坡（-∇h）
+            double straightnessWeight = 0.5;  // 直行项权重（抑制蛇行）
+            double mouthWeight = 0.0;         // 临海顶点引力（>0 = 更爱入海）
+            double temperature = 0.5;         // softmax 温度（越大越随机；内部 clamp 下限 1e-6）
+            int maxStepsPerRiver = 400;       // 单河最大边数（0 = 不限）
+            int sourceRetryPerRiver = 8;      // 源顶点临海时的重试次数
+        } gen;
     } river;
 
     // 兵种基础定义（下标 = ArmyType）。

@@ -50,6 +50,7 @@ TEST(Options, ToJsonRoundTrip) {
     a.map.seaRatio = 0.55;
     a.map.mountainDensity = 0.12;
     a.map.cityDensity = 0.03;
+    a.map.riverDensity = 0.0;  // 显式无河（河流系统 §9.1）
     a.map.forceCoast = true;
 
     const lw::Options b = lw::Options::loadFromJson(a.toJson());
@@ -63,6 +64,7 @@ TEST(Options, ToJsonRoundTrip) {
     EXPECT_DOUBLE_EQ(b.map.seaRatio, 0.55);
     EXPECT_DOUBLE_EQ(b.map.mountainDensity, 0.12);
     EXPECT_DOUBLE_EQ(b.map.cityDensity, 0.03);
+    EXPECT_DOUBLE_EQ(b.map.riverDensity, 0.0);
     EXPECT_TRUE(b.map.forceCoast);
     // 未改动的槽位保持默认。
     EXPECT_TRUE(b.factions[1].enabled);
@@ -77,6 +79,7 @@ TEST(Options, MapRandomParamsDefaultAndRoundTrip) {
     EXPECT_DOUBLE_EQ(o.map.seaRatio, 0.40);
     EXPECT_DOUBLE_EQ(o.map.mountainDensity, 0.08);
     EXPECT_DOUBLE_EQ(o.map.cityDensity, 0.02);
+    EXPECT_DOUBLE_EQ(o.map.riverDensity, 0.02);  // 河流系统 §9.1 已确认的菜单默认值
     // 键严格对称 → 解析再序列化逐字节一致。
     const std::string j1 = o.toJson();
     const std::string j2 = lw::Options::loadFromJson(j1).toJson();

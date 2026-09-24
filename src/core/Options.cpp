@@ -117,6 +117,7 @@ Options Options::loadFromJson(const std::string& jsonText) {
         o.map.seaRatio = getDouble(mapJson, "seaRatio", o.map.seaRatio);
         o.map.mountainDensity = getDouble(mapJson, "mountainDensity", o.map.mountainDensity);
         o.map.cityDensity = getDouble(mapJson, "cityDensity", o.map.cityDensity);
+        o.map.riverDensity = getDouble(mapJson, "riverDensity", o.map.riverDensity);
         o.map.forceCoast = getBool(mapJson, "forceCoast", false);
         o.map.tiling = getStr(mapJson, "tiling", o.map.tiling);  // P12：密铺（随机图生成用）
     }
@@ -168,6 +169,7 @@ std::string Options::toJson() const {
                 {"seaRatio", map.seaRatio},
                 {"mountainDensity", map.mountainDensity},
                 {"cityDensity", map.cityDensity},
+                {"riverDensity", map.riverDensity},
                 {"forceCoast", map.forceCoast},
                 {"tiling", map.tiling}};
     // 面板布局（P3）：与 loadFromJson 键严格对称。

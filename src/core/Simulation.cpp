@@ -59,12 +59,14 @@ bool Simulation::init() {
                                   options_.map.seaRatio,
                                   options_.map.mountainDensity,
                                   options_.map.cityDensity,
+                                  options_.map.riverDensity,
                                   config_.map.cityMountainWeight,
                                   options_.map.forceCoast,
                                   tilingFromName(options_.map.tiling),
                                   config_.map.forceCoastRangeMultiplier,
                                   config_.map.forceCoastStrengthMultiplier};
-        if (!MapGenerator::generate(mapSeed_, params, definition, config_.city)) {
+        if (!MapGenerator::generate(mapSeed_, params, definition, config_.city,
+                                    config_.river.gen)) {
             spdlog::error("random map generation failed");
             return false;
         }

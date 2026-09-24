@@ -269,7 +269,7 @@ TEST(TilingTable, SnubTilingsGenerateLoadAndCellRoundTrip) {
         int tc, tr;
         chooseTableDomain(static_cast<int>(t), width, height, tc, tr);
         const int expectCells = B * tc * tr;
-        MapGenParams gp{width, height, 0.35, 0.1, 0.06, 0.3, false, t};
+        MapGenParams gp{width, height, 0.35, 0.1, 0.06, /*riverDensity=*/0.0, 0.3, false, t};
         const std::string path = "userdata/maps/utest_snub_" + std::string(tilingName(t)) + ".landmap";
         ASSERT_TRUE(MapGenerator::generate(path, 42, gp)) << tilingName(t);
         Config::Map mc = cfg.map;
@@ -360,7 +360,7 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
     const Config cfg = Config::loadFromJson("{}");
     // 2026-08 比例保持映射：arch_488 的输入长/宽须为 Ra=7、Rb=10 的倍数（见 Tiling.cpp
     // tableDomainParams），否则会被向上取整。此处传合规值，使命中"长*宽=总格数"精确成立。
-    MapGenParams gp{84, 120, 0.4, 0.1, 0.02, 0.3, false, TilingType::Arch488};
+    MapGenParams gp{84, 120, 0.4, 0.1, 0.02, /*riverDensity=*/0.0, 0.3, false, TilingType::Arch488};
     const std::string path = "userdata/maps/utest_arch488.landmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;
@@ -381,7 +381,7 @@ TEST(TilingTable, Arch488MapGenerationAndCapitalPlacement) {
 
 TEST(TilingTable, Laves488MapGenerationAndCapitalPlacement) {
     const Config cfg = Config::loadFromJson("{}");
-    MapGenParams gp{32, 32, 0.4, 0.1, 0.02, 0.3, false, TilingType::Laves488};
+    MapGenParams gp{32, 32, 0.4, 0.1, 0.02, /*riverDensity=*/0.0, 0.3, false, TilingType::Laves488};
     const std::string path = "userdata/maps/utest_laves488.landmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;
@@ -774,7 +774,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
         int tc, tr;
         chooseTableDomain(static_cast<int>(t), width, hc, tc, tr);
         const int expectCells = B * tc * tr;
-        MapGenParams gp{width, hc, 0.3, 0.1, 0.08, 0.3, false, t};
+        MapGenParams gp{width, hc, 0.3, 0.1, 0.08, /*riverDensity=*/0.0, 0.3, false, t};
         const std::string path = "userdata/maps/utest_all10_" + std::string(tilingName(t)) + ".landmap";
         ASSERT_TRUE(MapGenerator::generate(path, 42, gp)) << tilingName(t);
         Config::Map mc = cfg.map;
@@ -805,7 +805,7 @@ TEST(TilingTable, AllTenTilingsGenerateCitiesWithMultipleLevels) {
 
 TEST(TilingTable, Arch488GeneratedCitiesHaveMultipleTextureLevels) {
     const Config cfg = Config::loadFromJson("{}");
-    MapGenParams gp{63, 40, 0.3, 0.1, 0.08, 0.3, false, TilingType::Arch488};
+    MapGenParams gp{63, 40, 0.3, 0.1, 0.08, /*riverDensity=*/0.0, 0.3, false, TilingType::Arch488};
     const std::string path = "userdata/maps/utest_arch488_levels.landmap";
     ASSERT_TRUE(MapGenerator::generate(path, 42, gp));
     Config::Map mc = cfg.map;

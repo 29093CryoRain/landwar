@@ -92,6 +92,7 @@ add_library(landwar_core STATIC
     src/world/MapDefinition.cpp
     src/world/Map.cpp
     src/world/MapGenerator.cpp
+    src/world/RiverGenerator.cpp
     src/world/tiling/CityIconFitter.cpp
     src/world/tiling/Tiling.cpp
     src/sim/Buff.cpp

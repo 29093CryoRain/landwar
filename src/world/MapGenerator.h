@@ -20,6 +20,9 @@ struct MapGenParams {
     double seaRatio = 0.40;         // 海占比目标（clamp [0,0.9]，0 = 全陆地；0.9 = 陆地占比 0.1）
     double mountainDensity = 0.08;  // 内陆山占比目标（clamp [0,0.9]，期望值经骰子近似）
     double cityDensity = 0.02;      // 城占比目标（占陆地格）
+    // 河密度（河流系统 §9.1）：河数 = round(riverDensity × **总格数**)；0 = 无河（不消耗 RNG）。
+    // 成员默认 0.0（"不显式给值 = 无河"）；菜单/Options 侧默认 0.02。
+    double riverDensity = 0.0;
     double cityMountainWeight = 0.3; // 山地格城市权重（普通陆地=1.0）
     bool forceCoast = false;        // 强制边缘为海：真实界外点邻接格必为海，并向内平滑削减海拔
     TilingType tiling = TilingType::Square;  // P12：密铺（square/hex/tri）
@@ -31,15 +34,18 @@ class MapGenerator {
 public:
     // Generate a resolved map in memory. No filesystem or RNG is needed by Map
     // when this definition is later loaded.
-    static bool generate(std::uint32_t seed, const MapGenParams& params,
-                         MapDefinition& out, const Config::City& cityConfig = Config::City{});
+    // riverGen = cfg.river.gen（随机成河参数；默认值即代码默认，测试可直接省略）。
+    static bool generate(std::uint32_t seed, const MapGenParams& params, MapDefinition& out,
+                         const Config::City& cityConfig = Config::City{},
+                         const Config::River::Gen& riverGen = Config::River::Gen{});
 
     // Explicit native export API. Runtime random-map initialization does not
     // use this overload.
     static bool generate(const std::string& path, std::uint32_t seed, const MapGenParams& p);
 
-    // Default native export path, ending in .landmap.
-    static std::string defaultPath(std::uint32_t seed, const MapGenParams& p);
+    // Default native export path, ending in .landmap（含河密度，避免不同密度撞名）。
+    static std::string defaultPath(std::uint32_t seed, const MapGenParams& p,
+                                   const Config::River::Gen& riverGen = Config::River::Gen{});
 };
 
 }  // namespace lw
