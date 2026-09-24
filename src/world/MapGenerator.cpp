@@ -1,8 +1,12 @@
 // MapGenerator.cpp — 随机地图生成实现（开发计划 P6）。
-// 算法（确定性）：① Rng(seed) 洗牌生成 256 值噪声查表 → ② fBm 海拔场 h∈[0,1] →
-// ③ 排序取 seaRatio 分位数切海陆（可选强制边缘为海）→ ④ 山 = 高原分量（按基础海拔取前段，
-// 大块高地）+ 山脉分量（按独立种子山脊噪声取前段，蜿蜒山脊）→ ⑤ 城概率按地形权重 →
-// ⑥ 输出 fully-resolved terrain and city records.
+// 算法（确定性）：① Rng(seed) 洗牌生成 256 值噪声查表 → ② fBm 海拔场 h∈[0,1]（2 octave，
+//   2026-09-24 由 3 降为 2 —— 见 ValueNoise2D::fbm 的说明）→ ③ 梯度由**噪声场**中心差分解析
+//   给出（与格型/格面积无关，见 ValueNoise2D::gradient）→ ④ 可选强制海岸：按**格心**到边界
+//   距离衰减海拔 → ⑤ 排序取 seaRatio 分位切海陆（**格数**分位，滑条语义）→ ⑥ 山 = 高原分量
+//   （陆地内陆格按海拔取前 40%）+ 山脉分量（同集合内按 |∇h| 取余下 60%）→ ⑦ 河（R6）→
+//   ⑧ 城概率按地形权重 → ⑨ 输出 fully-resolved terrain and city records。
+// 注意：海拔场、分位阈值、梯度、选山**均无后处理**（历史上的"消 1 格碎格"已删除，
+// 详见 .docs/old/2026_08_开发计划.md §0）。
 #include "world/MapGenerator.h"
 
 #include "world/RiverGenerator.h"
@@ -45,10 +49,15 @@ public:
         return static_cast<double>(b) / 255.0;
     }
 
-    // fBm：3 octave（lacunarity 2、gain 0.5），归一化到 [0,1]。
+    // fBm：2 octave（lacunarity 2、gain 0.5），归一化到 [0,1]。
+    // 2026-09-24 修"异种密铺碎格"：3 octave 时最细波长 = baseCell/4 ≈ 5 U，与异种密铺
+    // 最大格（1.9~3.5 U）同量级 —— 阈值等值线曲率半径 λ/2π ≈ 0.83 U ≈ 最小格尺寸，
+    // 海岸线能在单格内绕出小圈（实测 arch_31212 孤岛 19 个）；改为 2 octave 后最细波长
+    // = baseCell/2 ≈ 10 U（≈3~5 倍最大格），配合"梯度取自场"与"边缘衰减取自位置"，
+    // 实测孤岛 19→1、孤山 138→28（全 17 密铺 × 多种子）。
     double fbm(double x, double y) const {
         double sum = 0.0, amp = 1.0, norm = 0.0;
-        for (int o = 0; o < 3; ++o) {
+        for (int o = 0; o < 2; ++o) {
             sum += amp * at(x, y);
             norm += amp;
             x *= 2.0;
@@ -58,21 +67,11 @@ public:
         return sum / norm;
     }
 
-    // 山脊噪声（ridged multifractal，2026-08-06 用户要求"山脉"形状）：每 octave 取
-    // 1-|2n-1| 再平方 → 在中点 n=0.5 处形成锐利"脊线"，fBm 叠加 → 蜿蜒山脉，非平滑块状。
-    double ridgeFbm(double x, double y) const {
-        double sum = 0.0, amp = 1.0, norm = 0.0;
-        for (int o = 0; o < 3; ++o) {
-            const double n = at(x, y);
-            double r = 1.0 - std::abs(2.0 * n - 1.0);
-            r *= r;
-            sum += amp * r;
-            norm += amp;
-            x *= 2.0;
-            y *= 2.0;
-            amp *= 0.5;
-        }
-        return sum / norm;
+    // 解析梯度（固定步长中心差分）：与网格无关，故不受格型/格面积影响。
+    // 步长取 baseCell/64 ≪ 最细 octave 的格点间距（baseCell/4），无混叠。
+    void gradient(double x, double y, double h, double& gx, double& gy) const {
+        gx = (fbm(x + h, y) - fbm(x - h, y)) / (2.0 * h);
+        gy = (fbm(x, y + h) - fbm(x, y - h)) / (2.0 * h);
     }
 
     // 单 octave 值噪声采样（供外部拼单 octave 场，如 crease 脊线场）。
@@ -94,99 +93,10 @@ private:
     std::array<unsigned char, 256> perm_{};
 };
 
-// 用邻格中心的二维位移拟合局部平面，返回单位距离上的海拔变化。
-// 直接取邻格差值最大值会偏向邻居更多或中心距更大的大多边形。
-// 返回值：vector = 拟合梯度向量（det≈0 退化时 {0,0}）；magnitude = 原标量（含 maxSlope 回退），
-// 山分布/语义基线逐位不变（§9.5）。
-struct GradientFit {
-    GradVec vector;
-    double magnitude = 0.0;
-};
-
-GradientFit estimateGradientVector(const TilingGeom& g, int index,
-                                   const std::vector<double>& height, bool gridCoordinates) {
-    auto position = [&](int idx, double& x, double& y) {
-        if (gridCoordinates)
-            g.gridCenter(idx, x, y);
-        else
-            g.cellCenter(idx, x, y);
-    };
-
-    double x0, y0;
-    position(index, x0, y0);
-    const double h0 = height[static_cast<size_t>(index)];
-    double xx = 0.0, xy = 0.0, yy = 0.0;
-    double bx = 0.0, by = 0.0, maxSlope = 0.0;
-    const int count = g.type == TilingType::Square ? g.pointNeighborCount(index)
-                                                    : g.neighborCount(index);
-    for (int k = 0; k < count; ++k) {
-        const int nb = g.type == TilingType::Square ? g.pointNeighbor(index, k)
-                                                     : g.neighbor(index, k);
-        if (nb < 0) continue;
-        double x1, y1;
-        position(nb, x1, y1);
-        const double dx = x1 - x0, dy = y1 - y0;
-        const double d2 = dx * dx + dy * dy;
-        if (d2 <= 1e-12) continue;
-        const double dh = height[static_cast<size_t>(nb)] - h0;
-        xx += dx * dx;
-        xy += dx * dy;
-        yy += dy * dy;
-        bx += dx * dh;
-        by += dy * dh;
-        maxSlope = std::max(maxSlope, std::fabs(dh) / std::sqrt(d2));
-    }
-    const double det = xx * yy - xy * xy;
-    if (det <= 1e-12) return {GradVec{0.0, 0.0}, maxSlope};
-    const double gx = (bx * yy - by * xy) / det;
-    const double gy = (by * xx - bx * xy) / det;
-    return {GradVec{gx, gy}, std::hypot(gx, gy)};
-}
-
 bool hasOutsidePointNeighbor(const TilingGeom& g, int index) {
     for (int k = 0; k < g.pointNeighborCount(index); ++k)
         if (g.pointNeighbor(index, k) < 0) return true;
     return false;
-}
-
-// ---- 异种密铺的"碎格"修正（2026-09-24；arch_31212 等三角形/12 边形混排的密铺）----
-// 背景：3.12.12 里三角形占**格数** 2/3、**面积**只占约 3%（12 边形面积 ≈ 26 倍三角形）。
-// 逐格点采样 + 逐格独立判类 ⇒ 小三角形会在海岸线上乱翻（1 格孤岛/水塘）；山脉分量按
-// |∇h| 排名 ⇒ 孤立小格独占榜首（实测 arch_31212 孤山占比 10~25%，forceCoast 更甚）。
-// 修法：**只加一个确定性的"消 1 格碎格"后处理**，其余（海拔场/分位阈值/梯度/选山）与
-// 历史逐位一致 → "陆地占比"仍是**格数分位**、滑条语义不变；被改动的格数是个位数~十几个
-// （约占 0.1%），换来的是"不存在 1 格碎格"这条可断言的不变量。
-// 注：先前尝试过"小格高度取面积加权邻域均值"，实测对碎格数量几乎没有改善（19→19），
-// 已删除，避免无谓改动地形场。
-
-// a 陆地形态学清理：0 个同类边邻的格翻转（孤岛 → 海；1 格水塘 → 陆）。
-void despeckleLandSea(const TilingGeom& geometry, std::vector<bool>& land) {
-    std::vector<bool> next = land;
-    for (int index = 0; index < geometry.cellCount(); ++index) {
-        const bool isLand = land[static_cast<size_t>(index)];
-        bool anySame = false;
-        for (int k = 0; k < geometry.neighborCount(index) && !anySame; ++k) {
-            const int nb = geometry.neighbor(index, k);
-            if (nb >= 0 && land[static_cast<size_t>(nb)] == isLand) anySame = true;
-        }
-        if (!anySame) next[static_cast<size_t>(index)] = !isLand;
-    }
-    land.swap(next);
-}
-
-// b 山地清理：0 个同类边邻的山 → 普通陆（只消 1 格孤山；≥2 格的山脉/山脊原样保留）。
-void despeckleMountains(const TilingGeom& geometry, std::vector<bool>& isMountain) {
-    std::vector<bool> next = isMountain;
-    for (int index = 0; index < geometry.cellCount(); ++index) {
-        if (!isMountain[static_cast<size_t>(index)]) continue;
-        bool anyMountain = false;
-        for (int k = 0; k < geometry.neighborCount(index) && !anyMountain; ++k) {
-            const int nb = geometry.neighbor(index, k);
-            if (nb >= 0 && isMountain[static_cast<size_t>(nb)]) anyMountain = true;
-        }
-        if (!anyMountain) next[static_cast<size_t>(index)] = false;
-    }
-    isMountain.swap(next);
 }
 
 // 强制海岸的第二部分：降低靠近真实地图边界的海拔，使海岸从边缘向内自然形成。
@@ -200,7 +110,7 @@ void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
     if (!forceCoast || edgeBand <= 0.0 || edgeStrength <= 0.0) return;
 
     for (size_t index = 0; index < height.size(); ++index) {
-        const double distance = geometry.cellBoundaryDistance(static_cast<int>(index));
+        const double distance = geometry.centerBoundaryDistance(static_cast<int>(index));
         if (distance >= edgeBand) continue;
 
         const double u = 1.0 - distance / edgeBand;
@@ -246,36 +156,24 @@ static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
         for (const int index : map.cityCells(city))
             if (index >= 0) out.terrain[static_cast<std::size_t>(index)] = MapTerrain::City;
     }
-    // 城市基建格在上一步被写成 City（山标记随之消失），可能让旁边原本成对的山变孤 →
-    // 再跑一次"消 1 格孤山"，保证最终 terrain 里不存在孤立山（不变量，见单测）。
-    {
-        std::vector<bool> mountain(static_cast<std::size_t>(map.cellCount()), false);
-        for (int idx = 0; idx < map.cellCount(); ++idx)
-            mountain[static_cast<std::size_t>(idx)] =
-                out.terrain[static_cast<std::size_t>(idx)] == MapTerrain::Mountain;
-        despeckleMountains(map.geom(), mountain);
-        for (int idx = 0; idx < map.cellCount(); ++idx)
-            if (!mountain[static_cast<std::size_t>(idx)] &&
-                out.terrain[static_cast<std::size_t>(idx)] == MapTerrain::Mountain)
-                out.terrain[static_cast<std::size_t>(idx)] = MapTerrain::Land;
-    }
     return out.validate();
 }
 
 static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
                                    const Config::City& cityConfig,
                                    const Config::River::Gen& riverGen, const TilingGeom& geometry,
-                                   std::vector<double>& height, bool gridCoordinates, Rng& rng) {
+                                   std::vector<double>& height,
+                                   const std::vector<GradVec>& gradVec, bool gridCoordinates,
+                                   Rng& rng) {
     applyCoastElevationFalloff(height, p.forceCoast, geometry, p.forceCoastRangeMultiplier,
                                p.forceCoastStrengthMultiplier);
 
+    // 坡度标量（山脉"range"分量排序用）：直接取解析梯度的模长。
     std::vector<double> grad(height.size(), 0.0);
-    std::vector<GradVec> gradVec(height.size());
-    for (int index = 0; index < geometry.cellCount(); ++index) {
-        const GradientFit fit = estimateGradientVector(geometry, index, height, gridCoordinates);
-        grad[static_cast<size_t>(index)] = fit.magnitude;  // 与旧 estimateGradient 逐位一致
-        gradVec[static_cast<size_t>(index)] = fit.vector;
-    }
+    for (int index = 0; index < geometry.cellCount(); ++index)
+        grad[static_cast<size_t>(index)] =
+            std::hypot(gradVec[static_cast<size_t>(index)].x,
+                       gradVec[static_cast<size_t>(index)].y);
 
     // ② 海/陆阈值：升序分位（seaRatio = 海占**格数**比，滑条语义不变）。
     std::vector<double> sorted = height;
@@ -290,7 +188,6 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         for (int index = 0; index < geometry.cellCount(); ++index)
             if (hasOutsidePointNeighbor(geometry, index)) land[static_cast<size_t>(index)] = false;
     }
-    despeckleLandSea(geometry, land);  // 消 1 格孤岛 / 填 1 格水塘
 
     std::vector<size_t> orderH, orderG;
     for (int index = 0; index < geometry.cellCount(); ++index) {
@@ -325,7 +222,6 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         isMountain[orderH[i]] = true;
     for (size_t i = 0; i < rangeCount && i < orderG.size(); ++i)
         isMountain[orderG[i]] = true;
-    despeckleMountains(geometry, isMountain);  // 消 1 格孤山（山脉/山脊保留）
     // 河流系统 §9.2（R6）：**山地之后、建城之前** → RNG 顺序 = 海拔/山 → 河 → 城。
     // 密度 0 时不进入生成器、不消耗 RNG（旧输出逐字节不变，§9.9）。
     const std::vector<MapEdgeRef> rivers =
@@ -406,13 +302,19 @@ static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenP
 
     // ① 海拔场。
     std::vector<double> height(static_cast<size_t>(w) * h, 0.0);
+    std::vector<GradVec> gradVec(height.size());
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            height[static_cast<size_t>(y) * w + x] = noise.fbm(x / baseCell, y / baseCell);
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            height[idx] = noise.fbm(x / baseCell, y / baseCell);
+            double dx = 0.0, dy = 0.0;
+            noise.gradient(x / baseCell, y / baseCell, 1.0 / 64.0, dx, dy);
+            gradVec[idx] = {dx, dy};
         }
     }
     const TilingGeom squareGeom{TilingType::Square, w, h};
-    return finishGeneratedTerrain(out, p, cityConfig, riverGen, squareGeom, height, false, rng);
+    return finishGeneratedTerrain(out, p, cityConfig, riverGen, squareGeom, height, gradVec, false,
+                                  rng);
 }
 
 // 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
@@ -432,6 +334,7 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
 
     // ① 海拔场（skew：周期坐标中的格中心；否则：世界坐标中的格中心）。
     std::vector<double> height(static_cast<size_t>(cellCount), 0.0);
+    std::vector<GradVec> gradVec(static_cast<size_t>(cellCount));
     for (int idx = 0; idx < cellCount; ++idx) {
         double gx, gy;
         if (skew)
@@ -439,8 +342,11 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
         else
             g.cellCenter(idx, gx, gy);
         height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
+        double dx = 0.0, dy = 0.0;
+        noise.gradient(gx / baseCell, gy / baseCell, 1.0 / 64.0, dx, dy);
+        gradVec[static_cast<size_t>(idx)] = {dx, dy};
     }
-    return finishGeneratedTerrain(out, p, cityConfig, riverGen, g, height, skew, rng);
+    return finishGeneratedTerrain(out, p, cityConfig, riverGen, g, height, gradVec, skew, rng);
 }
 
 }  // namespace lw

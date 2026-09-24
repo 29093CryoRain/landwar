@@ -1297,6 +1297,28 @@ double TilingGeom::cellBoundaryDistance(int index) const {
 //       kE1={2,1,0,5,4,3}（与 crossEdge 边表一致；顶点角 {90,30,-30,-90,-150,150}°）；
 //   三正（v0=底左、v1=底右、v2=顶）：k0=底(v0,v1)、k1=左斜(v0,v2)、k2=右斜(v2,v1)；
 //   三反（v0=下尖、v1=底左、v2=底右）：k0=顶(v1,v2)、k1=右斜(v2,v0)、k2=左斜(v0,v1)。
+double TilingGeom::centerBoundaryDistance(int index) const {
+    ensureTable();
+    if (!table_ || index < 0 || index >= cellCount()) return 0.0;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int row = rc / cols;
+    const int col = rc % cols;
+    const auto& cell = table_->cells[static_cast<size_t>(b)];
+    double u = 0.0, v = 0.0;
+    periodicCoordinates(*table_, cell.cx, cell.cy, u, v);
+    u += static_cast<double>(col);
+    v += static_cast<double>(row);
+    const double mapUmax = table_->umax + static_cast<double>(cols - 1);
+    const double mapVmax = table_->vmax + static_cast<double>(rows - 1);
+    double distance = (u - table_->umin) * table_->uDistanceScale;
+    distance = std::min(distance, (mapUmax - u) * table_->uDistanceScale);
+    distance = std::min(distance, (v - table_->vmin) * table_->vDistanceScale);
+    distance = std::min(distance, (mapVmax - v) * table_->vDistanceScale);
+    return std::max(0.0, distance);
+}
+
 bool TilingGeom::cellEdge(int index, int k, double& x0, double& y0, double& x1, double& y1) const {
     double vx[12], vy[12];
     const int n = cellPolygon(index, vx, vy, 12);

@@ -81,6 +81,10 @@ struct TilingGeom {
     // 格多边形到有限周期域四条边的最短垂直距离（世界单位）。周期域可旋转或剪切；
     // 返回 0 表示格接触/越过边界，非法格也返回 0。供地图生成的边缘海拔衰减使用。
     double cellBoundaryDistance(int index) const;
+    // **格心**到有限周期域四条边的最短垂直距离（世界单位）。与 cellBoundaryDistance 同样处理
+    // 斜周期；区别是只取格心一个点 ⇒ 随位置**连续**变化，不会在相邻大小格之间跳变
+    //（地图生成的边缘衰减用它：衰减是海拔场的位置函数，不应依赖格的几何尺寸）。
+    double centerBoundaryDistance(int index) const;
 
     // 第 k 条**邻接边**的端点（世界坐标；与 neighbor(idx,k) 同序——多边形顶点序 ≠ 邻接边序，
     // 边界描线/城市外廓必须以本方法取边，否则画错边）。返回 false = 非法（方/越界）。
