@@ -240,6 +240,74 @@ TEST(MapGen, RiversAreDeterministicAndSeedDependent) {
     EXPECT_NE(a.rivers, c.rivers) << "换 seed 应改变河（概率上必然）";
 }
 
+// §14 决策 D2：河密度是"占**陆地格**"比 —— 尝试数 = round(密度 × 陆地格数)，与总格数无关。
+// 直接调生成器并用 RiverGenStats.planned 观察"计划尝试数"（唯一能精确观测该语义的口子）。
+TEST(MapGen, RiverAttemptsUseLandCellCountNotTotalCellCount) {
+    const lw::Config cfg = lwtest::loadCfg();
+    const lw::TilingGeom g{lw::TilingType::Square, 20, 20};
+    const int total = g.cellCount();
+    const std::vector<lw::GradVec> grad(static_cast<std::size_t>(total));
+    const std::vector<bool> mountain(static_cast<std::size_t>(total), false);
+
+    // 全陆地：planned 应为 round(密度 × 总格数)。
+    {
+        const std::vector<bool> land(static_cast<std::size_t>(total), true);
+        lw::Rng rng(1);
+        lw::RiverGenStats stats;
+        lw::generateRivers(g, land, mountain, grad, 0.25, cfg.river.gen, false, rng, &stats);
+        EXPECT_EQ(stats.planned, static_cast<int>(std::llround(0.25 * total)));
+    }
+    // 只有 1/4 格是陆地：planned 必须按**陆地格数**缩放（若按总格数则是原来的 4 倍）。
+    {
+        std::vector<bool> land(static_cast<std::size_t>(total), false);
+        const int landCount = total / 4;
+        for (int i = 0; i < landCount; ++i) land[static_cast<std::size_t>(i)] = true;
+        lw::Rng rng(1);
+        lw::RiverGenStats stats;
+        lw::generateRivers(g, land, mountain, grad, 0.25, cfg.river.gen, false, rng, &stats);
+        EXPECT_EQ(stats.planned, static_cast<int>(std::llround(0.25 * landCount)));
+        EXPECT_NE(stats.planned, static_cast<int>(std::llround(0.25 * total)))
+            << "分母必须是陆地格数，不是总格数";
+    }
+}
+
+// §9.4 行 0（R7 修正）：河网输出必须是**边不相交**的路径集合 —— 源顶点若已落在别的河上
+// 则免费跳过（不消耗尝试次数），配合"到达别的河的顶点即终止"就杜绝了重复走边。
+// 核心不变量：走过的总边数 == 去重后的边数（若发生重走，前者必然更大）。
+TEST(MapGen, RiverGeneratorNeverRewalksAnEdge) {
+    const lw::Config cfg = lwtest::loadCfg();
+    const lw::MapGenParams params = riverParams(lw::TilingType::Square, 0.0);  // 先只要地形
+    lw::MapDefinition terrainOnly;
+    ASSERT_TRUE(lw::MapGenerator::generate(7, params, terrainOnly, cfg.city, cfg.river.gen));
+    const lw::TilingGeom geometry{terrainOnly.tiling, terrainOnly.cols, terrainOnly.rows};
+    const int total = geometry.cellCount();
+    std::vector<bool> land(static_cast<std::size_t>(total), false);
+    int landCount = 0;
+    for (int i = 0; i < total; ++i) {
+        land[static_cast<std::size_t>(i)] = terrainOnly.terrain[static_cast<std::size_t>(i)] !=
+                                            lw::MapTerrain::Sea;
+        landCount += land[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
+    // 全零梯度 ⇒ softmax 退化为均匀 ⇒ 各条河都是**纯随机游走**（最容易互相撞边），
+    // 因而是对"无重边"最严苛的输入；山全 false ⇒ 源格从全部陆地格抽。
+    const std::vector<bool> mountain(static_cast<std::size_t>(total), false);
+    const std::vector<lw::GradVec> grad(static_cast<std::size_t>(total));
+    constexpr double kDensity = 0.3;
+    lw::Rng rng(99);
+    lw::RiverGenStats stats;
+    const std::vector<lw::MapEdgeRef> rivers = lw::generateRivers(
+        geometry, land, mountain, grad, kDensity, cfg.river.gen, false, rng, &stats);
+
+    EXPECT_EQ(stats.planned, static_cast<int>(std::llround(kDensity * landCount)));
+    EXPECT_FALSE(rivers.empty());
+    EXPECT_EQ(stats.traversals, static_cast<int>(rivers.size()))
+        << "每条边只应被走过一次（输出 = 去重后的走过集合）";
+    EXPECT_GT(stats.sourceSkips, 0) << "必然抽到『源顶点已在河上』的源，应免费跳过";
+    // 并非每次尝试都成河：源点的所有出边都临海/越界时本次尝试作废（换源重试，上限
+    // sourceRetryPerRiver）。这里只要求绝大多数成功。
+    EXPECT_GT(stats.rivers, stats.planned / 2);
+}
+
 TEST(MapGen, RiversLegalForAllTilingsIncludingSkewed) {
     const lw::Config cfg = lwtest::loadCfg();
     const std::vector<lw::TilingType> tilings = {
@@ -280,9 +348,12 @@ TEST(MapGen, RiverTerminationScenarios) {
         ASSERT_TRUE(lw::MapGenerator::generate(11, params, definition, cfg.city, gen));
         EXPECT_FALSE(definition.rivers.empty());
         const lw::TilingGeom geometry{definition.tiling, definition.cols, definition.rows};
-        // 单河最多 3 条边；河数 = round(density × cellCount) → 总边数不超过 3 倍河数。
+        // 单河最多 3 条边；尝试数 = round(density × **陆地格数**)（§14 决策 D2）→ 总边数不超过 3 倍。
+        std::size_t landCount = 0;
+        for (lw::MapTerrain terrain : definition.terrain)
+            landCount += terrain == lw::MapTerrain::Sea ? 0 : 1;
         const std::size_t riverCount = static_cast<std::size_t>(
-            std::llround(params.riverDensity * static_cast<double>(geometry.cellCount())));
+            std::llround(params.riverDensity * static_cast<double>(landCount)));
         EXPECT_LE(definition.rivers.size(), 3 * riverCount);
         expectRiverInvariants(definition);
     }

@@ -755,7 +755,8 @@ void validateConfigKeys(const Json& root) {
                     {"hoverCityRadius", "markerAlpha", "markerRotateSpeed", "markerRingMargin",
                      "markerArrowGap"},
                     "render.player");
-    warnUnknownKeys(child(ren, "river"), {"thicknessPx", "color", "minCellPx"}, "render.river");
+    warnUnknownKeys(child(ren, "river"), {"widthU", "color", "minPx", "minCellPx"},
+                     "render.river");
     warnUnknownKeys(child(obj("river"), "gen"),
                     {"gradientWeight", "flowDownhill", "straightnessWeight", "mouthWeight",
                      "temperature", "maxStepsPerRiver", "sourceRetryPerRiver"},
@@ -924,7 +925,7 @@ void warnMissingConfigKeys(const Json& root) {
                      "markerArrowGap"},
                     "render.player");
     warnMissingKeys(object("render").value("river", Json::object()),
-                    {"thicknessPx", "color", "minCellPx"}, "render.river");
+                    {"widthU", "color", "minPx", "minCellPx"}, "render.river");
     warnMissingKeys(object("river"), {"crossChance", "gen"}, "river");
     warnMissingKeys(object("river").value("gen", Json::object()),
                     {"gradientWeight", "flowDownhill", "straightnessWeight", "mouthWeight",
@@ -1346,11 +1347,11 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
             cfg.render.player.markerArrowGap =
                 getNum(playerJson, "markerArrowGap", cfg.render.player.markerArrowGap);
         }
-        // 河流渲染（河流系统 §10）：线宽（逻辑像素）/颜色/LOD。
+        // 河流渲染（河流系统 §10）：世界线宽 widthU / 屏幕下限 minPx / 颜色 / LOD。
         if (renderJson.contains("river") && renderJson["river"].is_object()) {
             const auto& riverJson = renderJson["river"];
-            cfg.render.river.thicknessPx =
-                getNum(riverJson, "thicknessPx", cfg.render.river.thicknessPx);
+            cfg.render.river.widthU = getNum(riverJson, "widthU", cfg.render.river.widthU);
+            cfg.render.river.minPx = getNum(riverJson, "minPx", cfg.render.river.minPx);
             cfg.render.river.minCellPx =
                 getNum(riverJson, "minCellPx", cfg.render.river.minCellPx);
             const auto& colorJson = riverJson.contains("color") ? riverJson["color"] : Json();
@@ -1725,7 +1726,8 @@ bool Config::validate(std::string* err) const {
         || !finite(render.player.markerRotateSpeed) || !nonNegative(render.player.markerRingMargin)
         || !nonNegative(render.player.markerArrowGap) || ui.messageMaxShown <= 0)
         return fail("render.player or ui numeric range invalid");
-    if (!positive(render.river.thicknessPx) || !nonNegative(render.river.minCellPx) ||
+    if (!positive(render.river.widthU) || !nonNegative(render.river.minPx) ||
+        !nonNegative(render.river.minCellPx) ||
         render.river.color[0] < 0 || render.river.color[0] > 255 || render.river.color[1] < 0 ||
         render.river.color[1] > 255 || render.river.color[2] < 0 || render.river.color[2] > 255)
         return fail("render.river numeric range invalid");
@@ -2010,9 +2012,10 @@ std::string Config::toJson() const {
                               {"markerRotateSpeed", render.player.markerRotateSpeed},
                               {"markerRingMargin", render.player.markerRingMargin},
                               {"markerArrowGap", render.player.markerArrowGap}};
-        renderJ["river"] = {{"thicknessPx", render.river.thicknessPx},
+        renderJ["river"] = {{"widthU", render.river.widthU},
                              {"color", {render.river.color[0], render.river.color[1],
                                         render.river.color[2]}},
+                             {"minPx", render.river.minPx},
                              {"minCellPx", render.river.minCellPx}};
 
         j["render"] = std::move(renderJ);

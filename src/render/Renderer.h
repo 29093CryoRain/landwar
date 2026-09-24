@@ -40,6 +40,14 @@ public:
     // 边界灰线/城市外廓细线统一用（替代逐线偏移绘制的毛边方案）。
     void fillThickSegment(int x0, int y0, int x1, int y1, int thick, const SDL_Color& c);
 
+    // 亚像素版（河流层用）：端点用**双精度**、线宽可为小数，四角全浮点 → 相邻线段共享顶点时
+    // 边缘连续不抖（整数取整正是"毛刺/粗细不均"的根源）。thick <= 0 或零长线段时跳过。
+    void fillThickSegmentF(double x0, double y0, double x1, double y1, double thick,
+                           const SDL_Color& c);
+    // 亚像素实心圆（三角扇形；半径即真实半径，不做整数取整）——粗折线的圆角连接/端帽。
+    // radius <= 0 时跳过；segments <= 0 时按半径自适应（至少 8）。
+    void fillDiscF(double cx, double cy, double radius, const SDL_Color& c, int segments = 0);
+
     // ---- 纹理 ----
     // 以中心 (cx,cy) 绘制 src 子图，拉伸到 size×size（原版 DrawExtendGraph 行为）。
     // alpha 经 SDL_SetTextureAlphaMod 施加（地雷闪烁用）。

@@ -78,6 +78,52 @@ void Renderer::fillThickSegment(int x0, int y0, int x1, int y1, int thick, const
     SDL_RenderGeometry(ren_, nullptr, verts, 6, nullptr, 0);
 }
 
+// 亚像素粗线段：与 int 版同一几何，但端点/线宽全为 double，且**沿方向两端各外扩 thick/2**
+// （相邻线段必然在共享顶点处重叠，不留缺口）——圆角由 fillDiscF 在同一顶点补齐。
+void Renderer::fillThickSegmentF(double x0, double y0, double x1, double y1, double thick,
+                                const SDL_Color& c) {
+    if (thick <= 0.0) return;
+    const double dx = x1 - x0, dy = y1 - y0;
+    const double len = std::hypot(dx, dy);
+    if (len <= 1e-12) return;
+    const double hw = thick * 0.5;
+    const double ux = dx / len, uy = dy / len;      // 单位方向
+    const double nx = -uy * hw, ny = ux * hw;       // 单位法向 × 半宽
+    const double ex = ux * hw, ey = uy * hw;        // 端点外扩 × 半宽
+    const float ax = static_cast<float>(x0 - ex + nx), ay = static_cast<float>(y0 - ey + ny);
+    const float bx = static_cast<float>(x1 + ex + nx), by = static_cast<float>(y1 + ey + ny);
+    const float cx2 = static_cast<float>(x1 + ex - nx), cy2 = static_cast<float>(y1 + ey - ny);
+    const float dx2 = static_cast<float>(x0 - ex - nx), dy2 = static_cast<float>(y0 - ey - ny);
+    SDL_Vertex verts[6] = {
+        {{ax, ay}, c, {0.0f, 0.0f}}, {{bx, by}, c, {0.0f, 0.0f}}, {{cx2, cy2}, c, {0.0f, 0.0f}},
+        {{ax, ay}, c, {0.0f, 0.0f}}, {{cx2, cy2}, c, {0.0f, 0.0f}}, {{dx2, dy2}, c, {0.0f, 0.0f}},
+    };
+    SDL_RenderGeometry(ren_, nullptr, verts, 6, nullptr, 0);
+}
+
+// 亚像素实心圆：正 n 边形三角扇形（半径即真实半径）。小半径（<=1.5px）用 8 边形已看不出棱角。
+void Renderer::fillDiscF(double cx, double cy, double radius, const SDL_Color& c, int segments) {
+    if (radius <= 0.0) return;
+    if (segments <= 0) segments = radius <= 1.5 ? 8 : (radius <= 4.0 ? 16 : 24);
+    if (segments < 3) segments = 3;
+    constexpr double kPi = 3.14159265358979323846;
+    std::vector<SDL_Vertex> verts;
+    verts.reserve(static_cast<std::size_t>(segments) * 3);
+    const float fx = static_cast<float>(cx), fy = static_cast<float>(cy);
+    for (int i = 0; i < segments; ++i) {
+        const double a0 = 2.0 * kPi * i / segments;
+        const double a1 = 2.0 * kPi * (i + 1) / segments;
+        verts.push_back({{fx, fy}, c, {0.0f, 0.0f}});
+        verts.push_back({{static_cast<float>(cx + radius * std::cos(a0)),
+                          static_cast<float>(cy + radius * std::sin(a0))},
+                         c, {0.0f, 0.0f}});
+        verts.push_back({{static_cast<float>(cx + radius * std::cos(a1)),
+                          static_cast<float>(cy + radius * std::sin(a1))},
+                         c, {0.0f, 0.0f}});
+    }
+    SDL_RenderGeometry(ren_, nullptr, verts.data(), static_cast<int>(verts.size()), nullptr, 0);
+}
+
 void Renderer::drawSpriteCentered(SDL_Texture* tex, const SDL_Rect& src, int cx, int cy, int size,
                                   int alpha) {
     if (!tex) return;

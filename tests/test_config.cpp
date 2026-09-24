@@ -109,7 +109,7 @@ TEST(Config, JsonOverrides) {
                     "city": { "mix": { "primary": 0.7, "secondary": 0.1, "black": 0.2 },
                                "spawnArrow": { "primary": 0.5, "secondary": 0.2, "black": 0.3,
                                                 "areaDivisor": 4.0 } },
-                     "river": { "thicknessPx": 5.5, "color": [12, 34, 56], "minCellPx": 4.0 } },
+                     "river": { "widthU": 0.35, "color": [12, 34, 56], "minPx": 2.5, "minCellPx": 4.0 } },
         "economy": { "initialEconomy": 5.0, "perLandIncome": 0.5, "cityBaseMult": 3.0 }
     })";
     const lw::Config cfg = lw::Config::loadFromJson(json);
@@ -139,12 +139,14 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.primary, 0.5, 1e-12);
     EXPECT_NEAR(cfg.render.city.spawnArrow.secondary, 0.2, 1e-12);
     EXPECT_NEAR(cfg.render.city.spawnArrow.areaDivisor, 4.0, 1e-12);
-    EXPECT_NEAR(cfg.render.river.thicknessPx, 5.5, 1e-12);
+    EXPECT_NEAR(cfg.render.river.widthU, 0.35, 1e-12);
+    EXPECT_NEAR(cfg.render.river.minPx, 2.5, 1e-12);
     EXPECT_EQ(cfg.render.river.color, (std::array<int, 3>{12, 34, 56}));
     EXPECT_NEAR(cfg.render.river.minCellPx, 4.0, 1e-12);
     // 河流渲染键往返（loadFromJson(toJson) 无损）。
     const lw::Config riverRoundTrip = lw::Config::loadFromJson(cfg.toJson());
-    EXPECT_NEAR(riverRoundTrip.render.river.thicknessPx, 5.5, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.render.river.widthU, 0.35, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.render.river.minPx, 2.5, 1e-12);
     EXPECT_EQ(riverRoundTrip.render.river.color, (std::array<int, 3>{12, 34, 56}));
     EXPECT_NEAR(riverRoundTrip.render.river.minCellPx, 4.0, 1e-12);
     EXPECT_NEAR(riverRoundTrip.river.crossChance, 0.25, 1e-12);
@@ -318,7 +320,8 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.render.player.markerRingMargin, 1.5, 1e-9);
     // 河流参数是**调参键**（用户会随时改 data/*.jsonc 观察手感）：这里只断言"键被读到且
     // 落在合法域"，不钉死数值 —— 钉死数值会让正常调参变成一个失败的测试。
-    EXPECT_GT(cfg.render.river.thicknessPx, 0.0);                     // data/render.jsonc
+    EXPECT_GT(cfg.render.river.widthU, 0.0);                          // data/render.jsonc
+    EXPECT_GE(cfg.render.river.minPx, 0.0);
     EXPECT_GE(cfg.render.river.minCellPx, 0.0);
     EXPECT_GE(cfg.render.river.color[0], 0);
     EXPECT_LE(cfg.render.river.color[0], 255);

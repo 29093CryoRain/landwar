@@ -18,31 +18,26 @@ constexpr Uint8 kLandR = 100, kLandG = 100, kLandB = 96;   // 中性灰陆
 constexpr Uint8 kMtnR = 150, kMtnG = 128, kMtnB = 92;      // 褐山
 constexpr Uint8 kCityR = 232, kCityG = 216, kCityB = 120;  // 亮黄城
 
-// 预览用实心圆点（坐标四舍五入后裁剪）。
-void plotDisc(Uint32* px, int tw, int th, double x, double y, int radius, Uint32 col) {
-    const int cx = static_cast<int>(std::lround(x));
-    const int cy = static_cast<int>(std::lround(y));
-    for (int dy = -radius; dy <= radius; ++dy) {
-        const int py = cy + dy;
-        if (py < 0 || py >= th) continue;
-        const int hw = static_cast<int>(
-            std::sqrt(std::max(0.0, static_cast<double>(radius * radius - dy * dy))));
-        for (int dx = -hw; dx <= hw; ++dx) {
-            const int pxx = cx + dx;
-            if (pxx < 0 || pxx >= tw) continue;
-            px[static_cast<std::size_t>(py) * tw + pxx] = col;
-        }
-    }
+// 点到线段的距离（"胶囊"判据：距离 <= r 即覆盖 → 天然的圆角端帽/连接，无折角缺口）。
+double distanceToSegment(double px, double py, double x0, double y0, double x1, double y1) {
+    const double dx = x1 - x0, dy = y1 - y0;
+    const double d2 = dx * dx + dy * dy;
+    double t = 0.0;
+    if (d2 > 1e-12) t = std::clamp(((px - x0) * dx + (py - y0) * dy) / d2, 0.0, 1.0);
+    return std::hypot(px - (x0 + t * dx), py - (y0 + t * dy));
 }
 
-// 河流系统 §7.3：把河边画到缩略图上（黑色，1..2 px；预览很小，不做粗线）。
+// 河流系统 §7.3：把河边画到缩略图上（**与世界视图同一线宽规则**：屏幕宽 px =
+// max(minPx, widthU × cell)，cell = 每世界单位在预览里的像素数）。每边按"胶囊"（点到线段
+// 距离 <= px/2）逐像素判定 → 等宽、无折角缺口，也不用再补圆点。
 // 用 gridVertex（非斜周期 = 世界坐标）保证与上面的多边形填充同一坐标系。
 // 变换：sx = (x - ox)·cell，sy = (th - 0.5) - (y - oy)·cell（与 fillPoly 的 y 翻转一致）。
 void plotPreviewRivers(Uint32* px, int tw, int th, const Map& map, double ox, double oy,
-                       double cell, Uint32 col) {
+                       double cell, Uint32 col, const Config::Render::River& cfg) {
     if (map.riverEdges().empty()) return;
     const TilingGeom& g = map.geom();
-    const int radius = std::max(1, static_cast<int>(std::lround(cell * 0.5)));
+    const double half = 0.5 * std::max(cfg.minPx, cfg.widthU * cell);
+    if (!(half > 0.0)) return;
     for (const MapEdgeRef& ref : map.riverEdges()) {
         int vA = -1, vB = -1;
         if (!g.cellEdgeVertices(ref.cell, ref.edge, vA, vB)) continue;
@@ -51,20 +46,23 @@ void plotPreviewRivers(Uint32* px, int tw, int th, const Map& map, double ox, do
         g.gridVertex(ref.cell, vB, x1, y1);
         const double sx0 = (x0 - ox) * cell, sy0 = (th - 0.5) - (y0 - oy) * cell;
         const double sx1 = (x1 - ox) * cell, sy1 = (th - 0.5) - (y1 - oy) * cell;
-        const int steps =
-            std::max(1, static_cast<int>(std::ceil(std::hypot(sx1 - sx0, sy1 - sy0))));
-        for (int s = 0; s <= steps; ++s) {
-            const double t = static_cast<double>(s) / static_cast<double>(steps);
-            plotDisc(px, tw, th, sx0 + t * (sx1 - sx0), sy0 + t * (sy1 - sy0), radius, col);
-        }
+        const int bx0 = std::max(0, static_cast<int>(std::floor(std::min(sx0, sx1) - half)));
+        const int bx1 = std::min(tw - 1, static_cast<int>(std::ceil(std::max(sx0, sx1) + half)));
+        const int by0 = std::max(0, static_cast<int>(std::floor(std::min(sy0, sy1) - half)));
+        const int by1 = std::min(th - 1, static_cast<int>(std::ceil(std::max(sy0, sy1) + half)));
+        for (int sy = by0; sy <= by1; ++sy)
+            for (int sx = bx0; sx <= bx1; ++sx)
+                if (distanceToSegment(sx + 0.5, sy + 0.5, sx0, sy0, sx1, sy1) <= half)
+                    px[static_cast<std::size_t>(sy) * tw + sx] = col;
     }
 }
 
 }  // namespace
 
-SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
+SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW,
+                              const Config::Render::River& river) {
     if (!ren) return nullptr;
-    SDL_Surface* surf = renderMapPreviewSurface(map, previewW);
+    SDL_Surface* surf = renderMapPreviewSurface(map, previewW, river);
     if (!surf) return nullptr;
     SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
     SDL_FreeSurface(surf);
@@ -72,7 +70,8 @@ SDL_Texture* renderMapPreview(SDL_Renderer* ren, const Map& map, int previewW) {
     return tex;
 }
 
-SDL_Surface* renderMapPreviewSurface(const Map& map, int previewW) {
+SDL_Surface* renderMapPreviewSurface(const Map& map, int previewW,
+                                     const Config::Render::River& river) {
     if (map.width() <= 0 || map.height() <= 0) return nullptr;
 
     if (map.tiling() == TilingType::Square) {
@@ -119,7 +118,7 @@ SDL_Surface* renderMapPreviewSurface(const Map& map, int previewW) {
         }
         // 河流系统 §7.3：方形单位格世界坐标即 [0,width]x[0,height] → 原点 (0,0)。
         plotPreviewRivers(px, tw, th, map, 0.0, 0.0, static_cast<double>(cell),
-                          SDL_MapRGBA(surf->format, 0, 0, 0, 255));
+                          SDL_MapRGBA(surf->format, 0, 0, 0, 255), river);
         return surf;
     }
     // P12 六/三角：逐格凸多边形扫描线填充（真实密铺形状，杜绝"横纹/单朝向块"假象）。
@@ -215,7 +214,7 @@ SDL_Surface* renderMapPreviewSurface(const Map& map, int previewW) {
     }
     // 河流系统 §7.3：与上面的多边形同一坐标系（斜周期 = 格坐标）与同一原点。
     plotPreviewRivers(px, tw, th, map, sxmin, symin, cell,
-                      SDL_MapRGBA(surf->format, 0, 0, 0, 255));
+                      SDL_MapRGBA(surf->format, 0, 0, 0, 255), river);
     return surf;
 }
 

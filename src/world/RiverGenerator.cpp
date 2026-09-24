@@ -1,7 +1,14 @@
 // RiverGenerator.cpp — 随机成河实现（《河流系统开发文档》§9）。
-// 步骤（§9.2）：① 收集山地/陆地格 → ② 每"河数"次尝试：随机源格 → 随机源顶点（临海重试）
+// 步骤（§9.2）：① 收集山地/陆地格 → ② **河流尝试数 = round(河密度 × 陆地格数)**（§14 决策 D2：
+// 密度是"占陆地格"的比例，与城密度同语义）→ ③ 每次尝试：随机源格 → 随机源顶点（临海重试）
 // → 沿顶点拓扑游走（softmax 采样）→ 并入全局边集合。时机由 MapGenerator 保证：
 // **山地之后、建城之前**（RNG 顺序稳定）。
+// **无重边的证明**（§9.4 行 0 与行 2/3 合起来就够，无需任何"已走过的边"的检查）：
+//   ① 源顶点若已落在别的河上 → 直接跳过（否则从这里出发必然沿既有河重复走），且按用户要求
+//      **不消耗尝试次数**；
+//   ② 游走时一旦"到达"任何属于别的河的顶点就立刻终止（行 2/3 的支流交汇），于是每条河只从
+//      "尚未有任何河经过的顶点"出发选边；而已记录边的两个端点必然都属于某条河，故
+//      **候选边不可能已经是已记录边** ⇒ 输出天然边不相交，末尾的 sort+unique 只是规范化。
 #include "world/RiverGenerator.h"
 
 #include <algorithm>
@@ -93,7 +100,7 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
                                        const std::vector<bool>& mountain,
                                        const std::vector<GradVec>& gradVec, double riverDensity,
                                        const Config::River::Gen& params, bool gridCoordinates,
-                                       Rng& rng) {
+                                       Rng& rng, RiverGenStats* stats) {
     std::vector<MapEdgeRef> result;
     const int cellCount = geometry.cellCount();
     if (riverDensity <= 0.0 || cellCount <= 0 || land.size() != static_cast<std::size_t>(cellCount))
@@ -161,6 +168,7 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
                 if (b < 0 || !land[static_cast<std::size_t>(a)] ||
                     !land[static_cast<std::size_t>(b)])
                     continue;
+                const std::uint64_t edgeKey = geometry.edgeKey(edgeCell, edgeK);
                 double nx = 0.0, ny = 0.0;
                 vertexPosition(nextCell, nextVert, nx, ny);
                 const double dx = nx - cx, dy = ny - cy;
@@ -173,8 +181,7 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
                     score += params.straightnessWeight
                              * (previousDirection.x * ux + previousDirection.y * uy);
                 if (candidateSea) score += params.mouthWeight;
-                candidates.push_back({nextKey, geometry.edgeKey(edgeCell, edgeK), score,
-                                      candidateSea});
+                candidates.push_back({nextKey, edgeKey, score, candidateSea});
                 scores.push_back(score);
             }
             if (candidates.empty()) break;  // §9.4 行 4：内陆河终止
@@ -208,22 +215,53 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
         }
     };
 
-    const int riverCount = static_cast<int>(std::llround(riverDensity * cellCount));
+    // §14 决策 D2：河密度 = **占陆地格**比（与城密度同语义）——尝试数按陆地格数算，
+    // 而不是总格数（含海，会让实际河数随海占比漂移）。
+    const int riverCount = static_cast<int>(std::llround(riverDensity * lands.size()));
+    if (stats) stats->planned = riverCount;
     for (int river = 0; river < riverCount; ++river) {
         const std::vector<int>& pool = mountains.empty() ? lands : mountains;
         bool traced = false;
-        for (int attempt = 0; attempt <= params.sourceRetryPerRiver && !traced; ++attempt) {
+        int attempt = 0;
+        // "源顶点已在别的河上"的跳过不消耗尝试次数（§9.4 行 0），但要有界：最多白跳
+        // (sourceRetryPerRiver + 1) 次后就当普通失败处理，避免河网很密时空转到死。
+        int freeSkips = 0;
+        const int maxFreeSkips = params.sourceRetryPerRiver + 1;
+        while (!traced && attempt <= params.sourceRetryPerRiver && freeSkips < maxFreeSkips) {
             const int source =
                 pool[static_cast<std::size_t>(rng.get(static_cast<int>(pool.size()) - 1))];
             const int vertexCount = geometry.cellVertexCount(source);
-            if (vertexCount <= 0) continue;
+            if (vertexCount <= 0) {
+                ++attempt;
+                continue;
+            }
             const int vert = rng.get(vertexCount - 1);
-            if (vertexTouchesSea(geometry, land, source, vert)) continue;  // 源顶点临海 → 重试
+            if (vertexTouchesSea(geometry, land, source, vert)) {  // 源顶点临海 → 重试
+                ++attempt;
+                continue;
+            }
             const std::uint64_t startKey = geometry.vertexKey(source, vert);
-            if (startKey == 0) continue;
+            if (startKey == 0) {
+                ++attempt;
+                continue;
+            }
+            // §9.4 行 0（R7 修正）：源顶点已落在别的河上 → 从这里出发必然沿既有河重复走边，
+            // 直接换源且**不消耗尝试次数**（此前会白耗一次尝试并制造重边）。
+            if (std::binary_search(otherRiverVerts.begin(), otherRiverVerts.end(), startKey)) {
+                ++freeSkips;
+                if (stats) ++stats->sourceSkips;
+                continue;
+            }
             traceRiver(startKey);
-            if (riverEdges.empty()) continue;  // 本次尝试作废（换源重试）
+            if (riverEdges.empty()) {  // 本次尝试作废（换源重试）
+                ++attempt;
+                continue;
+            }
             traced = true;
+            if (stats) {
+                ++stats->rivers;
+                stats->traversals += static_cast<int>(riverEdges.size());
+            }
             allKeys.insert(allKeys.end(), riverEdges.begin(), riverEdges.end());
             otherRiverVerts.insert(otherRiverVerts.end(), riverVerts.begin(), riverVerts.end());
             std::sort(otherRiverVerts.begin(), otherRiverVerts.end());

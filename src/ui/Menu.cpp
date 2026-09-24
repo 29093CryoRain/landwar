@@ -128,7 +128,7 @@ SDL_Texture* filePreview(MenuState& st, SDL_Renderer* ren, const Config& cfg,
         spdlog::warn("menu preview: load '{}' failed: {}", file, error);
         return nullptr;
     }
-    return st.previews.get(ren, key, map, kPreviewW, outW, outH);
+    return st.previews.get(ren, key, map, kPreviewW, cfg.render.river, outW, outH);
 }
 
 // 生成随机图（确定性：seed+params）并直接预览内存定义。
@@ -161,7 +161,7 @@ bool generateRandomMap(MenuState& st, const Config& cfg, SDL_Renderer* ren) {
         return false;
     }
     int tw = 0, th = 0;
-    if (!st.previews.get(ren, st.genKey, map, kPreviewW, &tw, &th)) {
+    if (!st.previews.get(ren, st.genKey, map, kPreviewW, cfg.render.river, &tw, &th)) {
         st.genError = "随机图预览渲染失败";
         return false;
     }
@@ -487,18 +487,21 @@ void drawMapSelectScreen(MenuState& st, SDL_Renderer* ren, Options& options, con
         ImGui::SameLine();
         ImGui::TextDisabled("%.4f", st.cityDensity);
 
-        // 河密度（河流系统 §9.1）：河数 = round(密度 × **总格数**)——与城密度"占陆地格"语义不同；
-        // 拉到底（0）= 无河，可用于无河回归对照。
+        // 河密度（河流系统 §9.1）：**河流尝试数 = round(密度 × 陆地格数)**（与城密度同为"占陆地格"
+        // 语义，§14 决策 D2）；拉到底（0）= 无河，可用于无河回归对照。括号内是按精确格数分位
+        // 阈值估算的陆地格数（forceCoast 会再削掉一圈边缘格，故只作数量级提示）。
         ImGui::SliderFloat("河密度##river", &st.riverT, 0.0f, 1.0f, "");
         st.riverDensity = squareTToDensity(st.riverT, kRiverLo, kRiverHi);
         ImGui::SameLine();
         ImGui::TextDisabled("%.4f", st.riverDensity);
         ImGui::SameLine();
-        ImGui::TextDisabled("(共 %d 段)",
+        const int estCells = TilingGeom{st.tiling, st.randW, st.randH}.cellCount();
+        const int estLand =
+            estCells - std::min(static_cast<int>(static_cast<double>(estCells) * st.seaRatio),
+                                estCells - 1);
+        ImGui::TextDisabled("(约 %d 条)",
                             static_cast<int>(std::llround(
-                                static_cast<double>(st.riverDensity) *
-                                static_cast<double>(TilingGeom{st.tiling, st.randW, st.randH}
-                                                        .cellCount()))));
+                                static_cast<double>(st.riverDensity) * estLand)));
         if (ImGui::Button("生成并预览")) generateRandomMap(st, cfg, ren);
 
         int tw = 0, th = 0;
@@ -540,7 +543,8 @@ void PreviewCache::clear() {
 }
 
 SDL_Texture* PreviewCache::get(SDL_Renderer* ren, const std::string& key, const Map& map,
-                               int previewW, int* outW, int* outH) {
+                               int previewW, const Config::Render::River& river, int* outW,
+                               int* outH) {
     // 命中缓存直接返回（w/h 以首次渲染为准）。
     for (auto& e : items) {
         if (e.key == key) {
@@ -551,7 +555,7 @@ SDL_Texture* PreviewCache::get(SDL_Renderer* ren, const std::string& key, const 
     }
     Entry e;
     e.key = key;
-    e.tex = render::renderMapPreview(ren, map, previewW);
+    e.tex = render::renderMapPreview(ren, map, previewW, river);
     if (!e.tex) return nullptr;
     // 预览显示尺寸 = 实际纹理尺寸（2026-08：斜周期 33336 系预览为"旋转到常规矩形"，
     // 其纹理不是按 worldWidth/Height AABB 生成的，故不再估算纵横比，直接查纹理实际像素）。

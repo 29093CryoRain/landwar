@@ -365,19 +365,21 @@ void MapRenderer::drawTiled(
 }
 
 // 河流系统 §7.2：逐条规范河边画粗线段，再对每个河顶点补画一次实心圆（圆角连接）。
-// 线宽取**逻辑像素**（与 city.lineThickness 同范式）：屏幕线宽 = thicknessPx，不随缩放变化。
-// 纯渲染，不消耗任何 RNG。
+// **线宽是世界量**：屏幕线宽 px = max(minPx, widthU × cellPx())，故随缩放同比变化（放大变粗、
+// 缩小变细）但永不细于 minPx。几何全用双精度屏幕坐标 + 端点外扩 + 半径恰为 px/2 的圆盘，
+// 消除整数取整导致的"毛刺/粗细不均"。纯渲染，不消耗任何 RNG。
 void MapRenderer::drawRivers(const Map& map) {
     const std::vector<MapEdgeRef>& edges = map.riverEdges();
     if (edges.empty()) return;
     const double cellPx = cam_.cellPx();
     if (riverConfig_.minCellPx > 0.0 && cellPx < riverConfig_.minCellPx) return;
-    const int thick = std::max(1, static_cast<int>(std::lround(riverConfig_.thicknessPx)));
+    const double widthPx = std::max(riverConfig_.minPx, riverConfig_.widthU * cellPx);
+    if (!(widthPx > 0.0)) return;
     const SDL_Color color = Renderer::toColor(riverConfig_.color);
     const TilingGeom& g = map.geom();
     Renderer r(ren_);
     // 视野剔除的保守世界半径：线宽折算 + 1 格余量（端点圆角）。
-    const double worldRadius = (cellPx > 1e-9 ? static_cast<double>(thick) / cellPx : 1.0) + 1.0;
+    const double worldRadius = (cellPx > 1e-9 ? widthPx / cellPx : 1.0) + 1.0;
 
     std::vector<std::uint64_t> vertexKeys;
     vertexKeys.reserve(edges.size() * 2);
@@ -392,20 +394,20 @@ void MapRenderer::drawRivers(const Map& map) {
         if (!g.cellEdge(ref.cell, ref.edge, x0, y0, x1, y1)) continue;
         if (!render::isVisibleOnScreen(cam_, 0.5 * (x0 + x1), 0.5 * (y0 + y1), worldRadius))
             continue;
-        r.fillThickSegment(cam_.toScreenXi(x0), cam_.toScreenYi(y0), cam_.toScreenXi(x1),
-                           cam_.toScreenYi(y1), thick, color);
+        r.fillThickSegmentF(cam_.toScreenX(x0), cam_.toScreenY(y0), cam_.toScreenX(x1),
+                            cam_.toScreenY(y1), widthPx, color);
     }
     if (vertexKeys.empty()) return;
     std::sort(vertexKeys.begin(), vertexKeys.end());
     vertexKeys.erase(std::unique(vertexKeys.begin(), vertexKeys.end()), vertexKeys.end());
-    const int radius = std::max(1, (thick + 1) / 2);
+    const double radius = widthPx * 0.5;  // 圆角半径 = 半线宽（与线段边缘严格相切）
     for (const std::uint64_t key : vertexKeys) {
         int cell = -1, vert = -1;
         if (!g.vertexFromKey(key, cell, vert)) continue;
         double wx = 0.0, wy = 0.0;
         g.cellVertex(cell, vert, wx, wy);
         if (!render::isVisibleOnScreen(cam_, wx, wy, worldRadius)) continue;
-        r.fillCircle(cam_.toScreenXi(wx), cam_.toScreenYi(wy), radius, color);
+        r.fillDiscF(cam_.toScreenX(wx), cam_.toScreenY(wy), radius, color);
     }
 }
 

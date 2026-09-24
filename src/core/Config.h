@@ -460,11 +460,13 @@ struct Config {
             // 箭头尖端与城市 AABB 边缘的间距（标称 U）。
             double markerArrowGap = 0.6;
         } player;
-        // 河流渲染（河流系统 §7.2/§10）：粗纯黑折线；线宽用**逻辑像素**（与 city.lineThickness
-        // 同范式，不随缩放变化），画在城层之下（由 MapRenderer→CityRenderer 的调用次序保证）。
+        // 河流渲染（河流系统 §7.2/§10）：粗纯黑折线，画在城层之下（由 MapRenderer→CityRenderer
+        // 的调用次序保证）。**线宽是世界量**：屏幕线宽 = max(minPx, widthU × 每 U 像素数)，
+        // 于是随缩放同比变化（放大变粗、缩小变细）但永不细于 minPx（§7.2 "缩放 + 最小宽度"）。
         struct River {
-            double thicknessPx = 3.0;              // 河线宽（逻辑像素），必须 > 0
+            double widthU = 0.20;                  // 河线宽（世界单位 U），必须 > 0
             std::array<int, 3> color = {0, 0, 0};  // 河线颜色（RGB 0-255），纯黑默认
+            double minPx = 1.5;                    // 屏幕线宽下限（逻辑像素），必须 >= 0
             // LOD：单格屏幕像素小于此值时整层不画（0 = 始终画，必须 >= 0）。
             double minCellPx = 0.0;
         } river;

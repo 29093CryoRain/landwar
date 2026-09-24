@@ -34,9 +34,11 @@ struct PreviewCache {
 
     void release();  // 释放全部纹理（可重复调用）
     void clear();    // 清空缓存（地图种子/参数变化时失效重生成）
-    // 命中缓存返回 tex；未命中用 renderMapPreview 渲染并缓存。渲染失败返回 nullptr（已记错）。
+    // 命中缓存返回 tex；未命中用 renderMapPreview 渲染并缓存（river = 线宽规则，与主视图同款）。
+    // 渲染失败返回 nullptr（已记错）。
     SDL_Texture* get(SDL_Renderer* ren, const std::string& key, const Map& map, int previewW,
-                     int* outW = nullptr, int* outH = nullptr);
+                     const Config::Render::River& river, int* outW = nullptr,
+                     int* outH = nullptr);
     // 只查询缓存（不渲染）；未生成/已失效返回 nullptr。
     SDL_Texture* lookup(const std::string& key, int* outW = nullptr, int* outH = nullptr);
 };

@@ -1,6 +1,7 @@
 // test_river_render.cpp — 河流渲染的 SDL 软件渲染回归（《河流系统开发文档》§7.2/§7.3）。
 // 断言：有河 → 河边中点/河顶点出现黑线黑点；无河 → 同点仍是地块色；LOD 命中整层不画；
-// 颜色/线宽配置生效；缩略预览也画出河。
+// 颜色配置生效；**线宽随缩放同比变化且有最小宽度**（世界量 widthU → 屏幕 px）；同一线宽
+// 在两条不同朝向的河边上一致（无"粗细不均"）；缩略预览也画出河且遵守同一条线宽规则。
 #include <gtest/gtest.h>
 
 #include <array>
@@ -55,6 +56,22 @@ bool isWhite(Uint32 pixel, const SDL_PixelFormat* format) {
     return r > 200 && g > 200 && b > 200;
 }
 
+// 竖直线 x 上、y∈[y0,y1] 内的近黑像素数（测线宽用）。
+int darkInColumn(const SDL_Surface* surface, int x, int y0, int y1) {
+    int dark = 0;
+    for (int y = y0; y <= y1; ++y)
+        if (isDark(pixelAt(surface, x, y), surface->format)) ++dark;
+    return dark;
+}
+
+// 水平线 y 上、x∈[x0,x1] 内的近黑像素数。
+int darkInRow(const SDL_Surface* surface, int y, int x0, int x1) {
+    int dark = 0;
+    for (int x = x0; x <= x1; ++x)
+        if (isDark(pixelAt(surface, x, y), surface->format)) ++dark;
+    return dark;
+}
+
 // 预览表面里的近黑像素数（预览地块配色为灰/褐/黄，黑只可能来自河）。
 int countDarkPixels(const SDL_Surface* surface) {
     const int w = surface->w, h = surface->h;
@@ -86,13 +103,17 @@ TEST(RiverRender, DrawsRiversWithColorWidthAndLod) {
 
     const lw::Map withRivers = makeMap(true, cfg);
     const lw::Map withoutRivers = makeMap(false, cfg);
-    const auto render = [&](const lw::Map& map, const lw::Config::Render::River& riverCfg) {
-        lw::render::MapRenderer mapRenderer(renderer, camera, cfg.render.mountain, riverCfg);
+    const auto renderWith = [&](const lw::Map& map, const lw::Config::Render::River& riverCfg,
+                               const lw::render::Camera& cam) {
+        lw::render::MapRenderer mapRenderer(renderer, cam, cfg.render.mountain, riverCfg);
         mapRenderer.bake(colors);
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         SDL_RenderClear(renderer);
         mapRenderer.draw(map, tileColors);
         SDL_RenderPresent(renderer);
+    };
+    const auto render = [&](const lw::Map& map, const lw::Config::Render::River& riverCfg) {
+        renderWith(map, riverCfg, camera);
     };
     // 世界 (1,0.5)（cell0 右边中点）→ 屏幕 (10,155)；世界 (1,1)（河顶点）→ (10,150)。
     constexpr int kEdgeMidX = 10, kEdgeMidY = 155;
@@ -119,10 +140,9 @@ TEST(RiverRender, DrawsRiversWithColorWidthAndLod) {
     EXPECT_TRUE(isWhite(pixelAt(target, kEdgeMidX, kEdgeMidY), target->format))
         << "LOD 命中时不应画河";
 
-    // 颜色与线宽配置生效：红色 + 5px（覆盖更宽）。
+    // 颜色配置生效：红色。
     lw::Config::Render::River red = cfg.render.river;
     red.color = {255, 0, 0};
-    red.thicknessPx = 5.0;
     render(withRivers, red);
     Uint8 r = 0, g = 0, b = 0, a = 0;
     SDL_GetRGBA(pixelAt(target, kEdgeMidX, kEdgeMidY), target->format, &r, &g, &b, &a);
@@ -130,16 +150,55 @@ TEST(RiverRender, DrawsRiversWithColorWidthAndLod) {
     EXPECT_LT(g, 80);
     EXPECT_LT(b, 80);
 
+    // ---- 线宽 = 世界量：屏幕 px = max(minPx, widthU × cellPx)（§7.2 "随缩放 + 最小宽度"）----
+    // 取 cell0 上边（世界 y=1 → 屏幕 y=150）上 x=5 一列（远离两端河顶点圆角）数黑像素 = 线宽。
+    // 注意：cell0 右边（x=1）在缩小后屏幕 x 会靠近本列，故取 x=3 这一列量"上边"的线宽。
+    constexpr int kProbeX = 3, kProbeY0 = 140, kProbeY1 = 160;
+    // 默认 widthU=0.20、minPx=1.5：cellPx = 10 → 2px。
+    render(withRivers, cfg.render.river);
+    const int widthAt1x = darkInColumn(target, kProbeX, kProbeY0, kProbeY1);
+    EXPECT_EQ(widthAt1x, 2) << "默认 zoom=1 时线宽应为 2px（= widthU × cellPx）";
+    // 同一线宽的**等宽性**：同一条边上另一列 x=6 应完全一致。
+    EXPECT_EQ(darkInColumn(target, 6, kProbeY0, kProbeY1), widthAt1x) << "同一条河边不应粗细不均";
+    // 另一条河（cell0 右边，世界 x=1 → 屏幕 x=10，竖直）在 y=155 一行：线宽同为 2px。
+    EXPECT_EQ(darkInRow(target, kEdgeMidY, 5, 15), widthAt1x) << "不同朝向的河边应等宽";
+
+    // 放大 2×（锚点在 (5,150)，该世界点不动）：cellPx=20 → 4px（随缩放变粗）。
+    lw::render::Camera zoomedIn = camera;
+    zoomedIn.zoomAt(static_cast<double>(kProbeX), static_cast<double>(kVertexY), 2.0);
+    renderWith(withRivers, cfg.render.river, zoomedIn);
+    EXPECT_EQ(darkInColumn(target, kProbeX, kProbeY0, kProbeY1), 4) << "放大后线宽应同比变粗";
+    // 缩小 0.25×：cellPx=2.5 → widthU×cellPx=0.5px < minPx=1.5 → 兜底为 1.5px（仍可见）。
+    lw::render::Camera zoomedOut = camera;
+    zoomedOut.zoomAt(static_cast<double>(kProbeX), static_cast<double>(kVertexY), 0.25);
+    renderWith(withRivers, cfg.render.river, zoomedOut);
+    const int widthAtMin = darkInColumn(target, kProbeX, kProbeY0, kProbeY1);
+    EXPECT_GE(widthAtMin, 1) << "缩到很小时也应有最小宽度（否则会看不见）";
+    EXPECT_LE(widthAtMin, 3) << "最小宽度不应把河画粗";
+
     // 缩略预览：河必须画出来（预览无纯黑地形色）；纹理入口也必须能建出来。
-    SDL_Surface* previewWith = lw::render::renderMapPreviewSurface(withRivers, 320);
+    // 同一条线宽规则：预览 cell = 20px/U → max(1.5, 4) = 4px；把 widthU/minPx 调细应显著变细。
+    SDL_Surface* previewWith =
+        lw::render::renderMapPreviewSurface(withRivers, 320, cfg.render.river);
     ASSERT_NE(previewWith, nullptr);
-    SDL_Surface* previewWithout = lw::render::renderMapPreviewSurface(withoutRivers, 320);
+    SDL_Surface* previewWithout =
+        lw::render::renderMapPreviewSurface(withoutRivers, 320, cfg.render.river);
     ASSERT_NE(previewWithout, nullptr);
-    EXPECT_GT(countDarkPixels(previewWith), 0) << "预览应画出河";
+    const int previewDark = countDarkPixels(previewWith);
+    EXPECT_GT(previewDark, 0) << "预览应画出河";
     EXPECT_EQ(countDarkPixels(previewWithout), 0) << "无河预览不应有黑像素";
+    lw::Config::Render::River thin = cfg.render.river;
+    thin.widthU = 0.05;
+    thin.minPx = 1.0;
+    SDL_Surface* previewThin = lw::render::renderMapPreviewSurface(withRivers, 320, thin);
+    ASSERT_NE(previewThin, nullptr);
+    EXPECT_GT(countDarkPixels(previewThin), 0) << "细线预览也应看得见河";
+    EXPECT_LT(countDarkPixels(previewThin), previewDark) << "预览线宽也必须随配置变化";
+    SDL_FreeSurface(previewThin);
     SDL_FreeSurface(previewWith);
     SDL_FreeSurface(previewWithout);
-    SDL_Texture* previewTexture = lw::render::renderMapPreview(renderer, withRivers, 320);
+    SDL_Texture* previewTexture =
+        lw::render::renderMapPreview(renderer, withRivers, 320, cfg.render.river);
     ASSERT_NE(previewTexture, nullptr);
     SDL_DestroyTexture(previewTexture);
 

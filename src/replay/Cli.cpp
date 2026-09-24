@@ -28,7 +28,7 @@ std::string cliUsage() {
              "  --validate-config  校验 --config 指定的配置及同目录分片后退出\n"
             "  --screenshot PATH  窗口模式：跑到 tick=--ticks 时截图保存到 PATH 并退出（QA 钩子）\n"
             "  --no-menu          窗口模式：跳过菜单直接开始（P1）\n"
-            "  --river-density D  随机图河密度（河数 = round(D × 总格数)；默认 0.02，0 = 无河）\n"
+            "  --river-density D  随机图河密度（尝试数 = round(D × 陆地格数)；默认 0.02，0 = 无河）\n"
             "  --tiling T         密铺类型：square | hex | tri | arch_33336 | arch_33434 |\n"
            "                      arch_3464 | arch_3636 | arch_31212 | arch_4612 | arch_488 |\n"
            "                      laves_3636 | laves_31212 | laves_4612 | laves_488 |\n"
