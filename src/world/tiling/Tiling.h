@@ -134,6 +134,64 @@ struct TilingGeom {
     // 更新 (x,y)、remLength。RNG 0 次。
     int crossEdge(int index, double& x, double& y, double angle, double& remLength) const;
 
+    // ================= 顶点/边拓扑（R1；《河流系统开发文档》§4）=================
+    // 供河流系统使用的整数拓扑查询。构建期在 TilingTable 里按 kTableTol 把
+    // (基础格, 顶点, dr, dc) 归并成等价类，运行期只做整数运算与键比较（零浮点比较）。
+    // 键编码 = 1 + cell * 键宽 + idx（cell = 全图格下标，idx = 顶点/边序号）；0 恒为"无效"，
+    // 故 (0,0) 不会与无效混淆。
+    static constexpr int kMaxCellVerts = 16;  // 单格最大顶点数（当前最大 12-gon）
+    static constexpr int kMaxCellEdges = 16;  // 单格最大边数（同上；与顶点共用键宽）
+
+    // 格内顶点数（= cellPolygon 返回的顶点数）。
+    int cellVertexCount(int index) const;
+    // 顶点 v 的世界坐标（与 cellPolygon 第 v 个顶点逐字节一致）。
+    void cellVertex(int index, int v, double& wx, double& wy) const;
+    // 顶点 v 的**格坐标**（斜周期 = R^{-1}·世界，非斜 = 世界；与 gridPolygon 一致）。
+    // 随机生成的梯度向量必须与本函数同帧，否则剪切会偏（§9.6）。
+    void gridVertex(int index, int v, double& gx, double& gy) const;
+
+    // 顶点规范键：同一几何顶点在全图唯一；取全部**图内**等价表示 (cell, vertex) 的字典序
+    // 最小者，故与调用方用哪个表示无关。越界/图外返回 0。
+    std::uint64_t vertexKey(int index, int v) const;
+    // 键解码（顶点键；键无效/序号越界返回 false）。
+    bool vertexFromKey(std::uint64_t key, int& index, int& v) const;
+
+    // 顶点邻点 = 与该顶点共享一条边的全部顶点（枚举图内格的入射边，按规范键去重）。
+    // 顺序确定（vertexLinks 链接序 × 前一/后一顶点）。顶点无效返回 0。
+    int vertexNeighborCount(int index, int v) const;
+    // 第 k 个邻点：outCell/outVert = 该邻点在**连接边所属格**上的表示（多边形顶点序）。
+    // k 越界返回 -1，成功返回 k。
+    int vertexNeighbor(int index, int v, int k, int& outCell, int& outVert) const;
+    // 第 k 个邻点的规范顶点键；越界返回 0。
+    std::uint64_t vertexNeighborKey(int index, int v, int k) const;
+    // 第 k 个邻点的**连接边**（规范边表示）：outCell/outK 可直接喂给 cellEdge/edgeKey。
+    // 越界返回 -1，成功返回 k。
+    int vertexNeighborEdge(int index, int v, int k, int& outCell, int& outK) const;
+
+    // 顶点在**本格内**关联的边（格内边序号 k，与 neighbor/cellEdge 同序）：恒 2 条。
+    // which = 0 → v 与 vertexAdj(v)[0]（前一顶点）之间的边；which = 1 → 与后一顶点。
+    int cellVertexEdgeCount(int index, int v) const;
+    int cellVertexEdge(int index, int v, int which) const;
+    // 格内边 (index,k) 的两个端点**多边形顶点序号**。
+    bool cellEdgeVertices(int index, int k, int& vA, int& vB) const;
+
+    // 连接顶点 (index,v) 与 (neighborCell,neighborVert) 的格内边序号 k（与 neighbor 同序，
+    // 即 neighbor(index,k) == neighborCell）；无此边（该边不属于 index / 两者不相邻）返回 -1。
+    // 两个顶点参数可以是同一几何顶点的**任一**表示（按规范键比对），无浮点比较。
+    int edgeIndexBetweenVertices(int index, int v, int neighborCell, int neighborVert) const;
+
+    // 边规范键：同一条几何边的两侧格给出同一键；地图边界边（对侧在图外）只保留本侧编码。
+    // edgeKey 热路径 O(1)（用 TilingTable::edgeReverseK）；无效返回 0。
+    std::uint64_t edgeKey(int index, int k) const;
+    // 便捷版：扫邻居找 k，O(边数)；neighborIndex 不是 index 的边邻时返回 0。
+    std::uint64_t edgeKeyBetween(int index, int neighborIndex) const;
+    // 键解码（边键；键无效/序号越界返回 false）。
+    bool edgeFromKey(std::uint64_t key, int& index, int& k) const;
+    // 边端点世界坐标（与 cellEdge(解码出的 cell,k) 完全一致）。
+    bool edgeEndpoints(std::uint64_t key, double& x0, double& y0, double& x1, double& y1) const;
+    // 边的两侧格：outA 恒为规范键所属格，outB = 对侧（-1 = 地图边界边）；无效时两者 -1。
+    void edgeCells(int index, int k, int& outA, int& outB) const;
+
     // ---- 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）----
     // 按 格类型/朝向 分档渲染；方（单色）、六（单朝向）不分档：
     //   arch：按正多边形种类（边数）升序分档 → 档数 = 唯一边数 k；每格档 = 其边数排序序。

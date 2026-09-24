@@ -84,6 +84,24 @@ struct TilingTable {
     std::vector<Cell> cells;
     // 表驱动点邻接：每项保存相对周期块和基础格，运行时再做有限地图边界检查。
     std::vector<std::vector<Edge>> vertexNeighbors;
+    // ---- R1 顶点/边拓扑（河流系统；构建期一次，运行期只做整数运算）----
+    struct VertexLink {
+        int nb = -1;  // 共点基础格下标
+        int j = 0;    // 该基础格上的顶点（多边形序）
+        int dr = 0;   // 周期块行偏移
+        int dc = 0;   // 周期块列偏移
+    };
+    // [b][i] → 顶点 (b,i) 的全部等价表示（含自身 (b,i,0,0)），按 (dr,dc,nb,j) 升序。
+    // 自身表示不可省：规范键取 min 与"同格内相邻顶点"都要靠它。
+    std::vector<std::vector<std::vector<VertexLink>>> vertexLinks;
+    // [b][i] → 多边形序下的两个相邻顶点 {prev, next}（即两条入射边的对端）。
+    std::vector<std::vector<std::array<int, 2>>> vertexAdj;
+    // [b][k] → 对外邻居序 k 的反向边序号 k'（对侧格上的邻居序；-1 = 未找到）。
+    std::vector<std::vector<int>> edgeReverseK;
+    // [b] → 多边形边序号 → 对外邻居序（edgeOrder 的逆）。
+    std::vector<std::vector<int>> edgePolyToK;
+    // [b][pe] → 多边形边 pe 在**对侧基础格**上的多边形边序号（-1 = 未找到）。
+    std::vector<std::vector<int>> edgeReversePoly;
     std::vector<double> cellAreas;
     std::vector<std::array<double, 2>> cellIncenters;
     // 5.1：周期块半区/象限内的候选 owner，边界仍回退精确扫描。
@@ -580,9 +598,213 @@ std::shared_ptr<const TilingTable> loadTable(TilingType t) {
             return a.nb < b.nb;
         });
     }
+    // 顶点/边拓扑（R1，河流系统）：把 (基础格, 顶点, dr, dc) 归并成等价类。
+    // 顶点：±2 周期窗口内与之重合的全部 (nb,j,dr,dc)（窗口与上面 vertexNeighbors 一致）；
+    //       含自身表示，运行期靠它取规范键与"同格内相邻顶点"。
+    // 边：edgeOrder 的逆映射 + 反向边（判据与 :511 邻接构建完全相同）+ 对外邻居序版本。
+    tab->vertexLinks.assign(static_cast<size_t>(B), {});
+    tab->vertexAdj.assign(static_cast<size_t>(B), {});
+    tab->edgeReverseK.assign(static_cast<size_t>(B), {});
+    tab->edgePolyToK.assign(static_cast<size_t>(B), {});
+    tab->edgeReversePoly.assign(static_cast<size_t>(B), {});
+    // edgeOrder 的逆映射须先对全部基础格建好：下面反向边要跨基础格查对侧的 polygon→k。
+    for (int b = 0; b < B; ++b) {
+        const auto& cell = tab->cells[static_cast<size_t>(b)];
+        tab->edgePolyToK[static_cast<size_t>(b)].assign(static_cast<size_t>(cell.n), -1);
+        for (int k = 0; k < cell.n; ++k)
+            tab->edgePolyToK[static_cast<size_t>(b)][static_cast<size_t>(
+                cell.edgeOrder[static_cast<size_t>(k)])] = k;
+    }
+    for (int b = 0; b < B; ++b) {
+        const auto& cell = tab->cells[static_cast<size_t>(b)];
+        auto& links = tab->vertexLinks[static_cast<size_t>(b)];
+        auto& adj = tab->vertexAdj[static_cast<size_t>(b)];
+        links.resize(static_cast<size_t>(cell.n));
+        adj.resize(static_cast<size_t>(cell.n));
+        for (int i = 0; i < cell.n; ++i) {
+            adj[static_cast<size_t>(i)] = {(i + cell.n - 1) % cell.n, (i + 1) % cell.n};
+            const auto& p = cell.v[static_cast<size_t>(i)];
+            auto& list = links[static_cast<size_t>(i)];
+            for (int dr = -2; dr <= 2; ++dr) {
+                for (int dc = -2; dc <= 2; ++dc) {
+                    const double ox = static_cast<double>(dc) * tab->wx
+                                      + static_cast<double>(dr) * tab->hx;
+                    const double oy = static_cast<double>(dc) * tab->wy
+                                      + static_cast<double>(dr) * tab->hy;
+                    for (int nb = 0; nb < B; ++nb) {
+                        const auto& other = tab->cells[static_cast<size_t>(nb)];
+                        for (int j = 0; j < other.n; ++j) {
+                            if (std::fabs(p[0] - (other.v[static_cast<size_t>(j)][0] + ox))
+                                    <= kTableTol &&
+                                std::fabs(p[1] - (other.v[static_cast<size_t>(j)][1] + oy))
+                                    <= kTableTol)
+                                list.push_back({nb, j, dr, dc});
+                        }
+                    }
+                }
+            }
+            std::sort(list.begin(), list.end(), [](const TilingTable::VertexLink& x,
+                                                   const TilingTable::VertexLink& y) {
+                if (x.dr != y.dr) return x.dr < y.dr;
+                if (x.dc != y.dc) return x.dc < y.dc;
+                if (x.nb != y.nb) return x.nb < y.nb;
+                return x.j < y.j;
+            });
+        }
+        tab->edgeReversePoly[static_cast<size_t>(b)].assign(static_cast<size_t>(cell.n), -1);
+        tab->edgeReverseK[static_cast<size_t>(b)].assign(static_cast<size_t>(cell.n), -1);
+        for (int pe = 0; pe < cell.n; ++pe) {
+            const auto& e = cell.edges[static_cast<size_t>(pe)];
+            if (e.nb < 0) continue;
+            const auto& oc = tab->cells[static_cast<size_t>(e.nb)];
+            const std::array<double, 2> a = cell.v[static_cast<size_t>(pe)];
+            const std::array<double, 2> bpt = cell.v[static_cast<size_t>((pe + 1) % cell.n)];
+            // 与 :511 邻接构建同一判据、同一偏移：把对侧格的顶点按本侧记录到的 (dr,dc)
+            // 平移过来，反向重合的那条边即对侧的多边形边。
+            const double ox = static_cast<double>(e.dc) * tab->wx
+                              + static_cast<double>(e.dr) * tab->hx;
+            const double oy = static_cast<double>(e.dc) * tab->wy
+                              + static_cast<double>(e.dr) * tab->hy;
+            for (int kk = 0; kk < oc.n; ++kk) {
+                if (oc.edges[static_cast<size_t>(kk)].nb != b) continue;
+                const std::array<double, 2> n0 = {oc.v[static_cast<size_t>(kk)][0] + ox,
+                                                  oc.v[static_cast<size_t>(kk)][1] + oy};
+                const std::array<double, 2> n1 = {
+                    oc.v[static_cast<size_t>((kk + 1) % oc.n)][0] + ox,
+                    oc.v[static_cast<size_t>((kk + 1) % oc.n)][1] + oy};
+                if (samePoint(n0, bpt) && samePoint(n1, a)) {
+                    tab->edgeReversePoly[static_cast<size_t>(b)][static_cast<size_t>(pe)] = kk;
+                    break;
+                }
+            }
+            const int k = tab->edgePolyToK[static_cast<size_t>(b)][static_cast<size_t>(pe)];
+            const int rpe = tab->edgeReversePoly[static_cast<size_t>(b)][static_cast<size_t>(pe)];
+            if (k >= 0 && rpe >= 0)
+                tab->edgeReverseK[static_cast<size_t>(b)][static_cast<size_t>(k)] =
+                    tab->edgePolyToK[static_cast<size_t>(e.nb)][static_cast<size_t>(rpe)];
+        }
+    }
     buildFastIndexes(*tab, t);
     fillTilePalette(*tab, t);
     return tab;
+}
+
+// ---- R1 顶点/边拓扑：运行期整数查询（无浮点比较）----
+// 键编码 = 1 + cell * 键宽 + idx（0 = 无效）。
+std::uint64_t topoVertexKey(int cell, int v) {
+    return 1ull + static_cast<std::uint64_t>(cell) * TilingGeom::kMaxCellVerts
+           + static_cast<std::uint64_t>(v);
+}
+
+std::uint64_t topoEdgeKey(int cell, int k) {
+    return 1ull + static_cast<std::uint64_t>(cell) * TilingGeom::kMaxCellEdges
+           + static_cast<std::uint64_t>(k);
+}
+
+// 顶点的一个已知表示（周期块 (row,col) 上的基础格 b 的顶点 v）→ 规范键：
+// 枚举其等价类中全部图内表示，取 (格下标, 顶点序号) 字典序最小者。0 = 无图内表示。
+// 一致性依据：同一几何顶点的等价类跨度 ≤ 1 个周期块，小于 vertexLinks 的 ±2 窗口，
+// 故任取类内一个表示都能枚举到整个类 → 不同表示给出同一 min（《河流系统开发文档》§4.4）。
+std::uint64_t canonicalVertexKey(const TilingTable& tab, int cols, int rows, int row, int col,
+                                 int b, int v) {
+    const int B = static_cast<int>(tab.cells.size());
+    int bestCell = -1, bestVert = -1;
+    for (const auto& link : tab.vertexLinks[static_cast<size_t>(b)][static_cast<size_t>(v)]) {
+        const int nr = row + link.dr, nc = col + link.dc;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const int cell = (nr * cols + nc) * B + link.nb;
+        if (bestCell < 0 || cell < bestCell || (cell == bestCell && link.j < bestVert)) {
+            bestCell = cell;
+            bestVert = link.j;
+        }
+    }
+    return bestCell < 0 ? 0 : topoVertexKey(bestCell, bestVert);
+}
+
+// 顶点 (index,v) 的邻点（= 图内入射边的对端顶点）与连接边。
+struct VertexNeighborEntry {
+    int cell = -1;      // 对端顶点在连接边所属格上的表示（多边形顶点序）
+    int vert = 0;
+    int edgeCell = -1;  // 连接边的规范表示：格 + 格内边序号（与 neighbor/cellEdge 同序）
+    int edgeK = 0;
+    std::uint64_t key = 0;  // 对端顶点的规范顶点键
+};
+// 单个顶点的邻点数上限：格内边数 ≤ 12（当前最大 12-gon），故邻点 ≤ 12；留余量。
+constexpr int kMaxVertexNeighbors = 32;
+
+// 枚举 (index,v) 的全部邻点：遍历 vertexLinks 的全部图内表示 × 该表示的两条入射边。
+// 每条几何边会被两侧格各枚举一次（对侧在图外则一次），按对端顶点的规范键去重。
+// 返回条数（≤ kMaxVertexNeighbors）；顶点无效返回 0。
+int collectVertexNeighbors(const TilingTable& tab, int cols, int rows, int index, int v,
+                           VertexNeighborEntry* out) {
+    const int B = static_cast<int>(tab.cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int row = rc / cols, col = rc % cols;
+    const auto& cell = tab.cells[static_cast<size_t>(b)];
+    if (v < 0 || v >= cell.n) return 0;
+    int count = 0;
+    for (const auto& link : tab.vertexLinks[static_cast<size_t>(b)][static_cast<size_t>(v)]) {
+        const int nr = row + link.dr, nc = col + link.dc;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const int ownCell = (nr * cols + nc) * B + link.nb;
+        const auto& own = tab.cells[static_cast<size_t>(link.nb)];
+        const int n = own.n;
+        for (int side = 0; side < 2; ++side) {
+            // 本顶点所在的两条多边形边：side 0 = (j-1 → j)，side 1 = (j → j+1)。
+            const int pe = side == 0 ? (link.j + n - 1) % n : link.j;
+            const auto& e = own.edges[static_cast<size_t>(pe)];
+            if (e.nb < 0) continue;
+            const int wr = nr + e.dr, wc = nc + e.dc;
+            const auto& other = tab.cells[static_cast<size_t>(e.nb)];
+            const int rpe = tab.edgeReversePoly[static_cast<size_t>(link.nb)][static_cast<size_t>(pe)];
+            if (rpe < 0) continue;
+            const int kOwn = tab.edgePolyToK[static_cast<size_t>(link.nb)][static_cast<size_t>(pe)];
+            if (kOwn < 0) continue;
+            // 对端顶点：本格 pe 的远端（side 0 = v[j-1]，side 1 = v[j+1]，取自 vertexAdj）。
+            const int ownVert = tab.vertexAdj[static_cast<size_t>(link.nb)][static_cast<size_t>(link.j)]
+                                    [static_cast<size_t>(side)];
+            int outCell, outVert, edgeCell, edgeK;
+            if (wr < 0 || wr >= rows || wc < 0 || wc >= cols) {
+                // 地图边界边：对侧在图外，只保留本侧编码；对端仍是本格顶点（图内）。
+                edgeCell = ownCell;
+                edgeK = kOwn;
+                outCell = ownCell;
+                outVert = ownVert;
+            } else {
+                const int kOther =
+                    tab.edgePolyToK[static_cast<size_t>(e.nb)][static_cast<size_t>(rpe)];
+                if (kOther < 0) continue;
+                const int otherCell = (wr * cols + wc) * B + e.nb;
+                if (otherCell < ownCell || (otherCell == ownCell && kOther < kOwn)) {
+                    edgeCell = otherCell;
+                    edgeK = kOther;
+                    outCell = otherCell;
+                    outVert = side == 0 ? (rpe + 1) % other.n : rpe;
+                } else {
+                    edgeCell = ownCell;
+                    edgeK = kOwn;
+                    outCell = ownCell;
+                    outVert = ownVert;
+                }
+            }
+            const std::uint64_t key =
+                (outCell == ownCell) ? canonicalVertexKey(tab, cols, rows, nr, nc, link.nb, outVert)
+                                     : canonicalVertexKey(tab, cols, rows, wr, wc, e.nb, outVert);
+            if (key == 0) continue;
+            bool duplicate = false;
+            for (int i = 0; i < count; ++i) {
+                if (out[i].key == key) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            out[count] = {outCell, outVert, edgeCell, edgeK, key};
+            ++count;
+        }
+    }
+    return count;
 }
 
 // ---- 地块双色分档（2026-08 异种地图开发思路「与双色渲染系统」）----
@@ -1211,6 +1433,237 @@ int TilingGeom::pointNeighbor(int index, int k) const {
     const int nr = row + edge.dr, nc = col + edge.dc;
     if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) return -1;
     return (nr * cols + nc) * B + edge.nb;
+}
+
+// ================= R1 顶点/边拓扑（《河流系统开发文档》§4）=================
+// 全部为整数拓扑查询：构建期在 TilingTable 里建立等价类与反向边表，运行期零浮点比较。
+
+int TilingGeom::cellVertexCount(int index) const {
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return 0;
+    return table_->cells[static_cast<size_t>(index % table_->cells.size())].n;
+}
+
+void TilingGeom::cellVertex(int index, int v, double& wx, double& wy) const {
+    wx = wy = 0.0;
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int r = rc / cols, c = rc % cols;
+    const auto& cell = table_->cells[static_cast<size_t>(b)];
+    if (v < 0 || v >= cell.n) return;
+    wx = cell.v[static_cast<size_t>(v)][0] + static_cast<double>(c) * table_->wx
+         + static_cast<double>(r) * table_->hx - worldMinX();
+    wy = cell.v[static_cast<size_t>(v)][1] + static_cast<double>(c) * table_->wy
+         + static_cast<double>(r) * table_->hy - worldMinY();
+}
+
+void TilingGeom::gridVertex(int index, int v, double& gx, double& gy) const {
+    if (!hasSkewedPeriod()) {
+        cellVertex(index, v, gx, gy);
+        return;
+    }
+    gx = gy = 0.0;
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int r = rc / cols, c = rc % cols;
+    const auto& cell = table_->cells[static_cast<size_t>(b)];
+    if (v < 0 || v >= cell.n) return;
+    const double ux = cell.v[static_cast<size_t>(v)][0] + static_cast<double>(c) * table_->wx
+                      + static_cast<double>(r) * table_->hx;
+    const double uy = cell.v[static_cast<size_t>(v)][1] + static_cast<double>(c) * table_->wy
+                      + static_cast<double>(r) * table_->hy;
+    gx = table_->inv00 * ux + table_->inv01 * uy;
+    gy = table_->inv10 * ux + table_->inv11 * uy;
+}
+
+std::uint64_t TilingGeom::vertexKey(int index, int v) const {
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return 0;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int row = rc / cols, col = rc % cols;
+    if (v < 0 || v >= table_->cells[static_cast<size_t>(b)].n) return 0;
+    return canonicalVertexKey(*table_, cols, rows, row, col, b, v);
+}
+
+bool TilingGeom::vertexFromKey(std::uint64_t key, int& index, int& v) const {
+    index = -1;
+    v = -1;
+    if (key == 0) return false;
+    ensureTable();
+    if (!table_ || table_->cells.empty()) return false;
+    const std::uint64_t raw = key - 1;
+    const int cell = static_cast<int>(raw / TilingGeom::kMaxCellVerts);
+    const int vert = static_cast<int>(raw % TilingGeom::kMaxCellVerts);
+    if (cell < 0 || cell >= cellCount()) return false;
+    if (vert < 0 || vert >= table_->cells[static_cast<size_t>(cell % table_->cells.size())].n)
+        return false;
+    index = cell;
+    v = vert;
+    return true;
+}
+
+int TilingGeom::vertexNeighborCount(int index, int v) const {
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return 0;
+    VertexNeighborEntry entries[kMaxVertexNeighbors];
+    return collectVertexNeighbors(*table_, cols, rows, index, v, entries);
+}
+
+int TilingGeom::vertexNeighbor(int index, int v, int k, int& outCell, int& outVert) const {
+    outCell = -1;
+    outVert = -1;
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return -1;
+    VertexNeighborEntry entries[kMaxVertexNeighbors];
+    const int count = collectVertexNeighbors(*table_, cols, rows, index, v, entries);
+    if (k < 0 || k >= count) return -1;
+    outCell = entries[k].cell;
+    outVert = entries[k].vert;
+    return k;
+}
+
+std::uint64_t TilingGeom::vertexNeighborKey(int index, int v, int k) const {
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return 0;
+    VertexNeighborEntry entries[kMaxVertexNeighbors];
+    const int count = collectVertexNeighbors(*table_, cols, rows, index, v, entries);
+    if (k < 0 || k >= count) return 0;
+    return entries[k].key;
+}
+
+int TilingGeom::vertexNeighborEdge(int index, int v, int k, int& outCell, int& outK) const {
+    outCell = -1;
+    outK = -1;
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return -1;
+    VertexNeighborEntry entries[kMaxVertexNeighbors];
+    const int count = collectVertexNeighbors(*table_, cols, rows, index, v, entries);
+    if (k < 0 || k >= count) return -1;
+    outCell = entries[k].edgeCell;
+    outK = entries[k].edgeK;
+    return k;
+}
+
+int TilingGeom::cellVertexEdgeCount(int index, int v) const {
+    const int n = cellVertexCount(index);
+    if (n <= 0 || v < 0 || v >= n) return 0;
+    return 2;
+}
+
+int TilingGeom::cellVertexEdge(int index, int v, int which) const {
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return -1;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const auto& cell = table_->cells[static_cast<size_t>(b)];
+    if (v < 0 || v >= cell.n || which < 0 || which > 1) return -1;
+    // 两条入射边：which 0 → 多边形边 (v-1 → v)，which 1 → (v → v+1)。
+    // 对端顶点即 vertexAdj[b][v][which]（前一/后一顶点）。
+    const int pe = which == 0 ? (v + cell.n - 1) % cell.n : v;
+    return table_->edgePolyToK[static_cast<size_t>(b)][static_cast<size_t>(pe)];
+}
+
+bool TilingGeom::cellEdgeVertices(int index, int k, int& vA, int& vB) const {
+    vA = -1;
+    vB = -1;
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return false;
+    const auto& cell = table_->cells[static_cast<size_t>(index % table_->cells.size())];
+    if (k < 0 || k >= cell.n) return false;
+    const int pe = cell.edgeOrder[static_cast<size_t>(k)];
+    vA = pe;
+    vB = (pe + 1) % cell.n;
+    return true;
+}
+
+int TilingGeom::edgeIndexBetweenVertices(int index, int v, int neighborCell,
+                                         int neighborVert) const {
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return -1;
+    const std::uint64_t a = vertexKey(index, v);
+    const std::uint64_t b = vertexKey(neighborCell, neighborVert);
+    if (a == 0 || b == 0 || a == b) return -1;
+    const int n = neighborCount(index);
+    for (int k = 0; k < n; ++k) {
+        if (neighbor(index, k) != neighborCell) continue;
+        int vA = -1, vB = -1;
+        if (!cellEdgeVertices(index, k, vA, vB)) continue;
+        const std::uint64_t ka = vertexKey(index, vA);
+        const std::uint64_t kb = vertexKey(index, vB);
+        if ((ka == a && kb == b) || (ka == b && kb == a)) return k;
+    }
+    return -1;
+}
+
+std::uint64_t TilingGeom::edgeKey(int index, int k) const {
+    ensureTable();
+    if (!table_ || table_->cells.empty() || index < 0 || index >= cellCount()) return 0;
+    const int B = static_cast<int>(table_->cells.size());
+    const int b = index % B;
+    const int rc = index / B;
+    const int row = rc / cols, col = rc % cols;
+    const auto& cell = table_->cells[static_cast<size_t>(b)];
+    if (k < 0 || k >= cell.n) return 0;
+    const auto& e = cell.edges[static_cast<size_t>(cell.edgeOrder[static_cast<size_t>(k)])];
+    if (e.nb < 0) return 0;
+    const int nr = row + e.dr, nc = col + e.dc;
+    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) return topoEdgeKey(index, k);  // 地图边界
+    const int otherCell = (nr * cols + nc) * B + e.nb;
+    const int kk = table_->edgeReverseK[static_cast<size_t>(b)][static_cast<size_t>(k)];
+    if (kk < 0) return 0;
+    if (otherCell < index || (otherCell == index && kk < k)) return topoEdgeKey(otherCell, kk);
+    return topoEdgeKey(index, k);
+}
+
+std::uint64_t TilingGeom::edgeKeyBetween(int index, int neighborIndex) const {
+    if (neighborIndex < 0) return 0;
+    const int n = neighborCount(index);
+    for (int k = 0; k < n; ++k)
+        if (neighbor(index, k) == neighborIndex) return edgeKey(index, k);
+    return 0;
+}
+
+bool TilingGeom::edgeFromKey(std::uint64_t key, int& index, int& k) const {
+    index = -1;
+    k = -1;
+    if (key == 0) return false;
+    ensureTable();
+    if (!table_ || table_->cells.empty()) return false;
+    const std::uint64_t raw = key - 1;
+    const int cell = static_cast<int>(raw / TilingGeom::kMaxCellEdges);
+    const int edge = static_cast<int>(raw % TilingGeom::kMaxCellEdges);
+    if (cell < 0 || cell >= cellCount()) return false;
+    if (edge < 0 || edge >= table_->cells[static_cast<size_t>(cell % table_->cells.size())].n)
+        return false;
+    index = cell;
+    k = edge;
+    return true;
+}
+
+bool TilingGeom::edgeEndpoints(std::uint64_t key, double& x0, double& y0, double& x1,
+                               double& y1) const {
+    int index = -1, k = -1;
+    if (!edgeFromKey(key, index, k)) return false;
+    return cellEdge(index, k, x0, y0, x1, y1);
+}
+
+void TilingGeom::edgeCells(int index, int k, int& outA, int& outB) const {
+    outA = -1;
+    outB = -1;
+    const std::uint64_t key = edgeKey(index, k);
+    if (key == 0) return;
+    int a = -1, ka = -1;
+    if (!edgeFromKey(key, a, ka)) return;
+    outA = a;
+    outB = neighbor(a, ka);
 }
 
 double TilingGeom::cellArea(int index) const {

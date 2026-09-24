@@ -4,8 +4,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
+#include <map>
 #include <set>
+#include <string>
+#include <vector>
 
 #include "core/Config.h"
 #include "core/GameDefs.h"
@@ -599,6 +604,323 @@ TEST(Tiling, TriL4HasExplicitUpAndDownVariants) {
     ASSERT_NE(up, nullptr);
     EXPECT_EQ(down->anchorBaseMask, (1u << 1) | (1u << 3));
     EXPECT_EQ(up->anchorBaseMask, (1u << 0) | (1u << 2));
+}
+
+// ==================== R1：顶点/边拓扑（《河流系统开发文档》§4）====================
+// 覆盖全部 17 种密铺：顶点规范键跨表示一致、顶点邻点 == 图内入射边、边键两侧同键、
+// edgeIndexBetweenVertices 与顶点/边表示互逆、gridVertex 与 gridPolygon 同帧。
+
+std::vector<TilingType> allTilingTypes() {
+    std::vector<TilingType> types;
+    for (int i = 0; i < lw::kTilingTypeCount; ++i) types.push_back(static_cast<TilingType>(i));
+    return types;
+}
+
+// 独立参考图（不经过 vertexNeighbor*）：枚举全图不重复边键，累计两端顶点键。
+struct EdgeRefGraph {
+    std::map<std::uint64_t, std::set<std::uint64_t>> neighbors;
+    std::size_t edgeCount = 0;
+};
+
+EdgeRefGraph buildEdgeRef(const TilingGeom& g) {
+    EdgeRefGraph ref;
+    std::set<std::uint64_t> seen;
+    for (int index = 0; index < g.cellCount(); ++index) {
+        for (int k = 0; k < g.neighborCount(index); ++k) {
+            const std::uint64_t ek = g.edgeKey(index, k);
+            if (ek == 0) continue;
+            if (!seen.insert(ek).second) continue;
+            ++ref.edgeCount;
+            int a = -1, ka = -1, vA = -1, vB = -1;
+            if (!g.edgeFromKey(ek, a, ka) || !g.cellEdgeVertices(a, ka, vA, vB)) continue;
+            const std::uint64_t p = g.vertexKey(a, vA);
+            const std::uint64_t q = g.vertexKey(a, vB);
+            ref.neighbors[p].insert(q);
+            ref.neighbors[q].insert(p);
+        }
+    }
+    return ref;
+}
+
+// 同一几何顶点的不同 (cell, vertex) 表示必须给出同一规范键。
+TEST(Tiling, VertexKeyIsCanonicalAcrossRepresentations) {
+    for (TilingType t : allTilingTypes()) {
+        const TilingGeom g{t, 3, 3};
+        struct Rep {
+            double x, y;
+            std::uint64_t key;
+            int cell, vert;
+        };
+        std::vector<Rep> reps;
+        for (int index = 0; index < g.cellCount(); ++index) {
+            for (int v = 0; v < g.cellVertexCount(index); ++v) {
+                double x = 0.0, y = 0.0;
+                g.cellVertex(index, v, x, y);
+                reps.push_back({x, y, g.vertexKey(index, v), index, v});
+            }
+        }
+        std::sort(reps.begin(), reps.end(), [](const Rep& a, const Rep& b) {
+            if (a.x != b.x) return a.x < b.x;
+            return a.y < b.y;
+        });
+        int merged = 0;
+        for (std::size_t i = 0; i < reps.size(); ++i) {
+            ASSERT_NE(reps[i].key, 0u) << lw::tilingName(t);
+            for (std::size_t j = i + 1; j < reps.size(); ++j) {
+                if (reps[j].x - reps[i].x > 1e-9) break;
+                if (std::fabs(reps[j].y - reps[i].y) > 1e-9) continue;
+                EXPECT_EQ(reps[i].key, reps[j].key)
+                    << lw::tilingName(t) << " cell " << reps[i].cell << " v" << reps[i].vert
+                    << " vs cell " << reps[j].cell << " v" << reps[j].vert;
+                ++merged;
+            }
+        }
+        EXPECT_GT(merged, 0) << lw::tilingName(t);
+    }
+}
+
+// 顶点邻点 == 图内入射边的对端：度一致、对称、连接边端点正确。
+TEST(Tiling, VertexNeighborTopologyMatchesIncidentEdges) {
+    for (TilingType t : allTilingTypes()) {
+        const TilingGeom g{t, 4, 3};
+        ASSERT_GT(g.cellCount(), 0) << lw::tilingName(t);
+        const EdgeRefGraph ref = buildEdgeRef(g);
+        ASSERT_GT(ref.edgeCount, 0u);
+        for (int index = 0; index < g.cellCount(); ++index) {
+            const int verts = g.cellVertexCount(index);
+            ASSERT_GE(verts, 3) << lw::tilingName(t);
+            for (int v = 0; v < verts; ++v) {
+                const std::uint64_t vk = g.vertexKey(index, v);
+                ASSERT_NE(vk, 0u) << lw::tilingName(t);
+                int dc = -1, dv = -1;
+                ASSERT_TRUE(g.vertexFromKey(vk, dc, dv));
+                EXPECT_EQ(g.vertexKey(dc, dv), vk) << lw::tilingName(t);
+                const auto refIt = ref.neighbors.find(vk);
+                ASSERT_NE(refIt, ref.neighbors.end()) << lw::tilingName(t);
+                const int count = g.vertexNeighborCount(index, v);
+                EXPECT_EQ(count, static_cast<int>(refIt->second.size())) << lw::tilingName(t);
+                for (int k = 0; k < count; ++k) {
+                    const std::uint64_t nk = g.vertexNeighborKey(index, v, k);
+                    EXPECT_EQ(refIt->second.count(nk), 1u) << lw::tilingName(t);
+                    int oc = -1, ov = -1;
+                    EXPECT_EQ(g.vertexNeighbor(index, v, k, oc, ov), k);
+                    EXPECT_EQ(g.vertexKey(oc, ov), nk) << lw::tilingName(t);
+                    int ec = -1, ek = -1;
+                    EXPECT_EQ(g.vertexNeighborEdge(index, v, k, ec, ek), k);
+                    const std::uint64_t ekey = g.edgeKey(ec, ek);
+                    ASSERT_NE(ekey, 0u) << lw::tilingName(t);
+                    int ea = -1, eak = -1, evA = -1, evB = -1;
+                    ASSERT_TRUE(g.edgeFromKey(ekey, ea, eak));
+                    ASSERT_TRUE(g.cellEdgeVertices(ea, eak, evA, evB));
+                    const std::uint64_t p = g.vertexKey(ea, evA);
+                    const std::uint64_t q = g.vertexKey(ea, evB);
+                    EXPECT_TRUE((p == vk && q == nk) || (p == nk && q == vk))
+                        << lw::tilingName(t);
+                    int nc = -1, nv = -1;
+                    ASSERT_TRUE(g.vertexFromKey(nk, nc, nv));
+                    bool symmetric = false;
+                    const int ncount = g.vertexNeighborCount(nc, nv);
+                    for (int j = 0; j < ncount; ++j)
+                        if (g.vertexNeighborKey(nc, nv, j) == vk) symmetric = true;
+                    EXPECT_TRUE(symmetric) << lw::tilingName(t);
+                }
+                // 顶点-边关联：恰好两条，且约定 which=0 → (v-1,v)、which=1 → (v,v+1)。
+                EXPECT_EQ(g.cellVertexEdgeCount(index, v), 2) << lw::tilingName(t);
+                const int k0 = g.cellVertexEdge(index, v, 0);
+                const int k1 = g.cellVertexEdge(index, v, 1);
+                EXPECT_GE(k0, 0);
+                EXPECT_GE(k1, 0);
+                EXPECT_NE(k0, k1);
+                int a0 = -1, b0 = -1, a1 = -1, b1 = -1;
+                ASSERT_TRUE(g.cellEdgeVertices(index, k0, a0, b0));
+                ASSERT_TRUE(g.cellEdgeVertices(index, k1, a1, b1));
+                EXPECT_EQ(b0, v) << lw::tilingName(t);
+                EXPECT_EQ(a1, v) << lw::tilingName(t);
+                EXPECT_EQ(a0, (v + verts - 1) % verts) << lw::tilingName(t);
+                EXPECT_EQ(b1, (v + 1) % verts) << lw::tilingName(t);
+            }
+        }
+    }
+}
+
+// 边规范键：两侧同键、键所属格取字典序最小、端点与 cellEdge 完全一致、边界边只编码本侧。
+TEST(Tiling, EdgeKeyIsCanonicalAcrossBothSides) {
+    for (TilingType t : allTilingTypes()) {
+        const TilingGeom g{t, 4, 3};
+        std::set<std::uint64_t> seen;
+        int interiorEdges = 0, boundaryEdges = 0;
+        for (int index = 0; index < g.cellCount(); ++index) {
+            for (int k = 0; k < g.neighborCount(index); ++k) {
+                const std::uint64_t ek = g.edgeKey(index, k);
+                ASSERT_NE(ek, 0u) << lw::tilingName(t);
+                const bool first = seen.insert(ek).second;
+                int a = -1, ka = -1;
+                ASSERT_TRUE(g.edgeFromKey(ek, a, ka));
+                EXPECT_TRUE(a < index || (a == index && ka <= k)) << lw::tilingName(t);
+                int outA = -1, outB = -1;
+                g.edgeCells(index, k, outA, outB);
+                EXPECT_EQ(outA, a);
+                EXPECT_EQ(outB, g.neighbor(a, ka));
+                double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+                double cx0 = 0, cy0 = 0, cx1 = 0, cy1 = 0;
+                ASSERT_TRUE(g.edgeEndpoints(ek, x0, y0, x1, y1));
+                ASSERT_TRUE(g.cellEdge(a, ka, cx0, cy0, cx1, cy1));
+                EXPECT_DOUBLE_EQ(x0, cx0);
+                EXPECT_DOUBLE_EQ(y0, cy0);
+                EXPECT_DOUBLE_EQ(x1, cx1);
+                EXPECT_DOUBLE_EQ(y1, cy1);
+                const int b = g.neighbor(a, ka);
+                if (b >= 0) {
+                    if (first) ++interiorEdges;
+                    EXPECT_EQ(g.edgeKeyBetween(a, b), ek) << lw::tilingName(t);
+                    EXPECT_EQ(g.edgeKeyBetween(b, a), ek) << lw::tilingName(t);
+                } else {
+                    if (first) ++boundaryEdges;
+                    EXPECT_EQ(g.edgeKeyBetween(a, -1), 0u);
+                }
+            }
+        }
+        EXPECT_EQ(seen.size(), static_cast<std::size_t>(interiorEdges + boundaryEdges))
+            << lw::tilingName(t);
+        EXPECT_GT(interiorEdges, 0) << lw::tilingName(t);
+        EXPECT_GT(boundaryEdges, 0) << lw::tilingName(t);
+    }
+}
+
+// edgeIndexBetweenVertices：与边的两个端点表示互逆（含对侧格上的表示）。
+TEST(Tiling, EdgeIndexBetweenVerticesRoundTripsBothSides) {
+    for (TilingType t : allTilingTypes()) {
+        const TilingGeom g{t, 4, 3};
+        int checked = 0;
+        for (int a = 0; a < g.cellCount(); ++a) {
+            for (int k = 0; k < g.neighborCount(a); ++k) {
+                const int b = g.neighbor(a, k);
+                if (b < 0) continue;
+                int vA = -1, vB = -1;
+                ASSERT_TRUE(g.cellEdgeVertices(a, k, vA, vB));
+                const std::uint64_t keyB = g.vertexKey(a, vB);
+                const std::uint64_t keyA = g.vertexKey(a, vA);
+                ASSERT_NE(keyB, 0u);
+                ASSERT_NE(keyA, 0u);
+                int wB = -1, wA = -1;
+                for (int w = 0; w < g.cellVertexCount(b); ++w) {
+                    if (g.vertexKey(b, w) == keyB) wB = w;
+                    if (g.vertexKey(b, w) == keyA) wA = w;
+                }
+                ASSERT_GE(wB, 0) << lw::tilingName(t);
+                ASSERT_GE(wA, 0) << lw::tilingName(t);
+                int kk = -1;
+                for (int j = 0; j < g.neighborCount(b); ++j)
+                    if (g.neighbor(b, j) == a) kk = j;
+                ASSERT_GE(kk, 0) << lw::tilingName(t);
+                EXPECT_EQ(g.edgeIndexBetweenVertices(a, vA, b, wB), k) << lw::tilingName(t);
+                EXPECT_EQ(g.edgeIndexBetweenVertices(b, wB, a, vA), kk) << lw::tilingName(t);
+                EXPECT_EQ(g.edgeIndexBetweenVertices(a, vB, b, wB), -1) << lw::tilingName(t);
+                EXPECT_EQ(g.edgeKey(a, k), g.edgeKey(b, kk));
+                // 同格/非相邻格不成边
+                EXPECT_EQ(g.edgeIndexBetweenVertices(a, vA, a, vB), -1);
+                ++checked;
+            }
+        }
+        EXPECT_GT(checked, 0) << lw::tilingName(t);
+    }
+}
+
+// gridVertex：与 gridPolygon 同帧（斜周期必须为 R^{-1}·世界），非斜退化为世界坐标。
+TEST(Tiling, GridVertexMatchesGridFrame) {
+    for (TilingType t : allTilingTypes()) {
+        const TilingGeom g{t, 4, 4};
+        for (int index = 0; index < g.cellCount(); ++index) {
+            const int n = g.cellVertexCount(index);
+            ASSERT_GE(n, 3);
+            double sx = 0.0, sy = 0.0;
+            double gpx[16] = {}, gpy[16] = {};
+            ASSERT_EQ(g.gridPolygon(index, gpx, gpy, 16), n);
+            for (int v = 0; v < n; ++v) {
+                double gx = 0.0, gy = 0.0;
+                g.gridVertex(index, v, gx, gy);
+                sx += gx;
+                sy += gy;
+                EXPECT_NEAR(gx, gpx[v], 1e-9) << lw::tilingName(t);
+                EXPECT_NEAR(gy, gpy[v], 1e-9) << lw::tilingName(t);
+                if (!g.hasSkewedPeriod()) {
+                    double wx = 0.0, wy = 0.0;
+                    g.cellVertex(index, v, wx, wy);
+                    EXPECT_DOUBLE_EQ(gx, wx);
+                    EXPECT_DOUBLE_EQ(gy, wy);
+                }
+            }
+            double cgx = 0.0, cgy = 0.0;
+            g.gridCenter(index, cgx, cgy);
+            // 基础格中心 == 顶点均值（laves 的 cx/cy 与顶点均值有 1e-7 量级舍入差）。
+            EXPECT_NEAR(sx / n, cgx, 1e-6) << lw::tilingName(t);
+            EXPECT_NEAR(sy / n, cgy, 1e-6) << lw::tilingName(t);
+        }
+    }
+}
+
+// 顶点度与已知密铺一致（方 4 / 六 3 / 三 6）+ 方形 5×5 顶点直方图。
+TEST(Tiling, VertexNeighborCountsMatchKnownTilings) {
+    {
+        const TilingGeom g{TilingType::Square, 5, 5};
+        std::map<int, int> hist;
+        std::set<std::uint64_t> keys;
+        for (int index = 0; index < g.cellCount(); ++index) {
+            for (int v = 0; v < g.cellVertexCount(index); ++v) {
+                const std::uint64_t vk = g.vertexKey(index, v);
+                if (!keys.insert(vk).second) continue;
+                ++hist[g.vertexNeighborCount(index, v)];
+            }
+        }
+        EXPECT_EQ(keys.size(), 36u);
+        EXPECT_EQ(hist[2], 4);
+        EXPECT_EQ(hist[3], 16);
+        EXPECT_EQ(hist[4], 16);
+    }
+    for (const auto& [type, expected] :
+         std::vector<std::pair<TilingType, int>>{{TilingType::Hex, 3}, {TilingType::Tri, 6}}) {
+        const TilingGeom g{type, 6, 6};
+        int maxCount = 0;
+        std::set<std::uint64_t> keys;
+        for (int index = 0; index < g.cellCount(); ++index) {
+            for (int v = 0; v < g.cellVertexCount(index); ++v) {
+                const std::uint64_t vk = g.vertexKey(index, v);
+                if (!keys.insert(vk).second) continue;
+                maxCount = std::max(maxCount, g.vertexNeighborCount(index, v));
+            }
+        }
+        EXPECT_EQ(maxCount, expected) << lw::tilingName(type);
+    }
+}
+
+// 非法输入一律返回无效值（0 / -1 / false），不产生越界访问。
+TEST(Tiling, VertexEdgeTopologyRejectsInvalidInput) {
+    const TilingGeom g{TilingType::Square, 4, 4};
+    EXPECT_EQ(g.vertexKey(-1, 0), 0u);
+    EXPECT_EQ(g.vertexKey(0, -1), 0u);
+    EXPECT_EQ(g.vertexKey(g.cellCount(), 0), 0u);
+    EXPECT_EQ(g.vertexKey(0, g.cellVertexCount(0)), 0u);
+    EXPECT_EQ(g.cellVertexCount(-1), 0);
+    int i = -1, v = -1;
+    EXPECT_FALSE(g.vertexFromKey(0, i, v));
+    EXPECT_EQ(i, -1);
+    EXPECT_EQ(v, -1);
+    EXPECT_EQ(g.vertexNeighborCount(-1, 0), 0);
+    EXPECT_EQ(g.vertexNeighbor(0, 0, 99, i, v), -1);
+    EXPECT_EQ(g.vertexNeighborKey(0, 0, 99), 0u);
+    EXPECT_EQ(g.vertexNeighborEdge(0, 0, 99, i, v), -1);
+    EXPECT_EQ(g.cellVertexEdgeCount(0, -1), 0);
+    EXPECT_EQ(g.cellVertexEdge(0, 0, 2), -1);
+    EXPECT_EQ(g.edgeKey(-1, 0), 0u);
+    EXPECT_EQ(g.edgeKey(0, 99), 0u);
+    EXPECT_EQ(g.edgeKeyBetween(0, -1), 0u);
+    EXPECT_EQ(g.edgeKeyBetween(0, g.cellCount() + 5), 0u);
+    EXPECT_FALSE(g.edgeFromKey(0, i, v));
+    double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    EXPECT_FALSE(g.edgeEndpoints(0, x0, y0, x1, y1));
+    g.edgeCells(-1, 0, i, v);
+    EXPECT_EQ(i, -1);
+    EXPECT_EQ(v, -1);
 }
 
 }  // namespace
