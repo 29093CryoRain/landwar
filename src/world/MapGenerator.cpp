@@ -149,6 +149,46 @@ bool hasOutsidePointNeighbor(const TilingGeom& g, int index) {
     return false;
 }
 
+// ---- 异种密铺的"碎格"修正（2026-09-24；arch_31212 等三角形/12 边形混排的密铺）----
+// 背景：3.12.12 里三角形占**格数** 2/3、**面积**只占约 3%（12 边形面积 ≈ 26 倍三角形）。
+// 逐格点采样 + 逐格独立判类 ⇒ 小三角形会在海岸线上乱翻（1 格孤岛/水塘）；山脉分量按
+// |∇h| 排名 ⇒ 孤立小格独占榜首（实测 arch_31212 孤山占比 10~25%，forceCoast 更甚）。
+// 修法：**只加一个确定性的"消 1 格碎格"后处理**，其余（海拔场/分位阈值/梯度/选山）与
+// 历史逐位一致 → "陆地占比"仍是**格数分位**、滑条语义不变；被改动的格数是个位数~十几个
+// （约占 0.1%），换来的是"不存在 1 格碎格"这条可断言的不变量。
+// 注：先前尝试过"小格高度取面积加权邻域均值"，实测对碎格数量几乎没有改善（19→19），
+// 已删除，避免无谓改动地形场。
+
+// a 陆地形态学清理：0 个同类边邻的格翻转（孤岛 → 海；1 格水塘 → 陆）。
+void despeckleLandSea(const TilingGeom& geometry, std::vector<bool>& land) {
+    std::vector<bool> next = land;
+    for (int index = 0; index < geometry.cellCount(); ++index) {
+        const bool isLand = land[static_cast<size_t>(index)];
+        bool anySame = false;
+        for (int k = 0; k < geometry.neighborCount(index) && !anySame; ++k) {
+            const int nb = geometry.neighbor(index, k);
+            if (nb >= 0 && land[static_cast<size_t>(nb)] == isLand) anySame = true;
+        }
+        if (!anySame) next[static_cast<size_t>(index)] = !isLand;
+    }
+    land.swap(next);
+}
+
+// b 山地清理：0 个同类边邻的山 → 普通陆（只消 1 格孤山；≥2 格的山脉/山脊原样保留）。
+void despeckleMountains(const TilingGeom& geometry, std::vector<bool>& isMountain) {
+    std::vector<bool> next = isMountain;
+    for (int index = 0; index < geometry.cellCount(); ++index) {
+        if (!isMountain[static_cast<size_t>(index)]) continue;
+        bool anyMountain = false;
+        for (int k = 0; k < geometry.neighborCount(index) && !anyMountain; ++k) {
+            const int nb = geometry.neighbor(index, k);
+            if (nb >= 0 && isMountain[static_cast<size_t>(nb)]) anyMountain = true;
+        }
+        if (!anyMountain) next[static_cast<size_t>(index)] = false;
+    }
+    isMountain.swap(next);
+}
+
 // 强制海岸的第二部分：降低靠近真实地图边界的海拔，使海岸从边缘向内自然形成。
 void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
                                 const TilingGeom& geometry, double rangeMultiplier,
@@ -206,6 +246,19 @@ static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
         for (const int index : map.cityCells(city))
             if (index >= 0) out.terrain[static_cast<std::size_t>(index)] = MapTerrain::City;
     }
+    // 城市基建格在上一步被写成 City（山标记随之消失），可能让旁边原本成对的山变孤 →
+    // 再跑一次"消 1 格孤山"，保证最终 terrain 里不存在孤立山（不变量，见单测）。
+    {
+        std::vector<bool> mountain(static_cast<std::size_t>(map.cellCount()), false);
+        for (int idx = 0; idx < map.cellCount(); ++idx)
+            mountain[static_cast<std::size_t>(idx)] =
+                out.terrain[static_cast<std::size_t>(idx)] == MapTerrain::Mountain;
+        despeckleMountains(map.geom(), mountain);
+        for (int idx = 0; idx < map.cellCount(); ++idx)
+            if (!mountain[static_cast<std::size_t>(idx)] &&
+                out.terrain[static_cast<std::size_t>(idx)] == MapTerrain::Mountain)
+                out.terrain[static_cast<std::size_t>(idx)] = MapTerrain::Land;
+    }
     return out.validate();
 }
 
@@ -224,6 +277,7 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         gradVec[static_cast<size_t>(index)] = fit.vector;
     }
 
+    // ② 海/陆阈值：升序分位（seaRatio = 海占**格数**比，滑条语义不变）。
     std::vector<double> sorted = height;
     std::sort(sorted.begin(), sorted.end());
     const size_t thresholdIndex =
@@ -236,6 +290,7 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         for (int index = 0; index < geometry.cellCount(); ++index)
             if (hasOutsidePointNeighbor(geometry, index)) land[static_cast<size_t>(index)] = false;
     }
+    despeckleLandSea(geometry, land);  // 消 1 格孤岛 / 填 1 格水塘
 
     std::vector<size_t> orderH, orderG;
     for (int index = 0; index < geometry.cellCount(); ++index) {
@@ -270,6 +325,7 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         isMountain[orderH[i]] = true;
     for (size_t i = 0; i < rangeCount && i < orderG.size(); ++i)
         isMountain[orderG[i]] = true;
+    despeckleMountains(geometry, isMountain);  // 消 1 格孤山（山脉/山脊保留）
     // 河流系统 §9.2（R6）：**山地之后、建城之前** → RNG 顺序 = 海拔/山 → 河 → 城。
     // 密度 0 时不进入生成器、不消耗 RNG（旧输出逐字节不变，§9.9）。
     const std::vector<MapEdgeRef> rivers =

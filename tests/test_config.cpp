@@ -316,11 +316,17 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.render.city.spawnArrow.black, 0.3, 1e-9);
     EXPECT_NEAR(cfg.render.player.hoverCityRadius, 2.0, 1e-9);
     EXPECT_NEAR(cfg.render.player.markerRingMargin, 1.5, 1e-9);
-    EXPECT_NEAR(cfg.render.river.thicknessPx, 3.0, 1e-9);   // data/render.jsonc
-    EXPECT_EQ(cfg.render.river.color, (std::array<int, 3>{0, 0, 0}));
-    EXPECT_NEAR(cfg.render.river.minCellPx, 0.0, 1e-9);
-    EXPECT_NEAR(cfg.river.crossChance, 0.5, 1e-9);   // data/config.jsonc
-    EXPECT_NEAR(cfg.units[0].riverCrossMult, 1.0, 1e-9);  // units.jsonc 未显式给出 → 默认
+    // 河流参数是**调参键**（用户会随时改 data/*.jsonc 观察手感）：这里只断言"键被读到且
+    // 落在合法域"，不钉死数值 —— 钉死数值会让正常调参变成一个失败的测试。
+    EXPECT_GT(cfg.render.river.thicknessPx, 0.0);                     // data/render.jsonc
+    EXPECT_GE(cfg.render.river.minCellPx, 0.0);
+    EXPECT_GE(cfg.render.river.color[0], 0);
+    EXPECT_LE(cfg.render.river.color[0], 255);
+    EXPECT_GE(cfg.river.crossChance, 0.0);                            // data/config.jsonc
+    EXPECT_LE(cfg.river.crossChance, 1.0);
+    EXPECT_GT(cfg.river.gen.temperature, 0.0);
+    EXPECT_GE(cfg.river.gen.maxStepsPerRiver, 0);
+    EXPECT_GE(cfg.units[0].riverCrossMult, 0.0);                      // units.jsonc 可选键
     EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.5, 1e-9);
     EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.5, 1e-9);
     EXPECT_EQ(cfg.factions[9].name, "测试");

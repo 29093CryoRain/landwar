@@ -345,4 +345,95 @@ TEST(MapGen, RiverTerminationScenarios) {
     }
 }
 
+// ---- 地形"碎格"不变量（2026-09-24 修 arch/laves 密铺的 1 格碎格）----
+// 规则（最终 terrain，按**边邻**判定 = 游戏里真正能走通的连通性）：
+//   · 不允许 1 格孤岛（陆地格的边邻全是海）
+//   · 不允许 1 格水塘（海格的边邻全是陆）
+//   · 不允许孤立山（山格的边邻没有山；山脉/山脊只要连成 ≥2 格即保留）
+// 修法只是"消 1 格碎格"的确定性后处理；海拔场/分位阈值/梯度/选山与历史逐位一致。
+TEST(MapGen, TerrainHasNoSingleCellSpecksAcrossTilings) {
+    const lw::Config cfg = lwtest::loadCfg();
+    const std::vector<lw::TilingType> tilings = {
+        lw::TilingType::Square,     lw::TilingType::Hex,        lw::TilingType::Tri,
+        lw::TilingType::Arch33336,  lw::TilingType::Arch33434,  lw::TilingType::Arch3464,
+        lw::TilingType::Arch3636,   lw::TilingType::Arch31212,  lw::TilingType::Arch4612,
+        lw::TilingType::Arch488,    lw::TilingType::Laves3636,  lw::TilingType::Laves31212,
+        lw::TilingType::Laves4612,  lw::TilingType::Laves488,   lw::TilingType::Laves33434,
+        lw::TilingType::Laves33336, lw::TilingType::Laves3464};
+    for (const lw::TilingType tiling : tilings) {
+        for (const double sea : {0.30, 0.45}) {
+            for (const bool forceCoast : {false, true}) {
+                for (const std::uint32_t seed : {1u, 42u}) {
+                    lw::MapGenParams params{64, 64, sea, 0.12, 0.02, 0.0, 0.3, forceCoast, tiling};
+                    lw::MapDefinition definition;
+                    ASSERT_TRUE(lw::MapGenerator::generate(seed, params, definition, cfg.city,
+                                                           cfg.river.gen))
+                        << lw::tilingName(tiling);
+                    const lw::TilingGeom geometry{definition.tiling, definition.cols,
+                                                  definition.rows};
+                    const auto isSea = [&](int index) {
+                        return definition.terrain[static_cast<std::size_t>(index)]
+                               == lw::MapTerrain::Sea;
+                    };
+                    const auto isMountain = [&](int index) {
+                        return definition.terrain[static_cast<std::size_t>(index)]
+                               == lw::MapTerrain::Mountain;
+                    };
+                    const auto sameCount = [&](int index, const auto& predicate) {
+                        int count = 0;
+                        for (int k = 0; k < geometry.neighborCount(index); ++k) {
+                            const int nb = geometry.neighbor(index, k);
+                            if (nb >= 0 && predicate(nb)) ++count;
+                        }
+                        return count;
+                    };
+                    for (int index = 0; index < geometry.cellCount(); ++index) {
+                        const std::string where = std::string(lw::tilingName(tiling))
+                                                  + " sea=" + std::to_string(sea)
+                                                  + " coast=" + (forceCoast ? "1" : "0")
+                                                  + " seed=" + std::to_string(seed);
+                        if (isSea(index)) {
+                            EXPECT_GT(sameCount(index, isSea), 0) << "1 格水塘 @" << where;
+                        } else {
+                            EXPECT_GT(sameCount(index, [&](int i) { return !isSea(i); }), 0)
+                                << "1 格孤岛 @" << where;
+                            if (isMountain(index)) {
+                                EXPECT_GT(sameCount(index, isMountain), 0)
+                                    << "孤立山 @" << where;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// "陆地占比"滑条语义 = **格数**分位（不是面积），碎格清理只允许动个位数的格。
+// 这条断言把语义钉死：将来若有人把它改成面积加权（或清理过度），arch 密铺上会大幅偏离。
+TEST(MapGen, SeaRatioStaysCellCountFraction) {
+    const lw::Config cfg = lwtest::loadCfg();
+    const std::vector<lw::TilingType> tilings = {lw::TilingType::Square, lw::TilingType::Hex,
+                                                 lw::TilingType::Arch31212,
+                                                 lw::TilingType::Laves4612};
+    for (const lw::TilingType tiling : tilings) {
+        for (const double sea : {0.30, 0.45, 0.60}) {
+            lw::MapGenParams params{64, 64, sea, 0.10, 0.02, 0.0, 0.3, /*forceCoast=*/false, tiling};
+            lw::MapDefinition definition;
+            ASSERT_TRUE(lw::MapGenerator::generate(42, params, definition, cfg.city, cfg.river.gen))
+                << lw::tilingName(tiling);
+            const int cells = static_cast<int>(definition.terrain.size());
+            int land = 0;
+            for (const lw::MapTerrain terrain : definition.terrain) {
+                if (terrain != lw::MapTerrain::Sea) ++land;
+            }
+            const int expected = cells - static_cast<int>(static_cast<double>(cells) * sea);
+            // 允许"消 1 格碎格"带来的个位数偏差（< 0.5% 格数），但绝不允许语义级偏离。
+            EXPECT_LT(std::abs(land - expected), cells / 200)
+                << lw::tilingName(tiling) << " sea=" << sea << " land=" << land
+                << " expected=" << expected;
+        }
+    }
+}
+
 }  // namespace
