@@ -96,14 +96,18 @@ struct Config {
     struct River {
         double crossChance = 0.5;  // 过河概率基线（clamp [0,1]；占位待实验）
         // 随机成河参数（§9.8）。全部进 config.jsonc，供"我调整并观察效果"。
+        // σ 评分 = gradientWeight ×（顺坡方向点积）+ mouthWeight ×（候选点临海 ? 1 : 0）。
+        // softmax 的**温度固定为 1**（权重本身就是 logit 尺度）：数学上温度与所有权重只以
+        // "整体缩放"的方式出现（softmax 对整体缩放不变），故再多一个温度键是冗余的；
+        // **直行项已删除**：它在 3 价顶点格型（六边形/12 边形）上两个非回头候选与上一步
+        // 方向的点积严格相等 → 加同一常数 → softmax 里必然抵消（实测输出逐边相同），而方格上
+        // 恰有一个"正前方"候选 → 变成二值偏好、做出长直线河 —— 无法作为通用的"抑制蛇行"旋钮。
         struct Gen {
-            double gradientWeight = 1.0;      // 梯度项权重（含大小 → 坡陡处方向性更强）
-            bool flowDownhill = true;         // true = 顺坡（-∇h）
-            double straightnessWeight = 0.5;  // 直行项权重（抑制蛇行）
-            double mouthWeight = 0.0;         // 临海顶点引力（>0 = 更爱入海）
-            double temperature = 0.5;         // softmax 温度（越大越随机；内部 clamp 下限 1e-6）
-            int maxStepsPerRiver = 400;       // 单河最大边数（0 = 不限）
-            int sourceRetryPerRiver = 8;      // 源顶点临海时的重试次数
+            double gradientWeight = 1.0;  // 顺坡方向项权重（含大小 → 坡陡处方向性更强；即 logit 尺度）
+            bool flowDownhill = true;     // true = 顺坡（-∇h）
+            double mouthWeight = 0.0;     // 临海顶点引力（>0 = 更爱入海）
+            int maxStepsPerRiver = 400;   // 单河最大边数（0 = 不限）
+            int sourceRetryPerRiver = 8;  // 源顶点临海时的重试次数
         } gen;
     } river;
 

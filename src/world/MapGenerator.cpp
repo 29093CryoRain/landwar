@@ -5,8 +5,9 @@
 //   距离衰减海拔 → ⑤ 排序取 seaRatio 分位切海陆（**格数**分位，滑条语义）→ ⑥ 山 = 高原分量
 //   （陆地内陆格按海拔取前 40%）+ 山脉分量（同集合内按 |∇h| 取余下 60%）→ ⑦ 河（R6）→
 //   ⑧ 城概率按地形权重 → ⑨ 输出 fully-resolved terrain and city records。
-// 注意：海拔场、分位阈值、梯度、选山**均无后处理**（历史上的"消 1 格碎格"已删除，
-// 详见 .docs/old/2026_08_开发计划.md §0）。
+// 注意：① 海拔场、分位阈值、梯度、选山**均无后处理**（历史上的"消 1 格碎格"已删除，
+// 详见 .docs/old/2026_08_开发计划.md §0）；② **每个 RNG 阶段用独立子流**（见 MapGenStage）：
+// `Rng::deriveSeed(seed, salt)` 派生，阶段之间不再共用一条流。
 #include "world/MapGenerator.h"
 
 #include "world/RiverGenerator.h"
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <iomanip>
 #include <sstream>
 #include <vector>
@@ -28,6 +30,13 @@
 namespace lw {
 
 namespace {
+
+// 分阶段 RNG 盐（用户 2026-09-24 决策）：同 seed 下"噪声表 / 河 / 城"各用一条独立子流
+// （`Rng::deriveSeed(seed, salt)`），于是插入或调换阶段不会挪动其它阶段的随机数；
+// 同一阶段内仍严格由 (seed, salt) 唯一决定。
+constexpr std::uint32_t kStageNoise = 0x0001u;
+constexpr std::uint32_t kStageRiver = 0x0002u;
+constexpr std::uint32_t kStageCity = 0x0003u;
 
 // 值噪声（lattice 随机值 + 双线性 + smoothstep）。确定性：perm 由 Rng(seed) 洗牌生成。
 class ValueNoise2D {
@@ -130,7 +139,7 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
 static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
                              const Config::City& cityConfig, const std::vector<bool>& land,
                              const std::vector<bool>& mountain,
-                             const std::vector<MapEdgeRef>& rivers, Rng& rng) {
+                             const std::vector<MapEdgeRef>& rivers, Rng& cityRng) {
     out.cols = p.width;
     out.rows = p.height;
     out.tiling = p.tiling;
@@ -149,7 +158,7 @@ static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
         map.atIndex(idx).cityAllowed = map.atIndex(idx).land;
     }
     out.rivers = rivers;  // 河（§9.2）：只序列化边，顶点由边导出
-    map.populateRandomCities(rng, p.cityDensity, p.cityMountainWeight);
+    map.populateRandomCities(cityRng, p.cityDensity, p.cityMountainWeight);
     out.cities.reserve(map.cityCount());
     for (const City& city : map.cities()) {
         out.cities.push_back({city.level, city.baseIndex, city.shapeVariant});
@@ -164,7 +173,7 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
                                    const Config::River::Gen& riverGen, const TilingGeom& geometry,
                                    std::vector<double>& height,
                                    const std::vector<GradVec>& gradVec, bool gridCoordinates,
-                                   Rng& rng) {
+                                   Rng& riverRng, Rng& cityRng) {
     applyCoastElevationFalloff(height, p.forceCoast, geometry, p.forceCoastRangeMultiplier,
                                p.forceCoastStrengthMultiplier);
 
@@ -222,12 +231,13 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         isMountain[orderH[i]] = true;
     for (size_t i = 0; i < rangeCount && i < orderG.size(); ++i)
         isMountain[orderG[i]] = true;
-    // 河流系统 §9.2（R6）：**山地之后、建城之前** → RNG 顺序 = 海拔/山 → 河 → 城。
-    // 密度 0 时不进入生成器、不消耗 RNG（旧输出逐字节不变，§9.9）。
+    // 河流系统 §9.2（R6）：**山地之后、建城之前**；各阶段用**独立子流**（kStageRiver /
+    // kStageCity），故河流阶段的存在/参数变化都不再挪动城市阶段的随机数。
+    // 密度 0 时不进入生成器、不消耗任何 RNG（§9.9）。
     const std::vector<MapEdgeRef> rivers =
         generateRivers(geometry, land, isMountain, gradVec, p.riverDensity, riverGen,
-                       gridCoordinates, rng);
-    return finishDefinition(out, p, cityConfig, land, isMountain, rivers, rng);
+                       gridCoordinates, riverRng);
+    return finishDefinition(out, p, cityConfig, land, isMountain, rivers, cityRng);
 }
 
 MapGenParams normalizedParams(const MapGenParams& raw) {
@@ -274,7 +284,9 @@ bool MapGenerator::generate(std::uint32_t seed, const MapGenParams& raw, MapDefi
     return generateTiled(out, seed, p, cityConfig, riverGen);
 }
 
-bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const MapGenParams& raw) {
+bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const MapGenParams& raw,
+                            const Config::City& cityConfig,
+                            const Config::River::Gen& riverGen) {
     const std::size_t slash = path.find_last_of("/\\");
     const std::string dir =
         (slash == std::string::npos) ? std::string(".") : path.substr(0, slash);
@@ -283,7 +295,7 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
         return false;
     }
     MapDefinition definition;
-    if (!generate(seed, raw, definition)) return false;
+    if (!generate(seed, raw, definition, cityConfig, riverGen)) return false;
     std::string error;
     if (!definition.saveToFile(path, &error)) {
         spdlog::error("MapGenerator: '{}' write failed: {}", path, error);
@@ -296,8 +308,10 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
 static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
                            const Config::City& cityConfig, const Config::River::Gen& riverGen) {
     const int w = p.width, h = p.height;
-    Rng rng(seed);
-    ValueNoise2D noise(rng);
+    Rng noiseRng(Rng::deriveSeed(seed, kStageNoise));
+    ValueNoise2D noise(noiseRng);
+    Rng riverRng(Rng::deriveSeed(seed, kStageRiver));
+    Rng cityRng(Rng::deriveSeed(seed, kStageCity));
     const double baseCell = std::max(w, h) / 6.0;
 
     // ① 海拔场。
@@ -314,7 +328,7 @@ static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenP
     }
     const TilingGeom squareGeom{TilingType::Square, w, h};
     return finishGeneratedTerrain(out, p, cityConfig, riverGen, squareGeom, height, gradVec, false,
-                                  rng);
+                                  riverRng, cityRng);
 }
 
 // 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
@@ -324,8 +338,10 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
                           const Config::City& cityConfig, const Config::River::Gen& riverGen) {
     const TilingGeom g{p.tiling, p.width, p.height};
     const int cellCount = g.cellCount();
-    Rng rng(seed);
-    ValueNoise2D noise(rng);
+    Rng noiseRng(Rng::deriveSeed(seed, kStageNoise));
+    ValueNoise2D noise(noiseRng);
+    Rng riverRng(Rng::deriveSeed(seed, kStageRiver));
+    Rng cityRng(Rng::deriveSeed(seed, kStageCity));
     // 斜周期在周期基坐标中采样，避免世界坐标剪切噪声；gridCenter 保留块内基础格位置。
     const bool skew = g.hasSkewedPeriod();
     const double baseCell = skew
@@ -346,7 +362,8 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
         noise.gradient(gx / baseCell, gy / baseCell, 1.0 / 64.0, dx, dy);
         gradVec[static_cast<size_t>(idx)] = {dx, dy};
     }
-    return finishGeneratedTerrain(out, p, cityConfig, riverGen, g, height, gradVec, skew, rng);
+    return finishGeneratedTerrain(out, p, cityConfig, riverGen, g, height, gradVec, skew, riverRng,
+                                  cityRng);
 }
 
 }  // namespace lw

@@ -71,16 +71,16 @@ GradVec vertexGradient(const TilingGeom& geometry, const std::vector<GradVec>& g
     return {sumX / sumArea, sumY / sumArea};
 }
 
-// softmax 轮盘赌：**一次** rng.unit()（§9.3）。全部 score 相同时退化为均匀分布。
-int sampleSoftmax(const std::vector<double>& scores, double temperature, Rng& rng) {
-    double best = scores.front();
-    for (double score : scores) best = std::max(best, score);
-    const double t = std::max(temperature, 1e-6);
+// softmax 轮盘赌：**一次** rng.unit()（§9.3）。**温度固定为 1**（权重本身就是 logit 尺度）：
+// softmax 对整体缩放不变，故再挂一个温度键只是同一个自由度的重复参数化（用户 2026-09-24 决策）。
+// 全部 score 相同时退化为均匀分布（用 max 平移保证数值稳定，exponent 最大为 0）。
+int sampleSoftmax(const std::vector<double>& scores, Rng& rng) {
+    const double best = *std::max_element(scores.begin(), scores.end());
     double total = 0.0;
-    for (double score : scores) total += std::exp((score - best) / t);
+    for (double score : scores) total += std::exp(score - best);
     double r = rng.unit() * total;
     for (std::size_t i = 0; i < scores.size(); ++i) {
-        const double weight = std::exp((scores[i] - best) / t);
+        const double weight = std::exp(scores[i] - best);
         if (r < weight || i + 1 == scores.size()) return static_cast<int>(i);
         r -= weight;
     }
@@ -137,8 +137,6 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
         visited.clear();
         visited.push_back(startKey);
         std::uint64_t current = startKey;
-        GradVec previousDirection{0.0, 0.0};
-        bool first = true;
         for (int step = 0; params.maxStepsPerRiver <= 0 || step < params.maxStepsPerRiver;
              ++step) {
             int cell = -1, vert = -1;
@@ -177,29 +175,18 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
                 const double ux = dx / length, uy = dy / length;  // 只取方向（§9.3）
                 const bool candidateSea = vertexTouchesSea(geometry, land, nextCell, nextVert);
                 double score = params.gradientWeight * (gradient.x * ux + gradient.y * uy);
-                if (!first)
-                    score += params.straightnessWeight
-                             * (previousDirection.x * ux + previousDirection.y * uy);
                 if (candidateSea) score += params.mouthWeight;
                 candidates.push_back({nextKey, edgeKey, score, candidateSea});
                 scores.push_back(score);
             }
             if (candidates.empty()) break;  // §9.4 行 4：内陆河终止
-            const Candidate& chosen = candidates[static_cast<std::size_t>(
-                sampleSoftmax(scores, params.temperature, rng))];
+            const Candidate& chosen =
+                candidates[static_cast<std::size_t>(sampleSoftmax(scores, rng))];
             riverEdges.push_back(chosen.edge);
             const bool onOtherRiver =
                 std::binary_search(otherRiverVerts.begin(), otherRiverVerts.end(), chosen.vertex);
             if (chosen.stop || onOtherRiver) break;  // §9.4 行 2/3：入海 / 支流交汇
             visited.push_back(chosen.vertex);
-            int nextCell = -1, nextVert = -1;
-            if (!geometry.vertexFromKey(chosen.vertex, nextCell, nextVert)) break;
-            double nx = 0.0, ny = 0.0;
-            vertexPosition(nextCell, nextVert, nx, ny);
-            const double dx = nx - cx, dy = ny - cy;
-            const double length = std::hypot(dx, dy);
-            if (length > 1e-12) previousDirection = {dx / length, dy / length};
-            first = false;
             current = chosen.vertex;
         }
         // 本河端点顶点并入全局集合（供后续河判定支流交汇）。

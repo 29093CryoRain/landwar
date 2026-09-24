@@ -39,9 +39,13 @@ public:
                          const Config::City& cityConfig = Config::City{},
                          const Config::River::Gen& riverGen = Config::River::Gen{});
 
-    // Explicit native export API. Runtime random-map initialization does not
-    // use this overload.
-    static bool generate(const std::string& path, std::uint32_t seed, const MapGenParams& p);
+    // Explicit native export API（导出到文件）。**必须转发与内存版相同的 city/river 配置**，
+    // 否则同一个 (seed, params) 在"导出文件"与"直接生成"两条路径上会因等级幂律指数不同
+    // 而给出不同的城市等级（2026-09-24 由 tests/test_mapgen 的往返用例暴露的既有隐患：
+    // 该用例此前只因两次采样的等级恰好相同而偶然通过）。默认值只为兼容旧调用点。
+    static bool generate(const std::string& path, std::uint32_t seed, const MapGenParams& p,
+                         const Config::City& cityConfig = Config::City{},
+                         const Config::River::Gen& riverGen = Config::River::Gen{});
 
     // Default native export path, ending in .landmap（含河密度，避免不同密度撞名）。
     static std::string defaultPath(std::uint32_t seed, const MapGenParams& p,

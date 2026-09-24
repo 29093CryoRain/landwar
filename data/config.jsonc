@@ -36,12 +36,10 @@
   "river": { // 河流系统：河是地块边属性；河边两侧必须都是陆地。
     "_comment": "过河判定：只有『陆→陆』跨边才可能触发河骰，顺序为 河 → 山 → 敌；失败反弹、不占领。",
     "crossChance": 0.5, // 过河概率基线（实际概率 = clamp(此值 × 兵种 riverCrossMult, 0, 1)），范围 [0,1]。
-    "gen": { // 随机成河（菜单「河密度」> 0 时生效）：σ 评分 = 梯度项 + 直行项 + 入海引力，softmax 采样。
-      "gradientWeight": 1.0, // 梯度项权重（含大小：坡陡处方向性更强），必须有限。
+    "gen": { // 随机成河（菜单「河密度」> 0 时生效）：σ 评分 = 梯度项 + 入海引力，softmax（温度固定 1）。
+      "gradientWeight": 1.0, // 顺坡方向项权重（含大小：坡陡处方向性更强；即 softmax 的 logit 尺度），必须有限。
       "flowDownhill": true, // true = 顺坡（-∇h）。
-      "straightnessWeight": 0.5, // 直行项权重（抑制蛇行），必须有限。
       "mouthWeight": 0.0, // 临海顶点引力（>0 更爱入海），必须有限。
-      "temperature": 0.5, // softmax 温度（越大越随机），必须 > 0。
       "maxStepsPerRiver": 400, // 单河最大边数（0 = 不限），整数 >= 0。
       "sourceRetryPerRiver": 8 // 源顶点临海时的重试次数，整数 >= 0。
     }

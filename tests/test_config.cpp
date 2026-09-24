@@ -327,7 +327,7 @@ TEST(Config, LoadsDataFile) {
     EXPECT_LE(cfg.render.river.color[0], 255);
     EXPECT_GE(cfg.river.crossChance, 0.0);                            // data/config.jsonc
     EXPECT_LE(cfg.river.crossChance, 1.0);
-    EXPECT_GT(cfg.river.gen.temperature, 0.0);
+    EXPECT_NE(cfg.river.gen.gradientWeight, 0.0);
     EXPECT_GE(cfg.river.gen.maxStepsPerRiver, 0);
     EXPECT_GE(cfg.units[0].riverCrossMult, 0.0);                      // units.jsonc 可选键
     EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.5, 1e-9);

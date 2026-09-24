@@ -41,9 +41,11 @@ TEST(MapGen, ExplicitExportRoundTripsNativeDefinition) {
     const lw::Config cfg = lwtest::loadCfg();
     const lw::MapGenParams params{48, 40, 0.0, 0.05, 0.02};
     lw::MapDefinition generated;
-    ASSERT_TRUE(lw::MapGenerator::generate(7, params, generated, cfg.city));
+    ASSERT_TRUE(lw::MapGenerator::generate(7, params, generated, cfg.city, cfg.river.gen));
     const std::string path = lwtest::testArtifactPath("generated.landmap");
-    ASSERT_TRUE(lw::MapGenerator::generate(path, 7, params));
+    // 两条路径必须传同一份 city/river 配置：默认 City{} 的等级幂律指数（1.0/0.5）与
+    // data/config.jsonc 的（1.3/0.3）不同 → 城市等级会不同（此前本用例靠"两次采样恰好同级"侥幸通过）。
+    ASSERT_TRUE(lw::MapGenerator::generate(path, 7, params, cfg.city, cfg.river.gen));
     lw::MapDefinition loaded;
     std::string error;
     ASSERT_TRUE(lw::MapDefinition::loadFromFile(path, loaded, &error)) << error;
@@ -196,9 +198,11 @@ TEST(MapGen, RiverDensityZeroProducesNoRiversAndKeepsTerrainAndCities) {
     EXPECT_TRUE(withoutRivers.rivers.empty());
 
     // 密度 0 → 河生成器在任何 RNG 消耗前返回：改 river.gen 参数不可能影响地形/城市。
+    // （各阶段已用独立子流，这个等式现在更强：河参数的改动连"下游随机数位置"都动不了。）
     lw::Config::River::Gen extreme = cfg.river.gen;
-    extreme.temperature = 1e-3;
     extreme.gradientWeight = 100.0;
+    extreme.mouthWeight = 5.0;
+    extreme.sourceRetryPerRiver = 0;
     extreme.maxStepsPerRiver = 1;
     lw::MapDefinition sameTerrain;
     ASSERT_TRUE(lw::MapGenerator::generate(42, params, sameTerrain, cfg.city, extreme));

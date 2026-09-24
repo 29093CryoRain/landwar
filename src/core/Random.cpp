@@ -9,6 +9,15 @@
 
 namespace lw {
 
+std::uint32_t Rng::deriveSeed(std::uint32_t seed, std::uint32_t salt) {
+    std::uint64_t z = (static_cast<std::uint64_t>(seed) << 32) ^ static_cast<std::uint64_t>(salt);
+    z += 0x9E3779B97F4A7C15ull;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    z ^= z >> 31;
+    return static_cast<std::uint32_t>(z ^ (z >> 32));
+}
+
 void Rng::seed(std::uint32_t s) {
     seed_ = s;
     mt_.seed(s);

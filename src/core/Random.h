@@ -35,6 +35,11 @@ public:
     // 现代随机种子：时间驱动（每次启动不同；显式 --seed 仍确定性，见 Cli::seedSet）。
     static std::uint32_t randomSeed();
 
+    // **派生独立子流种子**（分阶段加盐）：同 (seed, salt) → 同子流，且与其它阶段的消耗次数
+    // 完全无关。用途：随机地图生成里"海拔噪声 / 河 / 城"各用一条子流，于是以后插入或调换一个
+    // 阶段时，不会挪动其它阶段的随机数（splitmix64 收官，雪崩充分；纯整数运算、跨平台一致）。
+    static std::uint32_t deriveSeed(std::uint32_t seed, std::uint32_t salt);
+
     // 可序列化状态（存档/回放用，Phase 6）。state() 只含 mt19937 内部序列，不含 seed_；
     // 恢复方须自行以正确 seed 构造（见 replay/Snapshot.cpp）。
     std::string state() const;

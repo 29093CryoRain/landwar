@@ -758,8 +758,8 @@ void validateConfigKeys(const Json& root) {
     warnUnknownKeys(child(ren, "river"), {"widthU", "color", "minPx", "minCellPx"},
                      "render.river");
     warnUnknownKeys(child(obj("river"), "gen"),
-                    {"gradientWeight", "flowDownhill", "straightnessWeight", "mouthWeight",
-                     "temperature", "maxStepsPerRiver", "sourceRetryPerRiver"},
+                    {"gradientWeight", "flowDownhill", "mouthWeight", "maxStepsPerRiver",
+                     "sourceRetryPerRiver"},
                     "river.gen");
     warnUnknownKeys(obj("river"), {"crossChance", "gen"}, "river");
     // city（顶层，P13 城市系统 + P12 按密铺形状表）。
@@ -928,8 +928,8 @@ void warnMissingConfigKeys(const Json& root) {
                     {"widthU", "color", "minPx", "minCellPx"}, "render.river");
     warnMissingKeys(object("river"), {"crossChance", "gen"}, "river");
     warnMissingKeys(object("river").value("gen", Json::object()),
-                    {"gradientWeight", "flowDownhill", "straightnessWeight", "mouthWeight",
-                     "temperature", "maxStepsPerRiver", "sourceRetryPerRiver"},
+                    {"gradientWeight", "flowDownhill", "mouthWeight", "maxStepsPerRiver",
+                     "sourceRetryPerRiver"},
                     "river.gen");
     warnMissingKeys(object("tech"), {"thresholdBase", "thresholdStep", "pointsPerCityLevel",
                                       "preferencePerLevel", "playerCandidateCount", "techs"}, "tech");
@@ -1030,10 +1030,7 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
                 getNum(genJson, "gradientWeight", cfg.river.gen.gradientWeight);
             cfg.river.gen.flowDownhill =
                 getBool(genJson, "flowDownhill", cfg.river.gen.flowDownhill);
-            cfg.river.gen.straightnessWeight =
-                getNum(genJson, "straightnessWeight", cfg.river.gen.straightnessWeight);
             cfg.river.gen.mouthWeight = getNum(genJson, "mouthWeight", cfg.river.gen.mouthWeight);
-            cfg.river.gen.temperature = getNum(genJson, "temperature", cfg.river.gen.temperature);
             cfg.river.gen.maxStepsPerRiver =
                 getInt(genJson, "maxStepsPerRiver", cfg.river.gen.maxStepsPerRiver);
             cfg.river.gen.sourceRetryPerRiver =
@@ -1614,8 +1611,7 @@ bool Config::validate(std::string* err) const {
         || !unitInterval(terrain.mountainEnterChance) || !positive(terrain.mountainSpeedMult))
         return fail("terrain numeric range invalid");
     if (!unitInterval(river.crossChance)) return fail("river.crossChance must be in [0,1]");
-    if (!finite(river.gen.gradientWeight) || !finite(river.gen.straightnessWeight) ||
-        !finite(river.gen.mouthWeight) || !positive(river.gen.temperature) ||
+    if (!finite(river.gen.gradientWeight) || !finite(river.gen.mouthWeight) ||
         river.gen.maxStepsPerRiver < 0 || river.gen.sourceRetryPerRiver < 0)
         return fail("river.gen numeric range invalid");
 
@@ -1835,9 +1831,7 @@ std::string Config::toJson() const {
                   {"gen",
                    {{"gradientWeight", river.gen.gradientWeight},
                     {"flowDownhill", river.gen.flowDownhill},
-                    {"straightnessWeight", river.gen.straightnessWeight},
                     {"mouthWeight", river.gen.mouthWeight},
-                    {"temperature", river.gen.temperature},
                     {"maxStepsPerRiver", river.gen.maxStepsPerRiver},
                     {"sourceRetryPerRiver", river.gen.sourceRetryPerRiver}}}};
 
