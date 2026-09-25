@@ -26,9 +26,9 @@ struct CliOptions {
     bool noMenu = false;         // 窗口模式：跳过菜单直接开始（P1）
     std::string tiling;          // P12：--tiling square|hex|tri（tilingSet=true 时生效）
     bool tilingSet = false;      // 是否显式指定 --tiling
-    // 河流系统 §9.1：--river-density <d> 覆盖随机图的河密度（占陆地格；默认 0.02 = 菜单同款；
+    // 河流系统 §9.1：--river-density <d> 覆盖随机图的河密度（占陆地格；默认 0.005 = 菜单同款；
     // 显式传 0 → 无河回归路径）。
-    double riverDensity = 0.02;
+    double riverDensity = 0.005;
     bool riverDensitySet = false;
 };
 

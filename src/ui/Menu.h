@@ -55,7 +55,7 @@ struct MenuState {
     float seaRatio = 0.40f;       // 随机图海占比（内部；UI 显示为"陆地占比"=1-海占比）
     float mtnDensity = 0.08f;     // 随机图山密度（由 mtnT 派生）
     float cityDensity = 0.02f;    // 随机图城密度（由 cityT 派生）
-    float riverDensity = 0.02f;   // 随机图河密度（由 riverT 派生；河数 = round(此值 × 总格数)）
+    float riverDensity = 0.005f;  // 随机图河密度（由 riverT 派生；尝试数 = round(此值 × 陆地格数)）
     // 山/城/河密度滑条位置（平方域 [0,1]，跨帧稳定——ImGui 直改它，避免每帧从密度重算导致手感黏滞）。
     float mtnT = 0.5f, cityT = 0.5f, riverT = 0.5f;
     bool forceCoast = false;      // 强制边缘为海（随机图）

@@ -5,6 +5,9 @@
 //   距离衰减海拔 → ⑤ 排序取 seaRatio 分位切海陆（**格数**分位，滑条语义）→ ⑥ 山 = 高原分量
 //   （陆地内陆格按海拔取前 40%）+ 山脉分量（同集合内按 |∇h| 取余下 60%）→ ⑦ 河（R6）→
 //   ⑧ 城概率按地形权重 → ⑨ 输出 fully-resolved terrain and city records。
+// 二期反馈：河流单独使用"更大采样步长"的梯度（`riverGradVec`，见 kGradientBaseStep /
+// riverSampleStep），幅度裁剪在 RiverGenerator::vertexGradient 里做 —— 两者都**只在河流生成**
+// 生效，山脉用的 gradVec 逐位不变（无河随机图逐字节不变）。
 // 注意：① 海拔场、分位阈值、梯度、选山**均无后处理**（历史上的"消 1 格碎格"已删除，
 // 详见 .docs/old/2026_08_开发计划.md §0）；② **每个 RNG 阶段用独立子流**（见 MapGenStage）：
 // `Rng::deriveSeed(seed, salt)` 派生，阶段之间不再共用一条流。
@@ -37,6 +40,16 @@ namespace {
 constexpr std::uint32_t kStageNoise = 0x0001u;
 constexpr std::uint32_t kStageRiver = 0x0002u;
 constexpr std::uint32_t kStageCity = 0x0003u;
+
+// 海拔场梯度的中心差分基准步长（噪声坐标单位）。最细 octave 的格距为 0.5，故基准步长远小于它、
+// 无混叠。山脉仍用此步长（行为不变）；河流单独用 `× gradientSmoothScale` 的更大步长（见二期反馈）。
+constexpr double kGradientBaseStep = 1.0 / 64.0;
+
+// 河流生成用的中心差分步长：步长越大 → 采样面积越大 → 梯度越平滑（只在河流生成里生效）。
+// gradientSmoothScale 已在 Config::validate 保证 > 0 且有限。
+double riverSampleStep(const Config::River::Gen& params) {
+    return kGradientBaseStep * params.gradientSmoothScale;
+}
 
 // 值噪声（lattice 随机值 + 双线性 + smoothstep）。确定性：perm 由 Rng(seed) 洗牌生成。
 class ValueNoise2D {
@@ -162,8 +175,15 @@ static bool finishDefinition(MapDefinition& out, const MapGenParams& p,
     out.cities.reserve(map.cityCount());
     for (const City& city : map.cities()) {
         out.cities.push_back({city.level, city.baseIndex, city.shapeVariant});
-        for (const int index : map.cityCells(city))
-            if (index >= 0) out.terrain[static_cast<std::size_t>(index)] = MapTerrain::City;
+        for (const int index : map.cityCells(city)) {
+            if (index < 0) continue;
+            // "山 + 城"的单格组合由**Mountain 地形 + 城市记录**表达（与编辑器 toDefinition 一致）：
+            // MapTerrain 是单值枚举，写 City 会把山标记抹掉（运行时 mountain=false → 不画山图标、
+            // 进格不掷山骰），于是河源等"生成时的山"看起来凭空出现。这里保住山标记。
+            out.terrain[static_cast<std::size_t>(index)] =
+                mountain[static_cast<std::size_t>(index)] ? MapTerrain::Mountain
+                                                          : MapTerrain::City;
+        }
     }
     return out.validate();
 }
@@ -172,7 +192,8 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
                                    const Config::City& cityConfig,
                                    const Config::River::Gen& riverGen, const TilingGeom& geometry,
                                    std::vector<double>& height,
-                                   const std::vector<GradVec>& gradVec, bool gridCoordinates,
+                                   const std::vector<GradVec>& gradVec,
+                                   const std::vector<GradVec>& riverGradVec, bool gridCoordinates,
                                    Rng& riverRng, Rng& cityRng) {
     applyCoastElevationFalloff(height, p.forceCoast, geometry, p.forceCoastRangeMultiplier,
                                p.forceCoastStrengthMultiplier);
@@ -233,9 +254,12 @@ static bool finishGeneratedTerrain(MapDefinition& out, const MapGenParams& p,
         isMountain[orderG[i]] = true;
     // 河流系统 §9.2（R6）：**山地之后、建城之前**；各阶段用**独立子流**（kStageRiver /
     // kStageCity），故河流阶段的存在/参数变化都不再挪动城市阶段的随机数。
-    // 密度 0 时不进入生成器、不消耗任何 RNG（§9.9）。
+    // 密度 0 时不进入生成器、不消耗任何 RNG（§9.9）；此时 riverGradVec 为空 → 回退 gradVec
+    //（生成器已在消耗 RNG 前早退，回退只为尺寸安全）。
+    const std::vector<GradVec>& riverGrad =
+        riverGradVec.size() == gradVec.size() ? riverGradVec : gradVec;
     const std::vector<MapEdgeRef> rivers =
-        generateRivers(geometry, land, isMountain, gradVec, p.riverDensity, riverGen,
+        generateRivers(geometry, land, isMountain, riverGrad, p.riverDensity, riverGen,
                        gridCoordinates, riverRng);
     return finishDefinition(out, p, cityConfig, land, isMountain, rivers, cityRng);
 }
@@ -322,13 +346,24 @@ static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenP
             const size_t idx = static_cast<size_t>(y) * w + x;
             height[idx] = noise.fbm(x / baseCell, y / baseCell);
             double dx = 0.0, dy = 0.0;
-            noise.gradient(x / baseCell, y / baseCell, 1.0 / 64.0, dx, dy);
+            noise.gradient(x / baseCell, y / baseCell, kGradientBaseStep, dx, dy);
             gradVec[idx] = {dx, dy};
         }
     }
     const TilingGeom squareGeom{TilingType::Square, w, h};
-    return finishGeneratedTerrain(out, p, cityConfig, riverGen, squareGeom, height, gradVec, false,
-                                  riverRng, cityRng);
+    // 河流专用梯度（二期反馈：只在河流生成里用更大采样面积；山脉仍用上面的 gradVec）。
+    std::vector<GradVec> riverGradVec;
+    if (p.riverDensity > 0.0) {
+        riverGradVec.resize(height.size());
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                double dx = 0.0, dy = 0.0;
+                noise.gradient(x / baseCell, y / baseCell, riverSampleStep(riverGen), dx, dy);
+                riverGradVec[static_cast<size_t>(y) * w + x] = {dx, dy};
+            }
+    }
+    return finishGeneratedTerrain(out, p, cityConfig, riverGen, squareGeom, height, gradVec,
+                                  riverGradVec, false, riverRng, cityRng);
 }
 
 // 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
@@ -359,11 +394,27 @@ static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenPa
             g.cellCenter(idx, gx, gy);
         height[static_cast<size_t>(idx)] = noise.fbm(gx / baseCell, gy / baseCell);
         double dx = 0.0, dy = 0.0;
-        noise.gradient(gx / baseCell, gy / baseCell, 1.0 / 64.0, dx, dy);
+        noise.gradient(gx / baseCell, gy / baseCell, kGradientBaseStep, dx, dy);
         gradVec[static_cast<size_t>(idx)] = {dx, dy};
     }
-    return finishGeneratedTerrain(out, p, cityConfig, riverGen, g, height, gradVec, skew, riverRng,
-                                  cityRng);
+    // 河流专用梯度（二期反馈：更大采样面积；山脉仍用上面的 gradVec）。斜周期用同一格坐标帧。
+    std::vector<GradVec> riverGradVec;
+    if (p.riverDensity > 0.0) {
+        riverGradVec.resize(static_cast<size_t>(cellCount));
+        const double step = riverSampleStep(riverGen);
+        for (int idx = 0; idx < cellCount; ++idx) {
+            double gx, gy;
+            if (skew)
+                g.gridCenter(idx, gx, gy);
+            else
+                g.cellCenter(idx, gx, gy);
+            double dx = 0.0, dy = 0.0;
+            noise.gradient(gx / baseCell, gy / baseCell, step, dx, dy);
+            riverGradVec[static_cast<size_t>(idx)] = {dx, dy};
+        }
+    }
+    return finishGeneratedTerrain(out, p, cityConfig, riverGen, g, height, gradVec, riverGradVec,
+                                  skew, riverRng, cityRng);
 }
 
 }  // namespace lw

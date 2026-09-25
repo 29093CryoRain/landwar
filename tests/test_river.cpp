@@ -122,15 +122,26 @@ TEST(RiverMove, PassingRollEntersWithoutSlowing) {
     std::string error;
     ASSERT_TRUE(w.map.setRiversFromDefinition({{kSrc, kRiverEdge}}, &error)) << error;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3);
-    w.rng.results = {true};  // 河骰通过
+    w.rng.results = {true};   // 河骰通过
+    w.rng.units = {0.5};      // 抖动取样（0.5 → 0 偏置）
     moveOnce(w, e);
     EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.3);   // 通过不减速（对比山地 ×0.5）
-    // 2.0 处跨边，余下 0.2 继续走完（不减速）；若进山减速则速度/剩余量 ×0.5 → 2.1。
-    EXPECT_NEAR(w.reg.get<comp::Position>(e).x, 2.2, 1e-9);
+    // 二期反馈：过河停顿——本 tick 停在河边（x≈2.0 + 内侧微调），剩余 0.2 结转到下一 tick。
+    const auto& pos = w.reg.get<comp::Position>(e);
+    EXPECT_GT(pos.x, 2.0);
+    EXPECT_LT(pos.x, 2.1);
+    ASSERT_TRUE(w.reg.all_of<comp::MoveCarry>(e));
+    EXPECT_NEAR(w.reg.get<comp::MoveCarry>(e).value, 0.2, 1e-9);
     EXPECT_TRUE(w.reg.get<comp::OnLand>(e).value);
     EXPECT_FALSE(w.reg.get<comp::MountainState>(e).inMountain);
-    // 归自己 → 不触发征服骰（RNG 只消耗河骰那一次）。
+    // 归自己 → 不触发征服骰（RNG 只消耗河骰 + 一次过河抖动）。
     EXPECT_EQ(w.rng.next, 1u);
+    EXPECT_EQ(w.rng.nextUnit, 1u);
+    // 下一 tick 起走 = 结转的 0.2（不补满），两 tick 位移合计恰好一份 speed（0.1 + 0.2 = 0.3）。
+    moveOnce(w, e);
+    EXPECT_NEAR(w.reg.get<comp::Position>(e).x, 2.22, 1e-9);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::MoveCarry>(e).value, 0.0);
+    EXPECT_EQ(w.rng.next, 1u);  // 没有重复触发同一条河的河骰（位置已推入目标格内侧）
 }
 
 TEST(RiverMove, RiverThenMountainOrderAndNoConquerOnMountainFail) {
@@ -264,6 +275,117 @@ TEST(RiverMove, PerUnitMultiplierScalesChance) {
     Config bad2 = lwtest::loadCfg();
     bad2.units[0].riverCrossMult = -0.5;
     EXPECT_FALSE(bad2.validate(&err));
+}
+
+// ---- 二期反馈：过河方向抖动 + 停顿结转 ----
+
+// 方向抖动只在真正进入目标格时施加一次（对称区间，一次 unit()）。
+TEST(RiverMove, CrossingJittersDirectionOnceOnEntry) {
+    RiverWorld w(5, 5);
+    w.cfg.river.crossAngleJitterRad = 0.4;
+    std::string error;
+    ASSERT_TRUE(w.map.setRiversFromDefinition({{kSrc, kRiverEdge}}, &error)) << error;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3);
+    w.rng.results = {true};       // 河骰通过
+    w.rng.units = {1.0};          // unit()=1 → 抖动 = (2·1-1)·0.4 = +0.4
+    moveOnce(w, e);
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, 0.4, 1e-12);
+    EXPECT_EQ(w.rng.nextUnit, 1u);
+}
+
+// 河骰通过后被山骰弹回 → 不算进入：不抖动、不停顿、无结转（只消耗反弹自身的抖动）。
+TEST(RiverMove, RiverPassButMountainBounceAppliesNoJitterOrPause) {
+    RiverWorld w(5, 5);
+    w.cfg.river.crossAngleJitterRad = 0.4;
+    w.map.atIndex(kDst).mountain = true;
+    std::string error;
+    ASSERT_TRUE(w.map.setRiversFromDefinition({{kSrc, kRiverEdge}}, &error)) << error;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3);
+    w.rng.results = {true, false};  // 河通过 → 山失败
+    w.rng.units = {0.5, 0.5};       // 反弹抖动取样（不应再有过河抖动）
+    moveOnce(w, e);
+    EXPECT_LT(w.reg.get<comp::Position>(e).x, 2.0);              // 弹回原格
+    EXPECT_NEAR(w.reg.get<comp::MoveCarry>(e).value, 0.0, 1e-12);  // 无过河停顿结转
+    EXPECT_EQ(w.rng.nextUnit, 1u);  // 只有反弹自身的小抖动；过河抖动未施加
+}
+
+// 河骰通过但敌方格反弹（已占领）→ 同样不算"真正进入"，不抖动不停顿。
+TEST(RiverMove, RiverPassButEnemyBounceAppliesNoJitterOrPause) {
+    RiverWorld w(5, 5);
+    w.cfg.river.crossAngleJitterRad = 0.4;
+    w.map.atIndex(kDst).belongi = 2;
+    std::string error;
+    ASSERT_TRUE(w.map.setRiversFromDefinition({{kSrc, kRiverEdge}}, &error)) << error;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::vanguard, 0.0, 0.3);
+    w.rng.results = {true, true};   // 河通过 → 敌方格反弹
+    w.rng.units = {0.5, 0.5};       // 反弹抖动取样（不应再有过河抖动）
+    moveOnce(w, e);
+    EXPECT_EQ(w.map.atIndex(kDst).belongi, 1);                     // 已占领
+    EXPECT_LT(w.reg.get<comp::Position>(e).x, 2.0);                // 弹回原格
+    EXPECT_NEAR(w.reg.get<comp::MoveCarry>(e).value, 0.0, 1e-12);  // 无停顿结转
+    EXPECT_EQ(w.rng.nextUnit, 1u);  // 只有反弹自身的小抖动
+}
+
+// 停顿：本 tick 停在河边并结转剩余量；下一 tick 起始 = 结转量（不补满），两 tick 合计一份 speed。
+TEST(RiverMove, PauseStopsAtBankAndCarriesRemainder) {
+    RiverWorld w(5, 5);
+    std::string error;
+    ASSERT_TRUE(w.map.setRiversFromDefinition({{kSrc, kRiverEdge}}, &error)) << error;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.5);
+    w.rng.results = {true};
+    w.rng.units = {0.5};  // 抖动取样（0.5 → 0 偏置，保持 +x 方向便于断言）
+    moveOnce(w, e);
+    const auto& pos = w.reg.get<comp::Position>(e);
+    EXPECT_GT(pos.x, 2.0);   // 已推入目标格内侧（避免下一 tick 重复触发同一条河）
+    EXPECT_LT(pos.x, 2.1);   // 但停在河边，没有继续走完剩余的 0.4
+    EXPECT_NEAR(w.reg.get<comp::MoveCarry>(e).value, 0.4, 1e-9);
+    EXPECT_EQ(w.rng.next, 1u);
+    // 第二 tick：只走结转的 0.4（合计 0.1 + 0.4 = 0.5 = 一份 speed），且不重复掷河骰。
+    moveOnce(w, e);
+    EXPECT_NEAR(w.reg.get<comp::Position>(e).x, 2.42, 1e-9);  // 2.02（边+内侧） + 0.4（结转）
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::MoveCarry>(e).value, 0.0);
+    EXPECT_EQ(w.rng.next, 1u);
+    EXPECT_EQ(w.rng.nextUnit, 1u);
+}
+
+// 密铺（六）路径同样有抖动 + 停顿，且位置被推入目标格（不重复触发同一条河）。
+TEST(RiverMove, TiledCrossingPausesAndCarries) {
+    RiverWorld w(5, 5, TilingType::Hex);
+    const TilingGeom& g = w.map.geom();
+    const int a = g.cellIndexAt(2, 2, 0);
+    ASSERT_GE(a, 0);
+    int k = -1;
+    for (int i = 0; i < g.neighborCount(a); ++i)
+        if (g.neighbor(a, i) >= 0) {
+            k = i;
+            break;
+        }
+    ASSERT_GE(k, 0);
+    const int dst = g.neighbor(a, k);
+    ASSERT_GE(dst, 0);
+    std::string error;
+    ASSERT_TRUE(w.map.setRiversFromDefinition({{a, k}}, &error)) << error;
+
+    double ax = 0.0, ay = 0.0, bx = 0.0, by = 0.0;
+    g.cellCenter(a, ax, ay);
+    g.cellCenter(dst, bx, by);
+    const double angle = std::atan2(by - ay, bx - ax);
+    const double dist = std::hypot(bx - ax, by - ay);
+    const double speed = 0.75 * dist;
+    auto e = addArmy(w, ax, ay, 1, ArmyType::normal, angle, speed);
+    w.rng.results = {true};
+    w.rng.units = {0.5};  // 抖动取样（0.5 → 0 偏置）
+    moveOnce(w, e);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, speed);  // 过河不减速
+    const auto& pos = w.reg.get<comp::Position>(e);
+    EXPECT_EQ(g.worldToCell(pos.x, pos.y), dst);  // 已推入目标格，不会重复触发同一条河
+    const double carry = w.reg.get<comp::MoveCarry>(e).value;
+    EXPECT_GT(carry, 0.0);
+    EXPECT_LT(carry, speed);
+    EXPECT_EQ(w.rng.next, 1u);
+    EXPECT_EQ(w.rng.nextUnit, 1u);
+    moveOnce(w, e);
+    EXPECT_EQ(w.rng.next, 1u);  // 第二 tick 不重复掷河骰
 }
 
 }  // namespace

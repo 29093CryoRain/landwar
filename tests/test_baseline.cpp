@@ -185,9 +185,13 @@ TEST(Determinism, BaselineWithRiversHex_1000Ticks_SameSeedSameHash) {
 
 // 河确实改变局面：同一 seed/参数下，带河与无河的 300-tick 语义哈希不同
 // （河骰 + 河图 RNG 顺序改变城市分布 → 必然不同；用于证明河骰真的接进了模拟）。
+// 前提：两张图的**地形/城市完全相同**（河/城用独立 RNG 子流），差别只有河边 ⇒ 只有"某兵真的
+// 跨过一次河边"时 hash 才会不同。300 tick 时该 seed 尚未发生任何过河（实测两边逐位相同），
+// 故取 1000 tick 留足余量；河源分布等改动会改变河的位置，若日后再次同 hash，说明该图在窗口内
+// 没有过河事件，应调大 tick 或提高河密度，而不是删掉这条护栏。
 TEST(Determinism, RiversChangeSimulationOutcome) {
-    EXPECT_NE(runRiverBaseline(lw::TilingType::Square, 300),
-              runRandomBaseline(lw::TilingType::Square, 300));
+    EXPECT_NE(runRiverBaseline(lw::TilingType::Square, 1000),
+              runRandomBaseline(lw::TilingType::Square, 1000));
 }
 
 }  // namespace

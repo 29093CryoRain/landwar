@@ -79,7 +79,7 @@ TEST(Options, MapRandomParamsDefaultAndRoundTrip) {
     EXPECT_DOUBLE_EQ(o.map.seaRatio, 0.40);
     EXPECT_DOUBLE_EQ(o.map.mountainDensity, 0.08);
     EXPECT_DOUBLE_EQ(o.map.cityDensity, 0.02);
-    EXPECT_DOUBLE_EQ(o.map.riverDensity, 0.02);  // 河流系统 §9.1 已确认的菜单默认值
+    EXPECT_DOUBLE_EQ(o.map.riverDensity, 0.005);  // 河流系统 §9.1 菜单默认值（2026-09-25 下调）
     // 键严格对称 → 解析再序列化逐字节一致。
     const std::string j1 = o.toJson();
     const std::string j2 = lw::Options::loadFromJson(j1).toJson();

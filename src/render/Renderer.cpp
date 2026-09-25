@@ -78,8 +78,10 @@ void Renderer::fillThickSegment(int x0, int y0, int x1, int y1, int thick, const
     SDL_RenderGeometry(ren_, nullptr, verts, 6, nullptr, 0);
 }
 
-// 亚像素粗线段：与 int 版同一几何，但端点/线宽全为 double，且**沿方向两端各外扩 thick/2**
-// （相邻线段必然在共享顶点处重叠，不留缺口）——圆角由 fillDiscF 在同一顶点补齐。
+// 亚像素粗线段：端点/线宽全为 double。**不把端点沿方向外扩**：折线顶点处的圆角/端帽由调用方
+// 补 `fillDiscF`（半径恰为 thick/2）完成，两者之并 = 折线与圆盘的 Minkowski 和（严格等宽圆角）；
+// 若再沿方向外扩半宽，拐角外侧会多出 hw·(√2−1) 的**方块凸起**（"拐角瑕疵"，回归见
+// test_river_render 的 CornerJoinStaysWithinHalfWidth）。
 void Renderer::fillThickSegmentF(double x0, double y0, double x1, double y1, double thick,
                                 const SDL_Color& c) {
     if (thick <= 0.0) return;
@@ -87,13 +89,11 @@ void Renderer::fillThickSegmentF(double x0, double y0, double x1, double y1, dou
     const double len = std::hypot(dx, dy);
     if (len <= 1e-12) return;
     const double hw = thick * 0.5;
-    const double ux = dx / len, uy = dy / len;      // 单位方向
-    const double nx = -uy * hw, ny = ux * hw;       // 单位法向 × 半宽
-    const double ex = ux * hw, ey = uy * hw;        // 端点外扩 × 半宽
-    const float ax = static_cast<float>(x0 - ex + nx), ay = static_cast<float>(y0 - ey + ny);
-    const float bx = static_cast<float>(x1 + ex + nx), by = static_cast<float>(y1 + ey + ny);
-    const float cx2 = static_cast<float>(x1 + ex - nx), cy2 = static_cast<float>(y1 + ey - ny);
-    const float dx2 = static_cast<float>(x0 - ex - nx), dy2 = static_cast<float>(y0 - ey - ny);
+    const double nx = -dy / len * hw, ny = dx / len * hw;  // 单位法向 × 半宽
+    const float ax = static_cast<float>(x0 + nx), ay = static_cast<float>(y0 + ny);
+    const float bx = static_cast<float>(x1 + nx), by = static_cast<float>(y1 + ny);
+    const float cx2 = static_cast<float>(x1 - nx), cy2 = static_cast<float>(y1 - ny);
+    const float dx2 = static_cast<float>(x0 - nx), dy2 = static_cast<float>(y0 - ny);
     SDL_Vertex verts[6] = {
         {{ax, ay}, c, {0.0f, 0.0f}}, {{bx, by}, c, {0.0f, 0.0f}}, {{cx2, cy2}, c, {0.0f, 0.0f}},
         {{ax, ay}, c, {0.0f, 0.0f}}, {{cx2, cy2}, c, {0.0f, 0.0f}}, {{dx2, dy2}, c, {0.0f, 0.0f}},

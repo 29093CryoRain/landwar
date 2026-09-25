@@ -58,6 +58,7 @@ entt::entity SpawnSystem::spawnArmy(Simulation& sim, double x, double y, int fac
     reg.emplace<comp::UnitType>(e, type);
     reg.emplace<comp::Collider>(e, size);
     reg.emplace<comp::LandHistory>(e, static_cast<int>(sim.tickCount()));
+    reg.emplace<comp::MoveCarry>(e);  // 过河停顿结转（二期反馈）：新兵无结转
     // P9 行为抽象：从兵种定义填入 Behavior（死亡特效 + 周期动作，与迁移前映射一致）。
     const auto& udef = cfg.units[static_cast<size_t>(static_cast<int>(type))];
     reg.emplace<comp::Behavior>(e, comp::Behavior{udef.deathEffect, udef.periodic,

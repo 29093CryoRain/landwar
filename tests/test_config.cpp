@@ -20,6 +20,12 @@ TEST(Config, Defaults) {
     EXPECT_NEAR(cfg.army.baseSpeed, 0.3, 1e-12);
     EXPECT_NEAR(cfg.army.bounceJitterRangeRad, 0.03, 1e-12);
     EXPECT_NEAR(cfg.army.spawnAngleStep, 1.0, 1e-12);
+    // 河流（二期反馈）：过河抖动半区间；河流专用梯度裁剪与平滑。
+    EXPECT_NEAR(cfg.river.crossAngleJitterRad, 0.35, 1e-12);
+    EXPECT_NEAR(cfg.river.gen.gmin, 0.25, 1e-12);
+    EXPECT_NEAR(cfg.river.gen.gmax, 0.40, 1e-12);
+    EXPECT_NEAR(cfg.river.gen.gradientSmoothScale, 48.0, 1e-12);
+    EXPECT_NEAR(cfg.river.gen.mountainSourceWeight, 10.0, 1e-12);
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 1.7 / 20000.0, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);
     EXPECT_EQ(cfg.units[1].cost, 3.97);
@@ -99,7 +105,9 @@ TEST(Config, JsonOverrides) {
                  "forceCoastStrengthMultiplier": 1.75 },
         "army": { "baseSpeed": 0.5, "bounceJitterRangeRad": 0.07, "spawnAngleStep": 0.25 },
         "units": [ { "type": "laser", "cost": 99.0, "riverCrossMult": 2.5 } ],
-        "river": { "crossChance": 0.25 },
+        "river": { "crossChance": 0.25, "crossAngleJitterRad": 0.6,
+                   "gen": { "gmin": 0.1, "gmax": 0.9, "gradientSmoothScale": 4.0,
+                            "mountainSourceWeight": 4.0 } },
         "factions": [ { "id": 1, "color": [1,2,3], "secondary": [4,5,6],
                         "unitPreference": { "normal": 2.5 } } ],
         "render": { "mountain": { "sourceWidth": 256, "strokeWidthPx": 8.0,
@@ -127,6 +135,11 @@ TEST(Config, JsonOverrides) {
     EXPECT_NEAR(cfg.units[3].riverCrossMult, 2.5, 1e-12);
     EXPECT_NEAR(cfg.units[0].riverCrossMult, 1.0, 1e-12);  // 未覆盖的保持默认
     EXPECT_NEAR(cfg.river.crossChance, 0.25, 1e-12);
+    EXPECT_NEAR(cfg.river.crossAngleJitterRad, 0.6, 1e-12);      // 二期反馈
+    EXPECT_NEAR(cfg.river.gen.gmin, 0.1, 1e-12);
+    EXPECT_NEAR(cfg.river.gen.gmax, 0.9, 1e-12);
+    EXPECT_NEAR(cfg.river.gen.gradientSmoothScale, 4.0, 1e-12);
+    EXPECT_NEAR(cfg.river.gen.mountainSourceWeight, 4.0, 1e-12);
     EXPECT_EQ(cfg.units[0].cost, 1.0);  // 未覆盖的保持默认
     EXPECT_EQ(cfg.factions[1].color[0], 1);
     EXPECT_EQ(cfg.factions[1].color[1], 2);
@@ -150,6 +163,11 @@ TEST(Config, JsonOverrides) {
     EXPECT_EQ(riverRoundTrip.render.river.color, (std::array<int, 3>{12, 34, 56}));
     EXPECT_NEAR(riverRoundTrip.render.river.minCellPx, 4.0, 1e-12);
     EXPECT_NEAR(riverRoundTrip.river.crossChance, 0.25, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.river.crossAngleJitterRad, 0.6, 1e-12);  // 二期反馈往返
+    EXPECT_NEAR(riverRoundTrip.river.gen.gmin, 0.1, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.river.gen.gmax, 0.9, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.river.gen.gradientSmoothScale, 4.0, 1e-12);
+    EXPECT_NEAR(riverRoundTrip.river.gen.mountainSourceWeight, 4.0, 1e-12);
     EXPECT_NEAR(riverRoundTrip.units[3].riverCrossMult, 2.5, 1e-12);
     EXPECT_NEAR(cfg.economy.initialEconomy, 5.0, 1e-12);
     EXPECT_NEAR(cfg.economy.perLandIncome, 0.5, 1e-12);
@@ -329,6 +347,12 @@ TEST(Config, LoadsDataFile) {
     EXPECT_LE(cfg.river.crossChance, 1.0);
     EXPECT_NE(cfg.river.gen.gradientWeight, 0.0);
     EXPECT_GE(cfg.river.gen.maxStepsPerRiver, 0);
+    // 二期反馈：过河抖动 / 梯度裁剪与平滑（同样只校验合法域，不钉死数值）。
+    EXPECT_GE(cfg.river.crossAngleJitterRad, 0.0);
+    EXPECT_GE(cfg.river.gen.gmin, 0.0);
+    EXPECT_LE(cfg.river.gen.gmin, cfg.river.gen.gmax);
+    EXPECT_GT(cfg.river.gen.gradientSmoothScale, 0.0);
+    EXPECT_GE(cfg.river.gen.mountainSourceWeight, 0.0);
     EXPECT_GE(cfg.units[0].riverCrossMult, 0.0);                      // units.jsonc 可选键
     EXPECT_NEAR(cfg.factions[6].bombRadiusBonus, 0.5, 1e-9);
     EXPECT_NEAR(cfg.factions[7].mineTriggerBombRadiusBonus, 0.5, 1e-9);
@@ -444,6 +468,49 @@ TEST(Config, ValidateReportsInvalidRuntimeState) {
     std::string err;
     EXPECT_FALSE(cfg.validate(&err));
     EXPECT_NE(err.find("simulation"), std::string::npos);
+}
+
+// 二期反馈：新增的河流键必须落到合法域（负数/越界/除零都要拒绝）。
+TEST(Config, ValidateRejectsBadRiverGradientAndJitter) {
+    std::string err;
+    {
+        lw::Config cfg = lw::Config::loadFromJson("{}");
+        cfg.river.crossAngleJitterRad = -0.1;
+        EXPECT_FALSE(cfg.validate(&err));
+    }
+    {
+        lw::Config cfg = lw::Config::loadFromJson("{}");
+        cfg.river.gen.gmin = -1.0;
+        EXPECT_FALSE(cfg.validate(&err));
+    }
+    {
+        lw::Config cfg = lw::Config::loadFromJson("{}");
+        cfg.river.gen.gmin = 0.9;  // gmin > gmax
+        cfg.river.gen.gmax = 0.2;
+        EXPECT_FALSE(cfg.validate(&err));
+    }
+    {
+        lw::Config cfg = lw::Config::loadFromJson("{}");
+        cfg.river.gen.gradientSmoothScale = 0.0;  // 会让中心差分除零
+        EXPECT_FALSE(cfg.validate(&err));
+    }
+    {
+        lw::Config cfg = lw::Config::loadFromJson("{}");
+        cfg.river.gen.mountainSourceWeight = -0.1;  // 权重必须 >= 0
+        EXPECT_FALSE(cfg.validate(&err));
+    }
+    {
+        lw::Config cfg = lw::Config::loadFromJson("{}");
+        cfg.river.gen.mountainSourceWeight = 0.0;  // 0 = 全平原，合法
+        EXPECT_TRUE(cfg.validate(&err)) << err;
+    }
+    {
+        // gmin == gmax == 0（纯均匀分布）是合法域。
+        lw::Config cfg = lw::Config::loadFromJson("{}");
+        cfg.river.gen.gmin = 0.0;
+        cfg.river.gen.gmax = 0.0;
+        EXPECT_TRUE(cfg.validate(&err)) << err;
+    }
 }
 
 TEST(Config, NewTilingCitySetsRoundTrip) {

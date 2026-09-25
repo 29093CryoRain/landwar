@@ -1,8 +1,8 @@
 // RiverGenerator.cpp — 随机成河实现（《河流系统开发文档》§9）。
-// 步骤（§9.2）：① 收集山地/陆地格 → ② **河流尝试数 = round(河密度 × 陆地格数)**（§14 决策 D2：
-// 密度是"占陆地格"的比例，与城密度同语义）→ ③ 每次尝试：随机源格 → 随机源顶点（临海重试）
-// → 沿顶点拓扑游走（softmax 采样）→ 并入全局边集合。时机由 MapGenerator 保证：
-// **山地之后、建城之前**（RNG 顺序稳定）。
+// 步骤（§9.2）：① 收集山地/平原/陆地格 → ② **河流尝试数 = round(河密度 × 陆地格数)**（§14 决策 D2：
+// 密度是"占陆地格"的比例，与城密度同语义）→ ③ 每次尝试：按 mountainSourceWeight 的权重概率选源区
+// （山地/平原，§17）→ 随机源格 → 随机源顶点（临海重试）→ 沿顶点拓扑游走（softmax 采样）→ 并入
+// 全局边集合。时机由 MapGenerator 保证：**山地之后、建城之前**（RNG 顺序稳定）。
 // **无重边的证明**（§9.4 行 0 与行 2/3 合起来就够，无需任何"已走过的边"的检查）：
 //   ① 源顶点若已落在别的河上 → 直接跳过（否则从这里出发必然沿既有河重复走），且按用户要求
 //      **不消耗尝试次数**；
@@ -55,9 +55,11 @@ bool vertexTouchesSea(const TilingGeom& geometry, const std::vector<bool>& land,
     return false;
 }
 
-// 顶点梯度 = 共点格梯度的**面积加权平均**（§9.3）。
+// 顶点梯度 = 共点格梯度的**面积加权平均**（§9.3），再做幅度裁剪（二期反馈）：
+// g_smooth = clip(|g|, gmin, gmax)·g/|g|（|g| = 0 → 零向量）。裁剪**只在河流生成里生效**，
+// 因此河流的概率尺度被限制在该区间内（山脉用的梯度不受影响）。
 GradVec vertexGradient(const TilingGeom& geometry, const std::vector<GradVec>& gradVec, int cell,
-                       int vert) {
+                       int vert, const Config::River::Gen& params) {
     int cells[kMaxCellsAtVertex];
     const int count = cellsAtVertex(geometry, cell, vert, cells);
     double sumX = 0.0, sumY = 0.0, sumArea = 0.0;
@@ -68,7 +70,7 @@ GradVec vertexGradient(const TilingGeom& geometry, const std::vector<GradVec>& g
         sumArea += area;
     }
     if (sumArea <= 0.0) return {};
-    return {sumX / sumArea, sumY / sumArea};
+    return smoothGradientMagnitude({sumX / sumArea, sumY / sumArea}, params.gmin, params.gmax);
 }
 
 // softmax 轮盘赌：**一次** rng.unit()（§9.3）。**温度固定为 1**（权重本身就是 logit 尺度）：
@@ -107,11 +109,15 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
         return result;  // 无河路径：不消耗任何 RNG（§9.9 回归红线）
 
     std::vector<int> mountains;
+    std::vector<int> plains;  // land && !mountain：河源可选平原池（mountainSourceWeight，§17）
     std::vector<int> lands;
     for (int i = 0; i < cellCount; ++i) {
         if (!land[static_cast<std::size_t>(i)]) continue;
         lands.push_back(i);
-        if (mountain[static_cast<std::size_t>(i)]) mountains.push_back(i);
+        if (mountain[static_cast<std::size_t>(i)])
+            mountains.push_back(i);
+        else
+            plains.push_back(i);
     }
     if (lands.empty()) return result;
 
@@ -141,7 +147,7 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
              ++step) {
             int cell = -1, vert = -1;
             if (!geometry.vertexFromKey(current, cell, vert)) break;
-            GradVec gradient = vertexGradient(geometry, gradVec, cell, vert);
+            GradVec gradient = vertexGradient(geometry, gradVec, cell, vert, params);
             if (params.flowDownhill) {  // 顺坡 = 沿 -∇h
                 gradient.x = -gradient.x;
                 gradient.y = -gradient.y;
@@ -207,7 +213,20 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
     const int riverCount = static_cast<int>(std::llround(riverDensity * lands.size()));
     if (stats) stats->planned = riverCount;
     for (int river = 0; river < riverCount; ++river) {
-        const std::vector<int>& pool = mountains.empty() ? lands : mountains;
+        // 源区选择（§17）：山地格按 mountainSourceWeight 计权、平原格计 1，故
+        //   P(山地源) = w·M / (w·M + P)   （M/P = 山地/平原陆地格数）
+        // **随山密度自动上升**（山越多山地源越多），同一参数适配不同山占比的地图。
+        // 每次尝试只抽一次签；w = 0（或 M = 0）→ 全平原、P = 0 → 全山地，此时不抽签。
+        const double weightedMountains =
+            std::max(0.0, params.mountainSourceWeight) * static_cast<double>(mountains.size());
+        const double weightedPlains = static_cast<double>(plains.size());
+        const double totalWeight = weightedMountains + weightedPlains;
+        const double mountainChance = totalWeight > 0.0 ? weightedMountains / totalWeight : 0.0;
+        const bool wantMountain =
+            !mountains.empty() &&
+            (plains.empty() || mountainChance >= 1.0 ||
+             (mountainChance > 0.0 && rng.chance(mountainChance)));
+        const std::vector<int>& pool = wantMountain ? mountains : plains;
         bool traced = false;
         int attempt = 0;
         // "源顶点已在别的河上"的跳过不消耗尝试次数（§9.4 行 0），但要有界：最多白跳
@@ -248,6 +267,7 @@ std::vector<MapEdgeRef> generateRivers(const TilingGeom& geometry, const std::ve
             if (stats) {
                 ++stats->rivers;
                 stats->traversals += static_cast<int>(riverEdges.size());
+                if (wantMountain) ++stats->mountainSources;
             }
             allKeys.insert(allKeys.end(), riverEdges.begin(), riverEdges.end());
             otherRiverVerts.insert(otherRiverVerts.end(), riverVerts.begin(), riverVerts.end());

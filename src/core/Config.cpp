@@ -758,10 +758,10 @@ void validateConfigKeys(const Json& root) {
     warnUnknownKeys(child(ren, "river"), {"widthU", "color", "minPx", "minCellPx"},
                      "render.river");
     warnUnknownKeys(child(obj("river"), "gen"),
-                    {"gradientWeight", "flowDownhill", "mouthWeight", "maxStepsPerRiver",
-                     "sourceRetryPerRiver"},
+                    {"gradientWeight", "flowDownhill", "mouthWeight", "gmin", "gmax",
+                     "gradientSmoothScale", "mountainSourceWeight", "maxStepsPerRiver", "sourceRetryPerRiver"},
                     "river.gen");
-    warnUnknownKeys(obj("river"), {"crossChance", "gen"}, "river");
+    warnUnknownKeys(obj("river"), {"crossChance", "crossAngleJitterRad", "gen"}, "river");
     // city（顶层，P13 城市系统 + P12 按密铺形状表）。
     const Json& cityJ = obj("city");
     warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri",
@@ -926,10 +926,10 @@ void warnMissingConfigKeys(const Json& root) {
                     "render.player");
     warnMissingKeys(object("render").value("river", Json::object()),
                     {"widthU", "color", "minPx", "minCellPx"}, "render.river");
-    warnMissingKeys(object("river"), {"crossChance", "gen"}, "river");
+    warnMissingKeys(object("river"), {"crossChance", "crossAngleJitterRad", "gen"}, "river");
     warnMissingKeys(object("river").value("gen", Json::object()),
-                    {"gradientWeight", "flowDownhill", "mouthWeight", "maxStepsPerRiver",
-                     "sourceRetryPerRiver"},
+                    {"gradientWeight", "flowDownhill", "mouthWeight", "gmin", "gmax",
+                     "gradientSmoothScale", "mountainSourceWeight", "maxStepsPerRiver", "sourceRetryPerRiver"},
                     "river.gen");
     warnMissingKeys(object("tech"), {"thresholdBase", "thresholdStep", "pointsPerCityLevel",
                                       "preferencePerLevel", "playerCandidateCount", "techs"}, "tech");
@@ -1023,6 +1023,8 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
     if (root.contains("river") && root["river"].is_object()) {
         const auto& riverJson = root["river"];
         cfg.river.crossChance = getNum(riverJson, "crossChance", cfg.river.crossChance);
+        cfg.river.crossAngleJitterRad =
+            getNum(riverJson, "crossAngleJitterRad", cfg.river.crossAngleJitterRad);
         const auto& genJson =
             riverJson.contains("gen") ? riverJson["gen"] : Json::object();
         if (genJson.is_object()) {
@@ -1031,6 +1033,12 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
             cfg.river.gen.flowDownhill =
                 getBool(genJson, "flowDownhill", cfg.river.gen.flowDownhill);
             cfg.river.gen.mouthWeight = getNum(genJson, "mouthWeight", cfg.river.gen.mouthWeight);
+            cfg.river.gen.gmin = getNum(genJson, "gmin", cfg.river.gen.gmin);
+            cfg.river.gen.gmax = getNum(genJson, "gmax", cfg.river.gen.gmax);
+            cfg.river.gen.gradientSmoothScale =
+                getNum(genJson, "gradientSmoothScale", cfg.river.gen.gradientSmoothScale);
+            cfg.river.gen.mountainSourceWeight =
+                getNum(genJson, "mountainSourceWeight", cfg.river.gen.mountainSourceWeight);
             cfg.river.gen.maxStepsPerRiver =
                 getInt(genJson, "maxStepsPerRiver", cfg.river.gen.maxStepsPerRiver);
             cfg.river.gen.sourceRetryPerRiver =
@@ -1611,9 +1619,16 @@ bool Config::validate(std::string* err) const {
         || !unitInterval(terrain.mountainEnterChance) || !positive(terrain.mountainSpeedMult))
         return fail("terrain numeric range invalid");
     if (!unitInterval(river.crossChance)) return fail("river.crossChance must be in [0,1]");
+    if (!nonNegative(river.crossAngleJitterRad))
+        return fail("river.crossAngleJitterRad must be finite and >= 0");
     if (!finite(river.gen.gradientWeight) || !finite(river.gen.mouthWeight) ||
         river.gen.maxStepsPerRiver < 0 || river.gen.sourceRetryPerRiver < 0)
         return fail("river.gen numeric range invalid");
+    // 二期反馈：梯度裁剪与平滑。0 <= gmin <= gmax；smoothScale > 0（=0 会让中心差分除零）。
+    if (!nonNegative(river.gen.gmin) || !nonNegative(river.gen.gmax) ||
+        river.gen.gmin > river.gen.gmax || !positive(river.gen.gradientSmoothScale) ||
+        !nonNegative(river.gen.mountainSourceWeight))
+        return fail("river.gen gradient clip/smooth range invalid");
 
     for (const auto& u : units) {
         if (!positive(u.cost) || !positive(u.speedMult) || !positive(u.sizeMult)
@@ -1828,10 +1843,15 @@ std::string Config::toJson() const {
                     {"mountainSpeedMult", terrain.mountainSpeedMult}};
 
     j["river"] = {{"crossChance", river.crossChance},
+                  {"crossAngleJitterRad", river.crossAngleJitterRad},
                   {"gen",
                    {{"gradientWeight", river.gen.gradientWeight},
                     {"flowDownhill", river.gen.flowDownhill},
                     {"mouthWeight", river.gen.mouthWeight},
+                    {"gmin", river.gen.gmin},
+                    {"gmax", river.gen.gmax},
+                    {"gradientSmoothScale", river.gen.gradientSmoothScale},
+                    {"mountainSourceWeight", river.gen.mountainSourceWeight},
                     {"maxStepsPerRiver", river.gen.maxStepsPerRiver},
                     {"sourceRetryPerRiver", river.gen.sourceRetryPerRiver}}}};
 

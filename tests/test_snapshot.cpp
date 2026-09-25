@@ -53,9 +53,11 @@ std::string registryDump(const Simulation& sim) {
             const auto& u = sim.registry().get<comp::UnitType>(e);
             const auto& c = sim.registry().get<comp::Collider>(e);
             const auto& l = sim.registry().get<comp::LandHistory>(e);
+            const auto* mc = sim.registry().try_get<comp::MoveCarry>(e);
             oss << "A" << entt::to_integral(e) << "(" << p.x << "," << p.y << "," << v.angle << ","
                 << s.value << "," << o.value << "," << f.value << "," << static_cast<int>(u.type)
                 << "," << c.radius << "," << l.lastLandTime << ","
+                << (mc ? mc->value : 0.0) << ","
                 << sim.registry().all_of<comp::Dead>(e) << ");";
         }
     }
@@ -409,11 +411,57 @@ TEST(Snapshot, RiverEdgesRoundTripAndRejectInvalid) {
     parsed["map"].erase("rivers");
     EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
 
-    // 旧版本号（v11，无 rivers）被严格拒绝。
+    // 旧版本号（v12，无 moveCarry）被严格拒绝。
     parsed["map"]["rivers"] = nlohmann::json::array();
-    parsed["version"] = 11;
+    parsed["version"] = 12;
     EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
     EXPECT_NE(badErr.find("unsupported version"), std::string::npos);
+}
+
+// 二期反馈：兵的过河停顿结转（moveCarry）必须入快照并往返一致；缺该字段 → 头校验失败。
+TEST(Snapshot, ArmyMoveCarryRoundTripsAndIsRequired) {
+    Config cfg = lwtest::loadCfg();
+    Simulation sim(cfg, 9);
+    ASSERT_TRUE(sim.init());
+    // 手动造一支带非零结转的兵（走 spawnArmy 会随机位置；这里只验证序列化通道）。
+    entt::entity e = sim.createEntity();
+    auto& reg = sim.registry();
+    reg.emplace<comp::Position>(e, 1.0, 2.0);
+    reg.emplace<comp::Velocity>(e, 0.0);
+    reg.emplace<comp::Speed>(e, 0.3);
+    reg.emplace<comp::OnLand>(e, true);
+    reg.emplace<comp::MountainState>(e, false);
+    reg.emplace<comp::FactionId>(e, 1);
+    reg.emplace<comp::UnitType>(e, ArmyType::normal);
+    reg.emplace<comp::Collider>(e, 1.1);
+    reg.emplace<comp::LandHistory>(e, 0);
+    reg.emplace<comp::MoveCarry>(e, comp::MoveCarry{0.17});
+
+    const std::string json = Snapshot::serialize(sim);
+    auto parsed = nlohmann::json::parse(json);
+    bool sawArmy = false;
+    for (const auto& entity : parsed["registry"]["entities"]) {
+        if (entity["kind"].get<int>() != 0) continue;
+        if (entity["id"].get<std::uint32_t>() != entt::to_integral(e)) continue;
+        ASSERT_TRUE(entity.contains("moveCarry"));
+        EXPECT_NEAR(entity["moveCarry"].get<double>(), 0.17, 1e-12);
+        sawArmy = true;
+    }
+    ASSERT_TRUE(sawArmy);
+
+    Simulation restored(cfg, 9);
+    std::string err;
+    ASSERT_TRUE(Snapshot::deserialize(restored, json, &err)) << err;
+    ASSERT_TRUE(restored.registry().all_of<comp::MoveCarry>(e));
+    EXPECT_NEAR(restored.registry().get<comp::MoveCarry>(e).value, 0.17, 1e-12);
+
+    // 缺 moveCarry 键 → 形状校验失败（v13 起为必需字段）。
+    for (auto& entity : parsed["registry"]["entities"])
+        if (entity["kind"].get<int>() == 0) entity.erase("moveCarry");
+    Simulation rejected(cfg, 9);
+    std::string badErr;
+    EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
+    EXPECT_NE(badErr.find("moveCarry"), std::string::npos);
 }
 
 TEST(Snapshot, MalformedV6RejectedWithoutMutatingTarget) {
@@ -460,7 +508,7 @@ TEST(Cli, ParsesRiverDensity) {
         const char* argv[] = {"landwar", "--headless"};
         const auto o = parseCli(2, const_cast<char**>(argv));
         EXPECT_FALSE(o.riverDensitySet);
-        EXPECT_DOUBLE_EQ(o.riverDensity, 0.02);  // 与菜单默认一致
+        EXPECT_DOUBLE_EQ(o.riverDensity, 0.005);  // 与菜单默认一致
     }
 }
 

@@ -20,6 +20,10 @@ struct FactionId { int value = 0; };
 struct UnitType { ArmyType type = ArmyType::normal; };
 struct Collider { double radius = 1.0; };
 struct LandHistory { int lastLandTime = 0; };  // 上次登陆时间（lst_move_to_land_time）
+// 过河停顿结转（二期反馈）：remLength 是每 tick 的局部量，跨 tick 不保留。河骰通过且真正进入
+// 目标格时，本 tick 剩余步长归零、未用完的剩余量结转到下一 tick（下一 tick 起始 = 本值，不补满），
+// 于是两 tick 位移合计恰好一份 speed（净停 1 tick）。0 = 无结转。
+struct MoveCarry { double value = 0.0; };
 struct Dead {};                                // 待销毁标记（tick 末由 DeathSystem 统一处理）
 
 // 行为组件（P9 行为抽象）：死亡特效 + 周期动作。静态部分（deathEffect/periodic/periodTicks）

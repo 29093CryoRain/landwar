@@ -65,6 +65,22 @@ void bounceLine(MoveContext& ctx, comp::Velocity& vel, double lineAngle) {
 // 仅在方形路径（moveArmySquare）使用；密铺路径直接用 crossEdge 返回的边序号。
 constexpr int kSquareEdgeFromBoundary[4] = {2, 1, 3, 0};
 
+// 进入格处理的结果（原 bool 的扩展；二期反馈：过河停顿）。
+struct EnterResult {
+    bool bounced = false;      // true = 反弹（未进入目标格，调用方保持原格跟踪）
+    bool riverPaused = false;  // true = 过河通过且已进入目标格 → 调用方把兵推入目标格内侧
+    double riverCarry = 0.0;   // 结转到下一 tick 的剩余步长（过河停顿）
+};
+
+// 过河停顿：兵停在边上时，沿速度方向推进目标格内一小步（与密铺顶点穿越同一量级：相对格尺寸）。
+// 否则下一 tick 的取整 / worldToCell 可能仍解析回原格 → 反复触发同一条河的河骰与停顿。
+void nudgeIntoEnteredCell(const TilingGeom& g, comp::Position& pos, double angle) {
+    const double nudge = std::max(1e-3, 0.02 * std::min(g.worldWidth(), g.worldHeight())
+                                             / static_cast<double>(std::max(1, g.cols)));
+    pos.x += nudge * std::cos(angle);
+    pos.y += nudge * std::sin(angle);
+}
+
 double edgeLineAngle(const TilingGeom& g, int index, int k) {
     switch (g.type) {
         case TilingType::Square: return (k == 0 || k == 2) ? kPi / 2.0 : 0.0;
@@ -98,13 +114,14 @@ void conquerCell(MoveContext& ctx, int cellIndex, int factionId, ArmyType type) 
 
 // 进入格处理（陆/海/山/征服；goalIdx 已定，goalCell = atIndex(goalIdx)）。方形与密铺共用：
 // 反弹路径由调用方注入（方形 bounce(code) / 密铺 bounceLine(edge)）。修改
-// vel/speed/remLength/onLand/mtn/hist；RNG 顺序与旧 moveArmy 逐位一致。
-// 返回 true = 反弹（未实际进入目标格，调用方应保持原格跟踪）；false = 已进入。
+// vel/speed/remLength/onLand/mtn/hist；RNG 顺序与旧 moveArmy 逐位一致（河骰 + 过河抖动为新增）。
+// 返回 EnterResult：bounced / 过河停顿（见结构体注释）。
 template <typename Bounce>
-bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bounce&& doBounce,
-                        comp::Speed& speed, double& remLength, comp::OnLand& onLand,
-                        comp::MountainState& mtn, comp::FactionId& fid, comp::UnitType& unit,
-                        comp::LandHistory& hist) {
+EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK,
+                               Bounce&& doBounce, comp::Velocity& vel, comp::Speed& speed,
+                               double& remLength, comp::OnLand& onLand, comp::MountainState& mtn,
+                               comp::FactionId& fid, comp::UnitType& unit,
+                               comp::LandHistory& hist) {
     const auto& cfg = ctx.config;
     const MapCell* goalCell = &ctx.map.atIndex(goalIdx);
     // Terrain changes are provisional until the target cell is actually entered. A later
@@ -114,6 +131,9 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bo
     bool nextOnLand = onLand.value;
     bool nextInMountain = mtn.inMountain;
     int nextLastLandTime = hist.lastLandTime;
+    // 二期反馈：过河（通过且最终真正进入目标格）→ 方向抖动 + 停顿结转。
+    bool crossedRiver = false;
+    double riverCarry = 0.0;
     if (!goalCell->land && onLand.value) {
         // 陆/山→海：山→海 先复原山地速度（若该兵种在山地减速），再走原下海路径。
         if (nextInMountain) {
@@ -136,7 +156,7 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bo
             // （速度与剩余量同步减半，语义自洽；原版 `rem/=2; break` 里 `rem/=2` 因 break 成死代码）。
         } else {
             doBounce();
-            return true;
+            return {true, false, 0.0};
         }
     } else if (goalCell->land && onLand.value) {
         // 河流系统 §6.1（R4）：河骰最前——失败 → 反弹并立即返回，局部量（nextSpeed/
@@ -150,8 +170,12 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bo
                            0.0, 1.0);
             if (!ctx.rng.chance(riverChance)) {
                 doBounce();
-                return true;
+                return {true, false, 0.0};
             }
+            // 通过：先记下"过河了"，但方向抖动与停顿都**只在最终真正进入目标格时**结算
+            //（下面还有山骰/敌方格，被弹回则不算过河）。
+            crossedRiver = true;
+            riverCarry = remLength;  // 过河瞬间未用完的剩余步长（此后只改 nextRemLength 副本）
         }
         // 陆→陆（含山）：目标非山时先复原离开山地；山地阻挡先判（失败→反弹，不进入不征服）。
         if (nextInMountain && !goalCell->mountain) {
@@ -168,7 +192,7 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bo
         if (goalCell->mountain) {
             if (!ctx.rng.chance(mountainEnterChanceFor(cfg, static_cast<int>(unit.type)))) {
                 doBounce();
-                return true;
+                return {true, false, 0.0};
             }
             if (!nextInMountain) {
                 nextInMountain = true;
@@ -190,7 +214,7 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bo
                     * ctx.factions[static_cast<size_t>(fid.value)].mods.bounceChanceMult;
                 if (ctx.rng.chance(reboundChance)) {
                     doBounce();
-                    return true;
+                    return {true, false, 0.0};
                 }
             }
         }
@@ -200,7 +224,7 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bo
         if (goalCell->mountain
             && !ctx.rng.chance(mountainEnterChanceFor(cfg, static_cast<int>(unit.type)))) {
             doBounce();
-            return true;
+            return {true, false, 0.0};
         }
         nextOnLand = true;
         nextSpeed /= cfg.sea.seaSpeedMult;   // 复原陆速（=×2）
@@ -220,18 +244,30 @@ bool processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int edgeK, Bo
     onLand.value = nextOnLand;
     mtn.inMountain = nextInMountain;
     hist.lastLandTime = nextLastLandTime;
-    return false;
+    if (crossedRiver) {
+        // 过河（真正进入目标格）：方向随机抖动一次（对称区间 [-θ, θ]，与反弹抖动同型），
+        // 且本 tick 剩余步长归零（停在河边）；未用完的量由调用方结转下一 tick。
+        vel.angle += (ctx.rng.unit() * 2.0 - 1.0) * cfg.river.crossAngleJitterRad;
+        remLength = 0.0;
+        return {false, true, riverCarry};
+    }
+    return {false, false, 0.0};
 }
 
 // 方形路径：原版 moveArmy 主体（findNextXY 轴对齐格线穿越 + 边界 bounce）。
 static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos,
                            comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
                            comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
-                           comp::UnitType& unit, comp::LandHistory& hist) {
+                           comp::UnitType& unit, comp::LandHistory& hist, comp::MoveCarry& carry) {
     const auto& map = ctx.map;
     const int w = map.width();
 
     double remLength = speed.value;
+    // 过河停顿结转（二期反馈）：本 tick 起始步长 = 上一 tick 结转的剩余量（不补满），用掉即清零。
+    if (carry.value > 0.0) {
+        remLength = carry.value;
+        carry.value = 0.0;
+    }
     // 河流系统 §6.2：显式维护"当前所在格"（河骰需要 (srcIdx, k)；不用浮点位置反推）。
     // 位置可能恰在界上（pos.x == width 等），故取整后夹取，越界不读格数据。
     const auto cellIndexAtPos = [&] {
@@ -308,9 +344,15 @@ static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos
         {
             MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
             const int goalIdx = gy * w + gx;
-            if (!processEnteredCell(ctx, goalIdx, srcIdx, kSquareEdgeFromBoundary[boundaryCode],
-                                    doBounce, speed, remLength, onLand, mtn, fid, unit, hist)) {
+            const EnterResult result =
+                processEnteredCell(ctx, goalIdx, srcIdx, kSquareEdgeFromBoundary[boundaryCode],
+                                   doBounce, vel, speed, remLength, onLand, mtn, fid, unit, hist);
+            if (!result.bounced) {
                 srcIdx = goalIdx;  // 成功进入 → 跟踪新格；反弹保持原格（与密铺路径一致）
+                if (result.riverPaused) {
+                    carry.value = result.riverCarry;
+                    nudgeIntoEnteredCell(map.geom(), pos, vel.angle);
+                }
             }
         }
     }
@@ -327,10 +369,15 @@ static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos
 static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
                           comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
                           comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
-                          comp::UnitType& unit, comp::LandHistory& hist) {
+                          comp::UnitType& unit, comp::LandHistory& hist, comp::MoveCarry& carry) {
     const auto& map = ctx.map;
     const TilingGeom& g = map.geom();
     double remLength = speed.value;
+    // 过河停顿结转（二期反馈）：本 tick 起始步长 = 上一 tick 结转的剩余量（不补满），用掉即清零。
+    if (carry.value > 0.0) {
+        remLength = carry.value;
+        carry.value = 0.0;
+    }
     int cellIdx = g.worldToCell(pos.x, pos.y);
     // 起始位置若恰落顶点/越界（贴界 spawn）：向内微调一步再取（仅起始兜底，非循环）。
     if (cellIdx < 0) {
@@ -401,13 +448,20 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
             continue;
         }
         const auto doBounce = [&] { bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed)); };
-        const bool bounced = [&] {
+        const EnterResult result = [&] {
             MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
-            return processEnteredCell(ctx, nb, cellIdx, crossed, doBounce, speed, remLength,
+            return processEnteredCell(ctx, nb, cellIdx, crossed, doBounce, vel, speed, remLength,
                                       onLand, mtn, fid, unit, hist);
         }();
-        // 反弹 → 保持原格（退回）；成功进入 → 跟踪目标格。
-        if (!bounced) cellIdx = nb;
+        // 反弹 → 保持原格（退回）；成功进入 → 跟踪目标格。过河停顿再推入目标格内侧一小步
+        //（否则下一 tick worldToCell 可能仍解析回原格 → 反复触发同一条河）。
+        if (!result.bounced) {
+            cellIdx = nb;
+            if (result.riverPaused) {
+                carry.value = result.riverCarry;
+                nudgeIntoEnteredCell(g, pos, vel.angle);
+            }
+        }
     }
     // 顶点穿越/边界反弹过程中位置可能略越出真实边界（贴界顶点残差），夹回界内——
     // 仅在移动结束后（循环已退出），不会掩盖"撞边界"信号（否则无法反弹，见卡死分析）。
@@ -464,13 +518,15 @@ void MovementSystem::moveArmy(MoveContext& ctx, entt::entity e) {
     auto& fid = ctx.registry.get<comp::FactionId>(e);
     auto& unit = ctx.registry.get<comp::UnitType>(e);
     auto& hist = ctx.registry.get<comp::LandHistory>(e);
+    // 过河停顿结转（二期反馈）。用 get_or_emplace：单测/旧实体可能未带该组件（正常产兵/读档必带）。
+    auto& carry = ctx.registry.get_or_emplace<comp::MoveCarry>(e);
 
     MoveTimer loopTimer(ctx.moveProfile, ctx.moveProfile ? &ctx.moveProfile->loopNs : nullptr);
     // P12：正方形走原版路径（findNextXY 轴对齐穿越，零行为变化）；六/三角走密铺路径。
     if (ctx.map.tiling() == TilingType::Square) {
-        moveArmySquare(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist);
+        moveArmySquare(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist, carry);
     } else {
-        moveArmyTiled(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist);
+        moveArmyTiled(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist, carry);
     }
 }
 

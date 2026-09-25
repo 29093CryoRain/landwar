@@ -54,7 +54,7 @@ const char* baseName(const std::string& path) {
 constexpr float kMtnLo = 0.0f, kMtnHi = 0.60f;
 constexpr float kCityLo = 0.0005f, kCityHi = 0.30f;
 // 河密度（河流系统 §9.1）：与山/城同款平方映射；显式 0 = 无河（无河回归）。
-constexpr float kRiverLo = 0.0f, kRiverHi = 0.30f;
+constexpr float kRiverLo = 0.0f, kRiverHi = 0.02f;
 float squareTToDensity(float t, float lo, float hi) {
     return lo + (hi - lo) * t * t;
 }

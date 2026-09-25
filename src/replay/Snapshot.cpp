@@ -25,8 +25,9 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 12;  // v11：三种规则密铺统一使用周期块索引
+constexpr int kSnapshotVersion = 13;  // v11：三种规则密铺统一使用周期块索引
                                       // v12：map.rivers（河流系统 §5.3）
+                                      // v13：兵组件 moveCarry（过河停顿结转，二期反馈）
 
 void setErr(std::string* err, const std::string& msg) {
     if (err) *err = msg;
@@ -322,7 +323,7 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
         }
         if (kind == 0) {
             for (const auto& key : {"vel", "speed", "onLand", "radius", "lastLand", "inMountain",
-                                    "dead", "periodCounter"})
+                                    "moveCarry", "dead", "periodCounter"})
                 if (!entity.contains(key)) return fail(std::string("missing army field ") + key);
             if (!entity["onLand"].is_boolean() || !entity["inMountain"].is_boolean()
                 || !entity["dead"].is_boolean())
@@ -512,6 +513,9 @@ std::string Snapshot::serialize(const Simulation& sim) {
                 a["radius"] = reg.get<comp::Collider>(e).radius;
                 a["lastLand"] = reg.get<comp::LandHistory>(e).lastLandTime;
                 a["inMountain"] = reg.get<comp::MountainState>(e).inMountain;
+                // v13：过河停顿结转（0 = 无）。try_get：防御未带该组件的旧实体。
+                const auto* moveCarry = reg.try_get<comp::MoveCarry>(e);
+                a["moveCarry"] = moveCarry ? moveCarry->value : 0.0;
                 a["dead"] = reg.all_of<comp::Dead>(e);
                 // P9 行为计数（快照后周期动作继续按原节奏触发）。
                 const auto* bh = reg.try_get<comp::Behavior>(e);
@@ -731,6 +735,7 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
             reg.emplace<comp::Collider>(e, ej.at("radius").get<double>());
             reg.emplace<comp::LandHistory>(e, ej.at("lastLand").get<int>());
             reg.emplace<comp::MountainState>(e, ej.at("inMountain").get<bool>());
+            reg.emplace<comp::MoveCarry>(e, comp::MoveCarry{ej.at("moveCarry").get<double>()});
             // P9 行为：静态字段从兵种定义重填（与 spawnArmy 一致），仅 counter 从快照恢复。
             const int armyType = ej.at("type").get<int>();
             const auto& udef = sim.config_.units[static_cast<size_t>(armyType)];

@@ -204,6 +204,11 @@ TEST(MapGen, RiverDensityZeroProducesNoRiversAndKeepsTerrainAndCities) {
     extreme.mouthWeight = 5.0;
     extreme.sourceRetryPerRiver = 0;
     extreme.maxStepsPerRiver = 1;
+    // 二期反馈：河流专用梯度参数（裁剪/平滑）与源区概率也必须在密度 0 时零副作用。
+    extreme.gmin = 0.0;
+    extreme.gmax = 100.0;
+    extreme.gradientSmoothScale = 1.0 / 64.0;
+    extreme.mountainSourceWeight = 0.0;
     lw::MapDefinition sameTerrain;
     ASSERT_TRUE(lw::MapGenerator::generate(42, params, sameTerrain, cfg.city, extreme));
     EXPECT_EQ(sameTerrain.toJson(), withoutRivers.toJson());
@@ -229,6 +234,172 @@ TEST(MapGen, RiverDensityZeroProducesNoRiversAndKeepsTerrainAndCities) {
     EXPECT_FALSE(definition.rivers.empty());
     EXPECT_EQ(seaLandSignature(definition), seaLandSignature(withoutRivers));
     expectRiverInvariants(definition);
+}
+
+// 二期反馈：河流梯度幅度裁剪（gmin/gmax）——纯函数级验证公式 g_smooth = clip(|g|,gmin,gmax)·g/|g|。
+TEST(MapGen, SmoothGradientMagnitudeClipsAndPreservesDirection) {
+    // 幅度 5（3-4-5），上限 2 → 缩到 2，方向不变：{1.2, 1.6}。
+    const lw::GradVec capped = lw::smoothGradientMagnitude({3.0, 4.0}, 0.0, 2.0);
+    EXPECT_NEAR(capped.x, 1.2, 1e-12);
+    EXPECT_NEAR(capped.y, 1.6, 1e-12);
+    // 幅度 0.1，下限 0.5 → 抬到 0.5（方向不变）：{0.5, 0}。
+    const lw::GradVec floored = lw::smoothGradientMagnitude({0.1, 0.0}, 0.5, 2.0);
+    EXPECT_NEAR(floored.x, 0.5, 1e-12);
+    EXPECT_NEAR(floored.y, 0.0, 1e-12);
+    // 区间内原样；零向量仍是零向量（不除零）。
+    const lw::GradVec inside = lw::smoothGradientMagnitude({0.4, 0.3}, 0.1, 1.0);
+    EXPECT_NEAR(inside.x, 0.4, 1e-12);
+    EXPECT_NEAR(inside.y, 0.3, 1e-12);
+    const lw::GradVec zero = lw::smoothGradientMagnitude({0.0, 0.0}, 0.25, 0.8);
+    EXPECT_DOUBLE_EQ(zero.x, 0.0);
+    EXPECT_DOUBLE_EQ(zero.y, 0.0);
+}
+
+// 河流生成参数（梯度裁剪/平滑 + 源区概率）只影响河，**地形/城市逐字节不变**
+//（山脉用原 gradVec；城用独立子流）。
+TEST(MapGen, RiverGradientClipAndSmoothChangeRiversNotTerrainOrCities) {
+    const lw::Config cfg = lwtest::loadCfg();
+    const lw::MapGenParams params = riverParams(lw::TilingType::Square, 0.03);
+    lw::MapDefinition base, zeroGrad, wideClip, bigStep, plainSrc;
+    ASSERT_TRUE(lw::MapGenerator::generate(2024, params, base, cfg.city, cfg.river.gen));
+    ASSERT_FALSE(base.rivers.empty());
+
+    lw::Config::River::Gen zero = cfg.river.gen;   // 全裁成 0 → 均匀分布（纯随机游走）
+    zero.gmin = 0.0;
+    zero.gmax = 0.0;
+    ASSERT_TRUE(lw::MapGenerator::generate(2024, params, zeroGrad, cfg.city, zero));
+
+    lw::Config::River::Gen unit = cfg.river.gen;   // 幅度归一化（gmin=gmax=1）→ 方向保留、大小恒定
+    unit.gmin = 1.0;
+    unit.gmax = 1.0;
+    ASSERT_TRUE(lw::MapGenerator::generate(2024, params, wideClip, cfg.city, unit));
+
+    lw::Config::River::Gen step = cfg.river.gen;   // 改采样步长（48→16）→ 河集合改变
+    step.gradientSmoothScale = 16.0;
+    ASSERT_TRUE(lw::MapGenerator::generate(2024, params, bigStep, cfg.city, step));
+
+    lw::Config::River::Gen plain = cfg.river.gen;  // 权重 0 → 源全在平原
+    plain.mountainSourceWeight = 0.0;
+    ASSERT_TRUE(lw::MapGenerator::generate(2024, params, plainSrc, cfg.city, plain));
+
+    EXPECT_NE(base.rivers, zeroGrad.rivers);
+    EXPECT_NE(base.rivers, wideClip.rivers);
+    EXPECT_NE(base.rivers, bigStep.rivers);
+    EXPECT_NE(base.rivers, plainSrc.rivers);
+    // 清掉河后，各图的地形/城市应逐字节一致（这些参数只在河阶段生效）。
+    base.rivers.clear();
+    zeroGrad.rivers.clear();
+    wideClip.rivers.clear();
+    bigStep.rivers.clear();
+    plainSrc.rivers.clear();
+    EXPECT_EQ(base.toJson(), zeroGrad.toJson());
+    EXPECT_EQ(base.toJson(), wideClip.toJson());
+    EXPECT_EQ(base.toJson(), bigStep.toJson());
+    EXPECT_EQ(base.toJson(), plainSrc.toJson());
+}
+
+// 河源抽样按权重自适应山密度（§17）：同一 mountainSourceWeight 下，山密度越高 → 山地源占比越高。
+// 用 RiverGenStats.mountainSources 直接观测；合成图从左到右逐渐扩大山地占比（40×40 全陆地）。
+TEST(MapGen, MountainSourceWeightAdaptsToMountainDensity) {
+    const lw::Config cfg = lwtest::loadCfg();
+    const lw::TilingGeom g{lw::TilingType::Square, 40, 40};
+    const int total = g.cellCount();
+    const std::vector<bool> land(static_cast<std::size_t>(total), true);
+    const std::vector<lw::GradVec> grad(static_cast<std::size_t>(total));  // 零梯度 → 均匀游走
+    // mountainShare = 山地格 / 总格；源在"山地/平原"两池间按 w·M/(w·M+P) 抽签。
+    const auto run = [&](double mountainShare, double weight, std::uint32_t seed,
+                         lw::RiverGenStats& stats) {
+        std::vector<bool> mountain(static_cast<std::size_t>(total), false);
+        int wanted = static_cast<int>(mountainShare * static_cast<double>(total));
+        for (int i = 0; i < total && i < wanted; ++i) mountain[static_cast<std::size_t>(i)] = true;
+        lw::Config::River::Gen gen = cfg.river.gen;
+        gen.mountainSourceWeight = weight;
+        lw::Rng rng(seed);
+        return lw::generateRivers(g, land, mountain, grad, 0.15, gen, false, rng, &stats);
+    };
+    const auto fraction = [](const lw::RiverGenStats& s) {
+        return s.rivers > 0 ? static_cast<double>(s.mountainSources) / s.rivers : 0.0;
+    };
+    // 山密度 0 → 必然全平原源（不抽签）。
+    {
+        lw::RiverGenStats stats;
+        run(0.0, 10.0, 7, stats);
+        EXPECT_GT(stats.rivers, 0);
+        EXPECT_EQ(stats.mountainSources, 0);
+    }
+    // 山密度 100 → 必然全山地源（不抽签）。
+    {
+        lw::RiverGenStats stats;
+        run(1.0, 10.0, 7, stats);
+        EXPECT_GT(stats.rivers, 0);
+        EXPECT_EQ(stats.mountainSources, stats.rivers);
+    }
+    // 固定 w：山地源占比必须随山密度**单调不减**（本用例的核心，正是用户要求）。
+    const double shares[] = {0.05, 0.10, 0.20, 0.40};
+    double previous = -1.0, lowest = -1.0, highest = -1.0;
+    for (double share : shares) {
+        lw::RiverGenStats stats;
+        run(share, 10.0, 7, stats);
+        EXPECT_GT(stats.rivers, 0);
+        const double f = fraction(stats);
+        EXPECT_GE(f, previous) << "山密度 " << share << " 的山地源占比不得低于更低山密度";
+        if (lowest < 0.0) lowest = f;
+        highest = f;
+        previous = f;
+    }
+    EXPECT_GT(highest, lowest) << "高密度端应显著高于低密度端（不是偶然相等）";
+    // w = 1 → 源分布 ≈ 陆地面积占比；w = 0 → 全平原；w 越大山地源越多。
+    lw::RiverGenStats area, zero, strong;
+    run(0.20, 1.0, 11, area);
+    run(0.20, 0.0, 11, zero);
+    run(0.20, 100.0, 11, strong);
+    EXPECT_EQ(zero.mountainSources, 0);
+    EXPECT_NEAR(fraction(area), 0.20, 0.10) << "w=1 时山地源占比应≈山密度";
+    EXPECT_GT(fraction(area), 0.0);
+    EXPECT_LT(fraction(area), 1.0);
+    EXPECT_GT(fraction(strong), fraction(area)) << "权重越大越偏山地";
+}
+
+// 山 + 城：生成器必须与编辑器 toDefinition 一致 —— 单值 MapTerrain 无法表达组合，
+// 故山上的城格写 **Mountain 地形 + 城市记录**（而非 City），保住运行时 mountain 标记
+//（否则山图标不画、进格不掷山骰，河源看起来凭空出现在城格上）。
+TEST(MapGen, MountainCityKeepsMountainTerrainAndRuntimeFlag) {
+    const lw::Config cfg = lwtest::loadCfg();
+    lw::MapGenParams plain{105, 95, 0.46, 0.10, 0.0, 0.02, 0.3, false, lw::TilingType::Square};
+    lw::MapGenParams withCities = plain;
+    withCities.cityDensity = 0.02;
+    lw::MapDefinition base, city;
+    ASSERT_TRUE(lw::MapGenerator::generate(42, plain, base, cfg.city, cfg.river.gen));
+    ASSERT_TRUE(lw::MapGenerator::generate(42, withCities, city, cfg.city, cfg.river.gen));
+    ASSERT_EQ(base.terrain.size(), city.terrain.size());
+
+    // 山是只增不减的：每个生成时的山格在成品里仍是 Mountain（城格也不例外）。
+    for (std::size_t i = 0; i < base.terrain.size(); ++i) {
+        if (base.terrain[i] == lw::MapTerrain::Mountain) {
+            ASSERT_EQ(city.terrain[i], lw::MapTerrain::Mountain) << "cell " << i;
+        }
+    }
+
+    lw::Map map;
+    map.configureCanonical(city.tiling, city.cols, city.rows);
+    map.setCityConfig(cfg.city);
+    std::string err;
+    ASSERT_TRUE(map.loadFromDefinition(city, &err)) << err;
+
+    int cityCells = 0, mountainCities = 0, plainCities = 0;
+    for (int i = 0; i < map.cellCount(); ++i) {
+        if (map.atIndex(i).cityId < 0) continue;
+        ++cityCells;
+        const bool wasMountain = base.terrain[static_cast<std::size_t>(i)] == lw::MapTerrain::Mountain;
+        EXPECT_EQ(map.atIndex(i).mountain, wasMountain) << "cell " << i;
+        EXPECT_EQ(city.terrain[static_cast<std::size_t>(i)],
+                  wasMountain ? lw::MapTerrain::Mountain : lw::MapTerrain::City)
+            << "cell " << i;
+        if (wasMountain) ++mountainCities; else ++plainCities;
+    }
+    EXPECT_GT(cityCells, 0);
+    EXPECT_GT(mountainCities, 0) << "该参数组合应产生山城（否则用例没覆盖到组合）";
+    EXPECT_GT(plainCities, 0) << "非山城格仍应写 City（没有把城全写成山）";
 }
 
 TEST(MapGen, RiversAreDeterministicAndSeedDependent) {

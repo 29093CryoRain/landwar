@@ -45,7 +45,7 @@ struct MapSelection {
     // 河密度（河流系统 §9.1/§14 决策 D2，菜单默认值 0.02）：
     // **河流尝试数 = round(此值 × 陆地格数)**（占陆地格，与城密度同语义）；
     // 显式 0 = 无河（无河回归路径）。MapGenParams 成员默认仍为 0.0（"不显式给值 = 无河"）。
-    double riverDensity = 0.02;
+    double riverDensity = 0.005;
      bool forceCoast = false;            // 强制边缘为海：真实界外点邻接格必为海，并向内平滑削减海拔
     std::string tiling = "square";      // random map tiling
 };
