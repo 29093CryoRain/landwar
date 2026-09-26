@@ -58,6 +58,9 @@ struct ConquerContext {
     // 保留"攻占城市 60% 免费产兵"特色）。其余征服路径默认 true（行为同原版）。
     bool freeArmyEnabled = true;
     std::uint64_t tick = 0;  // P13：当前逻辑帧（整城易主 lastCapturedTick 用）
+    // 兵原先所在格（调用方声明；-1 = 无）。conquerIndex 占领目标格后同样尝试占领它——
+    // 取代旧的"本 tick 走完剩余步长的终点格补占"（2026-09 用户定夺）。
+    int originIndex = -1;
 };
 
 class Faction {
@@ -78,6 +81,7 @@ public:
     // 征服（原版 conquer，见翻新计划 §2.8）。势力8 攻占城市时按概率记待产兵请求。
     void conquer(ConquerContext& ctx, int x, int y);
     // P12：按格下标征服（密铺统一路径；方 = 等价 conquer(ctx, x, y)）。含整城易主。
+    // 若 ctx.originIndex >= 0（兵进入前的格），占完目标格后一并尝试占它。
     void conquerIndex(ConquerContext& ctx, int index);
 
     // ---- 运行时状态 ----

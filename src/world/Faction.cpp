@@ -120,41 +120,50 @@ void Faction::conquer(ConquerContext& ctx, int x, int y) {
 }
 
 void Faction::conquerIndex(ConquerContext& ctx, int index) {
-    if (index < 0 || index >= ctx.map.cellCount()) return;
-    MapCell& cell = ctx.map.atIndex(index);
-    Faction& oldOwner = ctx.factions[static_cast<size_t>(cell.belongi)];
-    if (&oldOwner == this) return;  // 同势力忽略
+    // 2026-09 用户定夺：征服不再依赖"兵最终停在哪格"（旧 movedArmy 的终点格补占已删除），
+    // 改为占目标格时一并检查调用方声明的 originIndex（兵进入前的格）——凡能占的一起占。
+    // 单格征服收敛在这里；origin 用同一套 land/同势力/整城易主规则，海格与无效下标自然忽略。
+    const int originIndex = ctx.originIndex;
+    const auto conquerOne = [&](int idx) {
+        if (idx < 0 || idx >= ctx.map.cellCount()) return;
+        MapCell& cell = ctx.map.atIndex(idx);
+        Faction& oldOwner = ctx.factions[static_cast<size_t>(cell.belongi)];
+        if (&oldOwner == this) return;  // 同势力忽略
 
-    if (cell.land) {
-        oldOwner.landCount--;
-        this->landCount++;
-        cell.belongi = this->id;
-    }
-    // 城市易主（P13，思路 9.1：全部基建地块同时被另一方占领才易主）。
-    // 本格 land 归属已改为本势力 → 检测城市全部基建格是否同归本势力：
-    //   是 → 整城易主（只触发一次，非每格）；否 → 城市不转移（部分/第三方占格只改土地归属）。
-    if (cell.cityId >= 0) {
-        City& city = ctx.map.city(cell.cityId);
-        if (city.ownerId != this->id && allBaseCellsOwned(ctx.map, city, this->id)) {
-            Faction& curOwner = ctx.factions[static_cast<size_t>(city.ownerId)];
-            curOwner.removeCity(city.id, city.level);
-            curOwner.recomputeMaxCityLevel(ctx.map);
-            this->insertCity(city.id, city.level);
-            city.ownerId = this->id;
-            city.lastCapturedTick = ctx.tick;
-            // 任意定义了免费产兵概率的势力：每个配置的兵种概率分别判定。
-            // init 阶段（freeArmyEnabled=false）跳过 → 无"开局免费兵"（用户定夺 2026-08）。
-            if (ctx.freeArmyEnabled) {
-                for (int type = 0; type < kArmyTypeCount; ++type) {
-                    const double chance = this->mods.freeArmyChanceByType[static_cast<size_t>(type)]
-                                          * this->mods.freeArmyChanceMult;
-                    if (chance <= 0.0 || !ctx.rng.chance(chance)) continue;
-                    ctx.pendingSpawns.push_back(
-                        PendingSpawn{type, this->id, city.centerX(), city.centerY()});
+        if (cell.land) {
+            oldOwner.landCount--;
+            this->landCount++;
+            cell.belongi = this->id;
+        }
+        // 城市易主（P13，思路 9.1：全部基建地块同时被另一方占领才易主）。
+        // 本格 land 归属已改为本势力 → 检测城市全部基建格是否同归本势力：
+        //   是 → 整城易主（只触发一次，非每格）；否 → 城市不转移（部分/第三方占格只改土地归属）。
+        if (cell.cityId >= 0) {
+            City& city = ctx.map.city(cell.cityId);
+            if (city.ownerId != this->id && allBaseCellsOwned(ctx.map, city, this->id)) {
+                Faction& curOwner = ctx.factions[static_cast<size_t>(city.ownerId)];
+                curOwner.removeCity(city.id, city.level);
+                curOwner.recomputeMaxCityLevel(ctx.map);
+                this->insertCity(city.id, city.level);
+                city.ownerId = this->id;
+                city.lastCapturedTick = ctx.tick;
+                // 任意定义了免费产兵概率的势力：每个配置的兵种概率分别判定。
+                // init 阶段（freeArmyEnabled=false）跳过 → 无"开局免费兵"（用户定夺 2026-08）。
+                if (ctx.freeArmyEnabled) {
+                    for (int type = 0; type < kArmyTypeCount; ++type) {
+                        const double chance =
+                            this->mods.freeArmyChanceByType[static_cast<size_t>(type)]
+                            * this->mods.freeArmyChanceMult;
+                        if (chance <= 0.0 || !ctx.rng.chance(chance)) continue;
+                        ctx.pendingSpawns.push_back(
+                            PendingSpawn{type, this->id, city.centerX(), city.centerY()});
+                    }
                 }
             }
         }
-    }
+    };
+    conquerOne(index);
+    if (originIndex >= 0 && originIndex != index) conquerOne(originIndex);
 }
 
 }  // namespace lw

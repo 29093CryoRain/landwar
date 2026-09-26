@@ -85,9 +85,13 @@ double edgeLineAngle(const TilingGeom& g, int index, int k) {
 
 // 征服格（下标）归势力 factionId；开拓兵同时按规范序征服全部**边邻格**（P12：
 // 与目标格共享公共边的相邻地块一次性征服——方 4（上/下/左/右，见 tiling_specs_regular.json
-// 的 edgeOrder=[2,0,3,1]）、六 6、三 3）。固定顺序保证势力8 攻占城市免费兵 RNG 消耗可复现。
-void conquerCell(MoveContext& ctx, int cellIndex, int factionId, ArmyType type) {
-    conquerAtIndex(ctx, cellIndex, factionId, static_cast<int>(type));
+// 的 edgeOrder=[2,0,3,1]、六 6、三 3）。固定顺序保证势力8 攻占城市免费兵 RNG 消耗可复现。
+// originIndex = 兵进入前的格（2026-09）：由 conquerIndex 一并尝试占领（顶点穿越绕过
+// processEnteredCell 时也要把途经格补上；旧"终点格补占"已删除）。开拓的边邻扩散不重复带
+// origin（目标格那一次已占），避免同一格被反复尝试。
+void conquerCell(MoveContext& ctx, int cellIndex, int factionId, ArmyType type, int originIndex) {
+    MoveTimer conq(ctx.moveProfile, ctx.moveProfile ? &ctx.moveProfile->conquerNs : nullptr);
+    conquerAtIndex(ctx, cellIndex, factionId, static_cast<int>(type), originIndex);
     if (type == ArmyType::pioneer) {
         const TilingGeom& g = ctx.map.geom();
         for (int k = 0; k < g.neighborCount(); ++k) {
@@ -190,7 +194,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
         // 与山地骰【独立计算】：本格既为敌又为山时两骰各掷一次（非先锋 bounceMult=1.0
         // 敌方必然反弹；先锋 bounceMult<1 两骰都过才不反弹）。反弹是征服后的"弹回"（原版语义）。
         if (goalCell->belongi != fid.value) {
-            conquerCell(ctx, goalIdx, fid.value, unit.type);
+            conquerCell(ctx, goalIdx, fid.value, unit.type, srcIdx);
             // P7：反弹概率 × 势力增益（基线 bounceChanceMult=1.0 → 恒等，行为不变）。
             double reboundChance =
                 cfg.units[static_cast<int>(unit.type)].bounceMult
@@ -219,7 +223,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
                 nextRemLength *= cfg.terrain.mountainSpeedMult;
             }
         }
-        conquerCell(ctx, goalIdx, fid.value, unit.type);
+        conquerCell(ctx, goalIdx, fid.value, unit.type, srcIdx);
     }
     speed.value = nextSpeed;
     remLength = nextRemLength;
@@ -281,11 +285,9 @@ static void moveArmyGeom(MoveContext& ctx, entt::entity e, comp::Position& pos,
             ctx.moveProfile->geomNs += static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_geom).count());
         if (crossed == -2) {
-            // 走完本段：终点格补一次征服，返回。
-            if (cellIdx >= 0 && map.atIndex(cellIdx).belongi != fid.value) {
-                MoveTimer conq(ctx.moveProfile, &ctx.moveProfile->conquerNs);
-                conquerAtIndex(ctx, cellIdx, fid.value, static_cast<int>(unit.type));
-            }
+            // 走完本段：本 tick 不再跨边、没有新的"进入格"事件 → 不征服（2026-09 用户定夺：
+            // 删除旧的"终点格补占"）。途经而未走进入格处理的格由进入下一格时携带的
+            // originIndex 补占（见 conquerCell / Faction::conquerIndex）。仅夹取位置后返回。
             pos.x = std::clamp(pos.x, 0.0, map.worldWidth());
             pos.y = std::clamp(pos.y, 0.0, map.worldHeight());
             return;

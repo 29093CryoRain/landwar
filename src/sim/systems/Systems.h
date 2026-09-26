@@ -38,15 +38,25 @@ struct MoveContext {
 
 // 按格下标征服（全密铺统一；格坐标 ≠ floor(x,y)，故一律走下标）。
 // unitType = 负责的兵种（>=0 才记录占领 credit；移动征服=该兵、特效征服=Creator.unitType）。
-inline void conquerAtIndex(MoveContext& ctx, int index, int factionId, int unitType = -1) {
-    ConquerContext cc{ctx.map, ctx.factions, ctx.rng, ctx.pendingSpawns,
+// originIndex = 兵进入前的格（>=0 时 conquest 目标格后一并尝试占领它；非移动征服传 -1）。
+inline void conquerAtIndex(MoveContext& ctx, int index, int factionId, int unitType = -1,
+                           int originIndex = -1) {
+    ConquerContext cc{ctx.map,      ctx.factions, ctx.rng, ctx.pendingSpawns,
                       /*freeArmyEnabled=*/true,
-                      /*tick=*/static_cast<std::uint64_t>(ctx.ttime)};
-    const bool landChanged =
-        index >= 0 && index < ctx.map.cellCount() && ctx.map.atIndex(index).land
-        && ctx.map.atIndex(index).belongi != factionId;
+                      /*tick=*/static_cast<std::uint64_t>(ctx.ttime),
+                      /*originIndex=*/originIndex};
+    // 归属是否真的变化，必须**征服前**取样（origin 与目标各不相同、互不影响）。
+    const auto landChanged = [&](int idx) {
+        return idx >= 0 && idx < ctx.map.cellCount() && ctx.map.atIndex(idx).land
+               && ctx.map.atIndex(idx).belongi != factionId;
+    };
+    const bool targetChanged = landChanged(index);
+    const bool originChanged = originIndex != index && landChanged(originIndex);
     ctx.factions[static_cast<size_t>(factionId)].conquerIndex(cc, index);
-    if (ctx.stats && unitType >= 0 && landChanged) ctx.stats->recordLand(factionId, unitType);
+    if (ctx.stats && unitType >= 0) {
+        if (targetChanged) ctx.stats->recordLand(factionId, unitType);
+        if (originChanged) ctx.stats->recordLand(factionId, unitType);
+    }
 }
 
 // 标记死亡 + 记录死亡事件（tick 末由 DeathSystem 销毁并生成死亡效果）。
