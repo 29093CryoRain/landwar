@@ -613,10 +613,6 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
     for (size_t i = 0; i < cellCount; ++i) {
         const auto& c = cells[i];
         MapCell& out = m.cells_[i];
-        int rr = 0, cc = 0, bb = 0;
-        m.geom_.indexToRowCol(static_cast<int>(i), rr, cc, bb);
-        out.x = cc;
-        out.y = rr;
         out.belongi = c[0].get<int>();
         out.land = c[1].get<bool>();
         out.mountain = c[2].get<bool>();

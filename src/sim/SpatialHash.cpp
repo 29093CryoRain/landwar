@@ -46,10 +46,6 @@ void SpatialHash::build(entt::registry& reg, const TilingGeom& g) {
     }
 }
 
-void SpatialHash::build(entt::registry& reg, int width, int height) {
-    build(reg, TilingGeom{TilingType::Square, width, height});
-}
-
 // reg 仅用于 queryCircle 的精确过滤；queryAABB 只查桶，不需要 reg（保留签名对称）。
 std::vector<entt::entity> SpatialHash::queryAABB([[maybe_unused]] const entt::registry& reg,
                                                  double x0, double y0, double x1, double y1) const {

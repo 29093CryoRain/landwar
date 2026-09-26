@@ -69,6 +69,7 @@ Copy-RequiredFile "地图编辑器说明.md"
 
 $configFiles = @(
     "config.jsonc", "render.jsonc", "techs.jsonc", "factions.jsonc", "units.jsonc",
+    "techs.csv", "factions.csv", "units.csv",
     "city_shapes.jsonc", "city_icon_fits.jsonc"
 )
 foreach ($file in $configFiles) {

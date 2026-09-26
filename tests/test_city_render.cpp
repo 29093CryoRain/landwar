@@ -37,7 +37,7 @@ struct CityRenderFixture {
     render::CityRenderer::Frame compute() { return renderer.compute(map, rc); }
 };
 
-// 高缩放（zoom 2 → cellPx=30 > lineMinCellPx=20）：每城生成细线围区（外廓矩形 = 地块屏幕矩形）；
+// 高缩放（zoom 2 → cellPx=30 > lineMinCellPx=20）：每城生成细线围区（外廓线段 = 形状边界）；
 // 图标尺寸按 iconFitScale 适配（保留源纵横比，长/宽 ≤ 框 × 填充比，且再小一点点）。城放可见区
 //（zoom 2 居中视野 ~world x∈[-4,69], y∈[24,71]）。
 TEST(CityRender, HighZoomOutlineAndBoxFitIcon) {
@@ -53,18 +53,27 @@ TEST(CityRender, HighZoomOutlineAndBoxFitIcon) {
                                                    static_cast<double>(c.h) / A4) * 0.85;
     const auto frame = f.compute();
 
-    ASSERT_EQ(frame.outlines.size(), 1u);
-    // 外廓矩形 = 地块 (baseX..baseX+w, baseY..baseY+h) 的屏幕包围盒（y 翻转归一）。
+    ASSERT_EQ(frame.hulls.size(), 1u);
+    // 外廓线段 = 形状边界；其屏幕包围盒 = 地块 (baseX..baseX+w, baseY..baseY+h) 的屏幕包围盒（y 翻转归一）。
     const int x0 = f.cam.toScreenXi(static_cast<double>(c.baseX));
     const int x1 = f.cam.toScreenXi(static_cast<double>(c.baseX + c.w));
     const int y0 = f.cam.toScreenYi(static_cast<double>(c.baseY));
     const int y1 = f.cam.toScreenYi(static_cast<double>(c.baseY + c.h));
-    EXPECT_EQ(frame.outlines[0].x, std::min(x0, x1));
-    EXPECT_EQ(frame.outlines[0].y, std::min(y0, y1));
-    EXPECT_EQ(frame.outlines[0].w, std::abs(x1 - x0));
-    EXPECT_EQ(frame.outlines[0].h, std::abs(y1 - y0));
+    ASSERT_FALSE(frame.hulls[0].segs.empty());
+    int hx0 = frame.hulls[0].segs[0][0], hx1 = hx0;
+    int hy0 = frame.hulls[0].segs[0][1], hy1 = hy0;
+    for (const auto& s : frame.hulls[0].segs) {
+        hx0 = std::min({hx0, s[0], s[2]});
+        hx1 = std::max({hx1, s[0], s[2]});
+        hy0 = std::min({hy0, s[1], s[3]});
+        hy1 = std::max({hy1, s[1], s[3]});
+    }
+    EXPECT_EQ(hx0, std::min(x0, x1));
+    EXPECT_EQ(hx1, std::max(x0, x1));
+    EXPECT_EQ(hy0, std::min(y0, y1));
+    EXPECT_EQ(hy1, std::max(y0, y1));
     // 细线颜色 = 该城归属势力的加深色 → 外廓携带 colorIndex = 城市 ownerId。
-    EXPECT_EQ(frame.outlines[0].colorIndex, c.ownerId);
+    EXPECT_EQ(frame.hulls[0].colorIndex, c.ownerId);
 
     // 图标：iconFitScale 适配。框 = 2×2 格 = 60×60px；A=1.5 → 可容纳最大宽 fitW = min(60, 60/1.5)
     // = 40；iconFitScale 值 = 40/30 × 0.85 = 1.1333… → dstW = round(1.1333×30) = 34。
@@ -107,7 +116,7 @@ TEST(CityRender, LowZoomNormalShrinksCapitalKeepsMinSize) {
     status[static_cast<size_t>(capCity)] = 1;
     const auto frame = f.renderer.compute(f.map, f.rc, status);
 
-    EXPECT_TRUE(frame.outlines.empty());  // 低缩放不画细线
+    EXPECT_TRUE(frame.hulls.empty());  // 低缩放不画细线
     // 普通城市：随缩放缩小（无下限，dstW < 首都保底）；A=1 → dstH == dstW。
     ASSERT_EQ(frame.icons.size(), 5u);
     for (const auto& ic : frame.icons) {
@@ -172,7 +181,7 @@ TEST(CityRender, LevelsMapToTowersFitWithinBlock) {
 }
 
 // P15 首都渲染：capitalStatus[c.id]（0 普通 / 1 正式首都 / 2 候补指定新都）分流。
-// 正式首都 → 首都图标（capitalIcons）+ 更粗细线（capitalOutlines，不占普通 outlines）；
+// 正式首都 → 首都图标（capitalIcons）+ 更粗细线（capitalHulls，不占普通 hulls）；
 // 候补 → 虚化首都图标（designatedIcons）+ 普通细线；普通 → 塔图标 + 普通细线。
 TEST(CityRender, CapitalAndDesignatedStatusRouting) {
     CityRenderFixture f;
@@ -191,8 +200,8 @@ TEST(CityRender, CapitalAndDesignatedStatusRouting) {
     EXPECT_EQ(frame.icons[0].level, 1);
     EXPECT_EQ(frame.capitalIcons[0].level, 2);
     EXPECT_EQ(frame.designatedIcons[0].level, 4);
-    ASSERT_EQ(frame.outlines.size(), 2u);             // 普通城 + 候补 → 普通细线
-    ASSERT_EQ(frame.capitalOutlines.size(), 1u);      // 正式首都 → 更粗细线
+    ASSERT_EQ(frame.hulls.size(), 2u);                // 普通城 + 候补 → 普通细线
+    ASSERT_EQ(frame.capitalHulls.size(), 1u);         // 正式首都 → 更粗细线
 }
 
 // 首都图标尺寸按普通城图标面积 + 首都源纵横比（A = setCapitalSourceSize）反推。
@@ -237,8 +246,8 @@ TEST(CityRender, EmptyCapitalStatusDefaultsAllNormal) {
     ASSERT_EQ(frame.icons.size(), 1u);
     EXPECT_TRUE(frame.capitalIcons.empty());
     EXPECT_TRUE(frame.designatedIcons.empty());
-    ASSERT_EQ(frame.outlines.size(), 1u);
-    EXPECT_TRUE(frame.capitalOutlines.empty());
+    ASSERT_EQ(frame.hulls.size(), 1u);
+    EXPECT_TRUE(frame.capitalHulls.empty());
 }
 
 // 视野剔除：zoom 1 整图可见 → 全部城市生成命令；zoom 4 居中 → 远离视口的城市被剔除。

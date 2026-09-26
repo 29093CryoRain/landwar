@@ -46,42 +46,21 @@ void solveBomb(CombatEffectContext& ctx, entt::entity e, std::vector<entt::entit
         * params.p0;  // p0 = bomb_range
     if (elapsedTicks % cfg.effect.bomb.conquerEveryTicks == 0) {
         // 征服：以 (x,y) 为圆心、半径 radius 内所有格（判定用格心距 < radius）。
-        if (ctx.move.map.tiling() == TilingType::Square) {
-            // 循环上界：原版用 double 比较 i < min(Map_x, x+radius+1)，等价于整数上界
-            // ceil(min(Map_x, x+radius+1))——x+radius+1 非整时多跑一格（含恰为整数时的 min 夹取）。
-            // 改用等值整数上界，迭代集合、征服/RNG 顺序完全不变（§2.6 回填语义），更清晰更快。
-            // （2026-08 已用 build-release/landwar.exe --headless --seed 42 --ticks 1000 双向验证
-            //   state_hash 逐字节一致，行为无漂移。）
-            const int xMin = std::max(0, static_cast<int>(pos.x - radius));
-            const int yMin = std::max(0, static_cast<int>(pos.y - radius));
-            const int xMax =
-                std::min(ctx.move.map.width(), static_cast<int>(std::ceil(pos.x + radius + 1.0)));
-            const int yMax =
-                std::min(ctx.move.map.height(), static_cast<int>(std::ceil(pos.y + radius + 1.0)));
-            for (int i = xMin; i < xMax; ++i) {
-                for (int j = yMin; j < yMax; ++j) {
-                    if (math::distance(i + 0.5, j + 0.5, pos.x, pos.y) < radius) {
-                        conquerAt(ctx.move, i, j, fid.value, creator.unitType);  // P11：占领 credit=创建者
-                    }
-                }
-            }
-        } else {
-            // P12 密铺：rowRange/colRange 保守扫描 + 格心距（迭代顺序固定 → RNG 确定）。
-            const TilingGeom& g = ctx.move.map.geom();
-            int r0, r1, c0, c1;
-            g.rowRange(pos.x - radius, pos.y - radius, pos.x + radius, pos.y + radius, r0, r1);
-            for (int r = r0; r <= r1; ++r) {
-                g.colRange(pos.x - radius, pos.x + radius, r, c0, c1);
-                for (int c = c0; c <= c1; ++c) {
-                    const int B = g.baseCount();
-                    for (int b = 0; b < B; ++b) {
-                        const int idx = g.cellIndexAt(r, c, b);
-                        if (idx < 0) continue;
-                        double ccx, ccy;
-                        g.cellCenter(idx, ccx, ccy);
-                        if (math::distance(ccx, ccy, pos.x, pos.y) < radius)
-                            conquerAtIndex(ctx.move, idx, fid.value, creator.unitType);
-                    }
+        // 全密铺统一：rowRange/colRange 保守扫描 + 格心距（迭代顺序固定 → RNG 确定）。
+        const TilingGeom& g = ctx.move.map.geom();
+        int r0, r1, c0, c1;
+        g.rowRange(pos.x - radius, pos.y - radius, pos.x + radius, pos.y + radius, r0, r1);
+        for (int r = r0; r <= r1; ++r) {
+            g.colRange(pos.x - radius, pos.x + radius, r, c0, c1);
+            for (int c = c0; c <= c1; ++c) {
+                const int B = g.baseCount();
+                for (int b = 0; b < B; ++b) {
+                    const int idx = g.cellIndexAt(r, c, b);
+                    if (idx < 0) continue;
+                    double ccx, ccy;
+                    g.cellCenter(idx, ccx, ccy);
+                    if (math::distance(ccx, ccy, pos.x, pos.y) < radius)
+                        conquerAtIndex(ctx.move, idx, fid.value, creator.unitType);
                 }
             }
         }
@@ -166,7 +145,7 @@ void solveLaser(CombatEffectContext& ctx, entt::entity e, std::vector<entt::enti
         return;
     }
 
-    double& angle = params.p0;        // 原版 lsdouble1（撞角时 find_next_xy 随机改写，保留）
+    double& angle = params.p0;        // 原版 lsdouble1（光束方向角，快照序列化保留）
     double& finalLength = params.p1;  // 原版 lsdouble2
     double& lstLength = params.p2;    // 原版 lsdouble3
     if (elapsedTicks == 0) lstLength = 0;
@@ -176,73 +155,36 @@ void solveLaser(CombatEffectContext& ctx, entt::entity e, std::vector<entt::enti
     double originX = pos.x;
     double originY = pos.y;
     int goalCellIdx = -1;
-    if (ctx.move.map.tiling() == TilingType::Square) {
-        // 默认尖端格 = 特效所在格（原版 &mmap[(int)x][(int)y]，含越界哨兵列；新版夹取到界内）。
-        const auto& defaultCell =
-            ctx.move.map.at(std::clamp(static_cast<int>(pos.x), 0, ctx.move.map.width() - 1),
-                            std::clamp(static_cast<int>(pos.y), 0, ctx.move.map.height() - 1));
-        goalCellIdx = defaultCell.y * ctx.move.map.width() + defaultCell.x;
-        while (remLength > 0) {
-            const int boundaryCode =
-                math::findNextXY(originX, originY, angle, remLength, ctx.move.rng);
-            if (boundaryCode < 0 || boundaryCode > 3) break;
-            if (boundaryCode == 0 && originX <= 0) break;
-            if (boundaryCode == 1 && originY <= 0) break;
-            if (boundaryCode == 2 && originX >= ctx.move.map.width()) break;
-            if (boundaryCode == 3 && originY >= ctx.move.map.height()) break;
-            int gx = 0, gy = 0;
-            if (boundaryCode == 0) {
-                gx = static_cast<int>(originX - kEps);
-                gy = static_cast<int>(originY);
-            }
-            if (boundaryCode == 1) {
-                gx = static_cast<int>(originX);
-                gy = static_cast<int>(originY - kEps);
-            }
-            if (boundaryCode == 2) {
-                gx = static_cast<int>(originX + kEps);
-                gy = static_cast<int>(originY);
-            }
-            if (boundaryCode == 3) {
-                gx = static_cast<int>(originX);
-                gy = static_cast<int>(originY + kEps);
-            }
-            goalCellIdx = gy * ctx.move.map.width() + gx;
-            const MapCell& gc = ctx.move.map.atIndex(goalCellIdx);
-            if (gc.land && fid.value != gc.belongi) break;  // 进入非己方陆地停止
-        }
-    } else {
-        // P12 密铺：crossEdge 逐格延伸（顶点 nudge；RNG 0 次），进入非己方陆地/出界停止。
-        const TilingGeom& g = ctx.move.map.geom();
+    // 全密铺统一：crossEdge 逐格延伸（顶点 nudge；RNG 0 次），进入非己方陆地/出界停止。
+    const TilingGeom& g = ctx.move.map.geom();
+    goalCellIdx = g.worldToCell(originX, originY);
+    if (goalCellIdx < 0) {
+        originX = std::clamp(originX, kEps, g.worldWidth() - kEps);
+        originY = std::clamp(originY, kEps, g.worldHeight() - kEps);
         goalCellIdx = g.worldToCell(originX, originY);
-        if (goalCellIdx < 0) {
-            originX = std::clamp(originX, kEps, g.worldWidth() - kEps);
-            originY = std::clamp(originY, kEps, g.worldHeight() - kEps);
+    }
+    while (remLength > 0 && goalCellIdx >= 0) {
+        const int crossed = g.crossEdge(goalCellIdx, originX, originY, angle, remLength);
+        if (crossed == -2) break;  // 走完：尖端格 = 当前格
+        if (crossed == -1) {       // 顶点：nudge 穿越
+            originX += kEps * std::cos(angle);
+            originY += kEps * std::sin(angle);
             goalCellIdx = g.worldToCell(originX, originY);
-        }
-        while (remLength > 0 && goalCellIdx >= 0) {
-            const int crossed = g.crossEdge(goalCellIdx, originX, originY, angle, remLength);
-            if (crossed == -2) break;  // 走完：尖端格 = 当前格
-            if (crossed == -1) {       // 顶点：nudge 穿越
-                originX += kEps * std::cos(angle);
-                originY += kEps * std::sin(angle);
+            if (goalCellIdx < 0) {  // 出界停止
+                originX = std::clamp(originX, kEps, g.worldWidth() - kEps);
+                originY = std::clamp(originY, kEps, g.worldHeight() - kEps);
                 goalCellIdx = g.worldToCell(originX, originY);
-                if (goalCellIdx < 0) {  // 出界停止
-                    originX = std::clamp(originX, kEps, g.worldWidth() - kEps);
-                    originY = std::clamp(originY, kEps, g.worldHeight() - kEps);
-                    goalCellIdx = g.worldToCell(originX, originY);
-                }
-                continue;
             }
-            int nr, nc;
-            g.neighborRaw(goalCellIdx, crossed, nr, nc);
-            if (nr < 0 || nr >= g.rows || nc < 0 || nc >= g.cols) break;  // 出界停止
-            const int nb = g.neighbor(goalCellIdx, crossed);
-            if (nb < 0) break;
-            goalCellIdx = nb;
-            const MapCell& gc = ctx.move.map.atIndex(goalCellIdx);
-            if (gc.land && fid.value != gc.belongi) break;  // 进入非己方陆地停止
+            continue;
         }
+        int nr, nc;
+        g.neighborRaw(goalCellIdx, crossed, nr, nc);
+        if (nr < 0 || nr >= g.rows || nc < 0 || nc >= g.cols) break;  // 出界停止
+        const int nb = g.neighbor(goalCellIdx, crossed);
+        if (nb < 0) break;
+        goalCellIdx = nb;
+        const MapCell& gc = ctx.move.map.atIndex(goalCellIdx);
+        if (gc.land && fid.value != gc.belongi) break;  // 进入非己方陆地停止
     }
     const double length = totalLength - remLength;  // 本 tick 光束实际走过的长度
 

@@ -89,7 +89,7 @@ struct MoveProfile {
     std::uint64_t combatNs = 0;    // CombatSystem::checkAt（战斗查询）
     std::uint64_t enterNs = 0;     // processEnteredCell（进入格处理：海陆/山地/征服）
     std::uint64_t conquerNs = 0;   // conquerAtIndex（含城市形状逐格征服）
-    std::uint64_t geomNs = 0;      // 几何：findNextXY（方）/ crossEdge+worldToCell（密铺）
+    std::uint64_t geomNs = 0;      // 几何：crossEdge + worldToCell（全密铺统一）
 };
 
 struct SimProfile {

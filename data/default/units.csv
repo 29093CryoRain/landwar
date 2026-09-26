@@ -1,0 +1,15 @@
+# units.csv — 兵种核心单值列（2026-09 从 units.jsonc 外置为 CSV+JSONC 混合格式）。
+# 每行一个兵种；type 为连接键，必须唯一且为已注册兵种，并与 units.jsonc 中同名条目对应。
+# 数值列必须为有限数：cost/speedMult/sizeMult/visualRadius > 0，bounceMult >= 0。
+# 空单元格 = 该键缺省（退回 units.jsonc 或 Config.h 内置默认）。
+# 可选/独有字段（mountainEnterMult、mountainNoSlow、deathEffect、periodic、periodTicks、bullet*）
+# 仍写在 units.jsonc；导出时本文件与 units.jsonc 一并复制到 default/。
+type,cost,speedMult,sizeMult,bounceMult,visualRadius
+normal,25,1.0,1.0,1.0,12.0
+vanguard,35,2,1.0,0.6,13.0
+pioneer,35,1.0,1.0,1.0,15.0
+laser,90,0.6,1.8,1.0,20.0
+bomb,120,0.6,1.8,1.0,21.0
+mine,70,0.6,1.4,1.0,17.0
+pistol,80,0.5,1.3,1.0,14.0
+shotgun,120,0.5,1.3,1.0,16.0

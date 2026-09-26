@@ -444,15 +444,11 @@ void Application::pickSelection() {
     if (cellIdx >= 0) {
         const MapCell& cell = sim_.map().atIndex(cellIdx);
         if (cell.land) {
-            // 格坐标（列, 行）供显示。
-            int gx = cellIdx % sim_.map().geom().cols;
-            int gy = cellIdx / sim_.map().geom().cols;
-            if (sim_.map().tiling() != TilingType::Square) {
-                int rr, cc, bb;
-                sim_.map().geom().indexToRowCol(cellIdx, rr, cc, bb);
-                gx = cc;
-                gy = rr;
-            }
+            // 格坐标（列, 行）供显示（全密铺统一；方 B=1 时与 index/cols 等价）。
+            int rr = 0, cc = 0, bb = 0;
+            sim_.map().geom().indexToRowCol(cellIdx, rr, cc, bb);
+            const int gx = cc;
+            const int gy = rr;
             selection_.kind = app::Selection::Kind::Cell;
             selection_.cellIndex = cellIdx;
             selection_.cellX = gx;

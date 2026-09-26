@@ -42,10 +42,9 @@ entt::entity SpawnSystem::spawnArmy(Simulation& sim, double x, double y, int fac
 
     // 出生在山格（P5：山城等）→ 直接处于山地，速度按山地系数缩放（与 moveArmy 语义自洽）。
     // 细节改进：开拓兵在山地不减速 → 出生在山也不缩放。不消耗 RNG；现有地图无山 → 基线行为不变。
-    const int gx = static_cast<int>(x), gy = static_cast<int>(y);
-    const bool spawnInMountain = (gx >= 0 && gx < sim.map().width() && gy >= 0
-                                  && gy < sim.map().height())
-                                 && sim.map().at(gx, gy).mountain;
+    // 全密铺统一：按格下标判定山（floor 坐标在六/三角下取错格）。
+    const int spawnIdx = sim.map().geom().worldToCell(x, y);
+    const bool spawnInMountain = spawnIdx >= 0 && sim.map().atIndex(spawnIdx).mountain;
     if (spawnInMountain && slowsInMountain(cfg, static_cast<int>(type)))
         speed *= cfg.terrain.mountainSpeedMult;
 
@@ -76,16 +75,9 @@ entt::entity SpawnSystem::spawnProjectile(Simulation& sim, double x, double y, i
 
     const auto& udef = cfg.units[static_cast<size_t>(static_cast<int>(sourceType))];
     // 子弹出生在山格（发射兵在山内开火）→ inMountain=true（山地留存惩罚；陆→山仍会消失）。
-    // P12：密铺按格下标判定山（方 floor 坐标在六/三角下取错格）。
+    // 全密铺统一：按格下标判定山。
     const Map& map = sim.map();
-    int inMountainCell = -1;
-    if (map.tiling() == TilingType::Square) {
-        const int gx = static_cast<int>(x), gy = static_cast<int>(y);
-        if (gx >= 0 && gx < map.width() && gy >= 0 && gy < map.height())
-            inMountainCell = gy * map.width() + gx;
-    } else {
-        inMountainCell = map.geom().worldToCell(x, y);
-    }
+    const int inMountainCell = map.geom().worldToCell(x, y);
     const bool inMountain = inMountainCell >= 0 && map.atIndex(inMountainCell).mountain;
 
     reg.emplace<comp::Position>(e, x, y);
@@ -105,13 +97,9 @@ entt::entity SpawnSystem::spawnCombatEffect(Simulation& sim, double x, double y,
     auto& reg = sim.registry();
     const auto& map = sim.map();
     entt::entity e = sim.createEntity();  // 单调 id
-    // 原版 add_effect：x,y 夹取到 [0, Map_x]×[0, Map_y]（P12：六/三角用世界范围）。
-    const double ex = (sim.map().tiling() == TilingType::Square)
-                          ? static_cast<double>(map.width())
-                          : map.worldWidth();
-    const double ey = (sim.map().tiling() == TilingType::Square)
-                          ? static_cast<double>(map.height())
-                          : map.worldHeight();
+    // 原版 add_effect：x,y 夹取到地图世界范围（全密铺统一）。
+    const double ex = map.worldWidth();
+    const double ey = map.worldHeight();
     reg.emplace<comp::Position>(e, std::clamp(x, 0.0, ex), std::clamp(y, 0.0, ey));
     reg.emplace<comp::CombatEntity>(e);
     reg.emplace<comp::CombatEffect>(e);

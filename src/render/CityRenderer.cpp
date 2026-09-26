@@ -48,26 +48,7 @@ void drawIcons(const std::vector<CityRenderer::Icon>& icons,
     }
 }
 
-// 绘制一批细线（普通城市用 city.lineThickness、正式首都用 capital.lineThickness）。
-// 颜色 = 归属势力色 × darken（与图标同势力色处理但加深；mix 黑 → col×rate）。
-void drawOutlines(const std::vector<CityRenderer::Outline>& outlines, double thickness,
-                  double darken, const std::vector<std::array<int, 3>>& factionColors,
-                  Renderer& r) {
-    if (thickness <= 0.0 || outlines.empty() || factionColors.empty()) return;
-    const int thick = std::max(1, static_cast<int>(thickness + 0.5));
-    for (const auto& o : outlines) {
-        if (o.w <= 0 || o.h <= 0) continue;
-        const std::size_t ci = std::clamp(o.colorIndex, 0,
-                                          static_cast<int>(factionColors.size()) - 1);
-        const SDL_Color lineCol = Renderer::mixed(factionColors[ci], kBlack, darken, 180);
-        r.fillRect(o.x, o.y, o.w, thick, lineCol);                 // 上边
-        r.fillRect(o.x, o.y + o.h - thick, o.w, thick, lineCol);   // 下边
-        r.fillRect(o.x, o.y, thick, o.h, lineCol);                 // 左边
-        r.fillRect(o.x + o.w - thick, o.y, thick, o.h, lineCol);   // 右边
-    }
-}
-
-// P12：六/三角基建地块边界线段（形状外廓）。颜色 = 归属势力色 × darken，**不透明**
+// 基建地块边界线段（形状外廓；全密铺统一）。颜色 = 归属势力色 × darken，**不透明**
 //（半透明线盖在邻势力格上会形成"双势力混色"观感，2026-08 反馈修复）；按 thickness 粗线。
 void drawHullSegs(const std::vector<CityRenderer::Hull>& hulls, double thickness, double darken,
                   const std::vector<std::array<int, 3>>& factionColors, Renderer& r) {
@@ -157,80 +138,59 @@ CityRenderer::Frame CityRenderer::compute(const Map& map, const Config::Render& 
         const int status = statusOf(c);
         const bool isCapital = (status == 1 || status == 2);  // 正式首都 / 候补（都用首都图标）
 
-        const bool tiled = tilingType != TilingType::Square;
         SDL_Rect block{0, 0, 0, 0};
-        // 形状占格（P12 六/三/半正/Laves）：本城形状格集合。整城只解析一次（存本城市）。
-        // 供视野剔除 AABB、高缩放外廓细线、图标拟合兜底三方共用（旧代码每处重复 cityCells）。
-        std::vector<int> cells;
-        if (tiled) {
-            // P12 六/三角：视野剔除用形状世界 AABB（屏幕）。
-            cells = map.cityCells(c);
-            double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
-            double wx[12], wy[12];
-            for (int ci : cells) {
-                if (ci < 0) continue;
-                const int n = map.geom().cellPolygon(ci, wx, wy, 12);
-                for (int k = 0; k < n; ++k) {
-                    minX = std::min(minX, wx[k]);
-                    maxX = std::max(maxX, wx[k]);
-                    minY = std::min(minY, wy[k]);
-                    maxY = std::max(maxY, wy[k]);
-                }
+        // 形状占格（全密铺统一）：本城形状格集合。整城只解析一次（存本城市）。
+        // 供视野剔除 AABB、高缩放外廓细线、图标拟合兜底三方共用。
+        const std::vector<int> cells = map.cityCells(c);
+        // 视野剔除用形状世界 AABB（屏幕；全密铺统一）。
+        double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
+        double wx[12], wy[12];
+        for (int ci : cells) {
+            if (ci < 0) continue;
+            const int n = map.geom().cellPolygon(ci, wx, wy, 12);
+            for (int k = 0; k < n; ++k) {
+                minX = std::min(minX, wx[k]);
+                maxX = std::max(maxX, wx[k]);
+                minY = std::min(minY, wy[k]);
+                maxY = std::max(maxY, wy[k]);
             }
-            const int sx0 = cam_.toScreenXi(minX), sx1 = cam_.toScreenXi(maxX);
-            const int sy0 = cam_.toScreenYi(minY), sy1 = cam_.toScreenYi(maxY);
-            block = {std::min(sx0, sx1), std::min(sy0, sy1), std::abs(sx1 - sx0),
-                     std::abs(sy1 - sy0)};
-        } else {
-            // 基建地块外廓（屏幕；y 翻转归一：min/abs）。
-            const int sx0 = cam_.toScreenXi(static_cast<double>(c.baseX));
-            const int sx1 = cam_.toScreenXi(static_cast<double>(c.baseX + c.w));
-            const int sy0 = cam_.toScreenYi(static_cast<double>(c.baseY));
-            const int sy1 = cam_.toScreenYi(static_cast<double>(c.baseY + c.h));
-            block = {std::min(sx0, sx1), std::min(sy0, sy1), std::abs(sx1 - sx0),
-                     std::abs(sy1 - sy0)};
         }
-        // 视野剔除：地块矩形与视口不相交 → 整城（细线/图标）跳过。
+        if (minX > maxX || minY > maxY) continue;  // 防御：无有效形状格
+        const int sx0 = cam_.toScreenXi(minX), sx1 = cam_.toScreenXi(maxX);
+        const int sy0 = cam_.toScreenYi(minY), sy1 = cam_.toScreenYi(maxY);
+        block = {std::min(sx0, sx1), std::min(sy0, sy1), std::abs(sx1 - sx0), std::abs(sy1 - sy0)};
+        // 视野剔除：形状矩形与视口不相交 → 整城（细线/图标）跳过。
         if (block.x + block.w < 0 || block.x > cam_.windowWidth() || block.y + block.h < 0 ||
             block.y > cam_.windowHeight())
             continue;
 
-        // 高缩放细线：正式首都用更粗的 render.capital.lineThickness（capitalOutlines），
-        // 普通城市/候补用 render.city.lineThickness（outlines）。颜色 = 归属势力加深色。
+        // 高缩放细线（全密铺统一）：外廓 = 形状边界线段（邻格不在形状内的边段；cellEdge 与
+        // 邻接同序）。正式首都用更粗的 render.capital.lineThickness（capitalHulls），
+        // 普通城市/候补用 render.city.lineThickness（hulls）。
         if (highZoom) {
-            if (tiled) {
-                // P12：外廓 = 形状边界线段（邻格不在形状内的边段；cellEdge 与邻接同序）。
-                Hull h;
-                h.colorIndex = std::clamp(c.ownerId, 0, nColor - 1);
-                for (int ci : cells) {
-                    if (ci < 0) continue;
-                    for (int k = 0; k < map.geom().neighborCount(); ++k) {
-                        const int nb = map.geom().neighbor(ci, k);
-                        bool inShape = false;
-                        for (int other : cells)
-                            if (other == nb) {
-                                inShape = true;
-                                break;
-                            }
-                        if (inShape) continue;  // 内边
-                        double ex0, ey0, ex1, ey1;
-                        if (!map.geom().cellEdge(ci, k, ex0, ey0, ex1, ey1)) continue;
-                        h.segs.push_back({cam_.toScreenXi(ex0), cam_.toScreenYi(ey0),
-                                          cam_.toScreenXi(ex1), cam_.toScreenYi(ey1)});
-                    }
+            Hull h;
+            h.colorIndex = std::clamp(c.ownerId, 0, nColor - 1);
+            for (int ci : cells) {
+                if (ci < 0) continue;
+                for (int k = 0; k < map.geom().neighborCount(); ++k) {
+                    const int nb = map.geom().neighbor(ci, k);
+                    bool inShape = false;
+                    for (int other : cells)
+                        if (other == nb) {
+                            inShape = true;
+                            break;
+                        }
+                    if (inShape) continue;  // 内边
+                    double ex0, ey0, ex1, ey1;
+                    if (!map.geom().cellEdge(ci, k, ex0, ey0, ex1, ey1)) continue;
+                    h.segs.push_back({cam_.toScreenXi(ex0), cam_.toScreenYi(ey0),
+                                      cam_.toScreenXi(ex1), cam_.toScreenYi(ey1)});
                 }
-                if (status == 1)
-                    f.capitalHulls.push_back(std::move(h));
-                else
-                    f.hulls.push_back(std::move(h));
-            } else {
-                Outline o{block.x, block.y, block.w, block.h,
-                          std::clamp(c.ownerId, 0, nColor - 1)};
-                if (status == 1)
-                    f.capitalOutlines.push_back(o);
-                else
-                    f.outlines.push_back(o);
             }
+            if (status == 1)
+                f.capitalHulls.push_back(std::move(h));
+            else
+                f.hulls.push_back(std::move(h));
         }
 
         // 图标尺寸：生产渲染只使用预计算 iconFitScale（保存的是世界单位 U 的宽度，中心 =
@@ -343,10 +303,8 @@ void CityRenderer::drawFrame(const Frame& f, const Config::Render& rc) {
     if (rc.capital.designatedAlpha > 0.0)
         drawIcons(f.designatedIcons, towers_, tower10_, capital_, /*useCapitalTex=*/true, r,
                   static_cast<int>(std::lround(255.0 * rc.capital.designatedAlpha)));
-    // 4) 细线：普通城市薄线 + 正式首都粗线（颜色 = 该城归属势力色 × lineDarken）。
-    drawOutlines(f.outlines, rc.city.lineThickness, rc.city.lineDarken, factionColors_, r);
-    drawOutlines(f.capitalOutlines, rc.capital.lineThickness, rc.city.lineDarken, factionColors_, r);
-    // P12：六/三角基建地块边界线段（形状外廓；同细线颜色语义）。
+    // 4) 细线（形状外廓线段；全密铺统一）：普通城市薄线 + 正式首都粗线
+    //（颜色 = 该城归属势力色 × lineDarken）。
     drawHullSegs(f.hulls, rc.city.lineThickness, rc.city.lineDarken, factionColors_, r);
     drawHullSegs(f.capitalHulls, rc.capital.lineThickness, rc.city.lineDarken, factionColors_, r);
 }

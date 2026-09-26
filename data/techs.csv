@@ -1,0 +1,27 @@
+# techs.csv — 科技"几乎必填且内容单一"的列（2026-09 从 techs.jsonc 外置为 CSV+JSONC 混合格式）。
+# id 为连接键（唯一）；name/desc 用于科研弹窗（desc = 效果名，如"造价"）。
+# 空单元格 = 该键缺省（退回 techs.jsonc 或内置默认）。
+# 每个科技的等级效果 levels 与 preferenceUnits 仍写在 techs.jsonc；阈值等全局标量也留在 techs.jsonc。
+# 导出时本文件与 techs.jsonc 一并复制到 default/。
+id,name,desc
+throttle_normal,节流·普通兵,造价
+throttle_vanguard,节流·先锋兵,造价
+throttle_pioneer,节流·开拓兵,造价
+throttle_laser,节流·激光兵,造价
+throttle_bomb,节流·爆炸兵,造价
+throttle_mine,节流·地雷兵,造价
+throttle_pistol,节流·手枪兵,造价
+throttle_shotgun,节流·霰弹兵,造价
+march_normal,行军·普通兵,速度
+march_vanguard,行军·先锋兵,速度
+march_pioneer,行军·开拓兵,速度
+march_laser,行军·激光兵,速度
+march_bomb,行军·爆炸兵,速度
+march_mine,行军·地雷兵,速度
+big_bang,大爆炸,爆炸半径
+stable_laser,稳定激光,激光持续时间
+extend_laser,延长激光,激光长度
+rapid_fire,高速射击,手枪兵攻击速度
+barrage,弹幕,霰弹兵每次子弹数
+economy_boost,经济振兴,经济获取
+observatory,观星台,科技获取

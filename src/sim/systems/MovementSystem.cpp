@@ -7,7 +7,6 @@
 #include <cmath>
 #include <vector>
 
-#include "core/MathUtil.h"
 #include "core/Simulation.h"
 #include "sim/systems/CombatSystem.h"
 
@@ -44,26 +43,21 @@ double bounceJitter(const MoveContext& ctx) {
     return (ctx.rng.unit() * 2.0 - 1.0) * ctx.config.army.bounceJitterRangeRad;
 }
 
-// 反弹：按穿越方向翻角（水平 boundaryCode 0/2 → π-角；垂直 1/3 → -角）+ 随机小偏置。
-void bounce(MoveContext& ctx, comp::Velocity& vel, int boundaryCode) {
-    if (boundaryCode == 0 || boundaryCode == 2) vel.angle = kPi - vel.angle;
-    if (boundaryCode == 1 || boundaryCode == 3) vel.angle = -vel.angle;
-    vel.angle += bounceJitter(ctx);
+// 方向角归一化到 (-π, π]。反弹/反向只关心方向（cos/sin 不变），归一化避免角度跨 tick
+// 无界漂移；方/六/三/半正/Laves 统一走此约束（无密铺特判）。
+double wrapAngle(double a) {
+    a = std::fmod(a, 2.0 * kPi);
+    if (a <= -kPi) a += 2.0 * kPi;
+    if (a > kPi) a -= 2.0 * kPi;
+    return a;
 }
 
-// P12：沿边直线角（rad）反射方向角 + 随机小偏置（密铺反弹；与方形 bounce 语义一致）。
-//   方：边 0/2（竖）线角 90° → π-θ；边 1/3（横）线角 0° → -θ（与 bounce 相同）。
-//   六：边 k 线角 = k·60°+90°；三：边 k 线角 = {0°,60°,120°}[k]（正/反同线）。
+// 沿边线角（rad）反射方向角 + 随机小偏置：θ' = 2·lineAngle − θ。
+// 方/六/三/半正/Laves 全部走同一条路径（边线角由 cellEdge 端点统一给出，见 edgeLineAngle）。
+// 先归一化再叠抖动：方向保持在 (-π, π] 附近，不随多次反弹无界漂移。
 void bounceLine(MoveContext& ctx, comp::Velocity& vel, double lineAngle) {
-    vel.angle = 2.0 * lineAngle - vel.angle;
-    vel.angle += bounceJitter(ctx);
+    vel.angle = wrapAngle(2.0 * lineAngle - vel.angle) + bounceJitter(ctx);
 }
-
-// 河流系统 §6.2：方形路径的 boundaryCode → 方形边序号 k（与 neighbor/cellEdge 同序）。
-// findNextXY：0/2 = 竖边 x=x1/x2（左/右），1/3 = 横边 y=y1/y2（下/上）；
-// 方形边序（data/tiling_specs_regular.json 的 edgeOrder=[2,0,3,1]）：0=上、1=下、2=左、3=右。
-// 仅在方形路径（moveArmySquare）使用；密铺路径直接用 crossEdge 返回的边序号。
-constexpr int kSquareEdgeFromBoundary[4] = {2, 1, 3, 0};
 
 // 进入格处理的结果（原 bool 的扩展；二期反馈：过河停顿）。
 struct EnterResult {
@@ -81,26 +75,17 @@ void nudgeIntoEnteredCell(const TilingGeom& g, comp::Position& pos, double angle
     pos.y += nudge * std::sin(angle);
 }
 
+// 穿越边的**线角**（rad）：统一取 cellEdge 两端点 atan2。方/六/三/半正/Laves 同一条路径，
+// 无密铺特判（边线角相差 π 对反射等价，因结果会归一化）。
 double edgeLineAngle(const TilingGeom& g, int index, int k) {
-    switch (g.type) {
-        case TilingType::Square: return (k == 0 || k == 2) ? kPi / 2.0 : 0.0;
-        case TilingType::Hex: return kPi / 180.0 * (60.0 * static_cast<double>(k) + 90.0);
-        case TilingType::Tri: {
-            static const double kA[3] = {0.0, kPi / 3.0, 2.0 * kPi / 3.0};
-            return kA[static_cast<size_t>(k % 3)];
-        }
-        default: {
-            double x0, y0, x1, y1;
-            if (g.cellEdge(index, k, x0, y0, x1, y1))
-                return std::atan2(y1 - y0, x1 - x0);
-            return 0.0;
-        }
-    }
+    double x0, y0, x1, y1;
+    if (g.cellEdge(index, k, x0, y0, x1, y1)) return std::atan2(y1 - y0, x1 - x0);
+    return 0.0;
 }
 
 // 征服格（下标）归势力 factionId；开拓兵同时按规范序征服全部**边邻格**（P12：
-// 与目标格共享公共边的相邻地块一次性征服——方 4（下/上/左/右，顺序同旧版）、六 6、三 3）。
-// 固定顺序保证势力8 攻占城市免费兵 RNG 消耗可复现（方形与旧 conquerCell 逐格一致）。
+// 与目标格共享公共边的相邻地块一次性征服——方 4（上/下/左/右，见 tiling_specs_regular.json
+// 的 edgeOrder=[2,0,3,1]）、六 6、三 3）。固定顺序保证势力8 攻占城市免费兵 RNG 消耗可复现。
 void conquerCell(MoveContext& ctx, int cellIndex, int factionId, ArmyType type) {
     conquerAtIndex(ctx, cellIndex, factionId, static_cast<int>(type));
     if (type == ArmyType::pioneer) {
@@ -112,8 +97,8 @@ void conquerCell(MoveContext& ctx, int cellIndex, int factionId, ArmyType type) 
     }
 }
 
-// 进入格处理（陆/海/山/征服；goalIdx 已定，goalCell = atIndex(goalIdx)）。方形与密铺共用：
-// 反弹路径由调用方注入（方形 bounce(code) / 密铺 bounceLine(edge)）。修改
+// 进入格处理（陆/海/山/征服；goalIdx 已定，goalCell = atIndex(goalIdx)）。所有密铺共用：
+// 反弹路径由调用方注入（bounceLine(边序号)）。修改
 // vel/speed/remLength/onLand/mtn/hist；RNG 顺序与旧 moveArmy 逐位一致（河骰 + 过河抖动为新增）。
 // 返回 EnterResult：bounced / 过河停顿（见结构体注释）。
 template <typename Bounce>
@@ -188,7 +173,6 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
         }
         // 山地骰：下一格为山（不管当前格是什么，含陆→山/海→山/山→山）都掷进入概率；
         // 失败→反弹，通过才进入山地（减速，开拓不减速）。
-        bool canCross = true;
         if (goalCell->mountain) {
             if (!ctx.rng.chance(mountainEnterChanceFor(cfg, static_cast<int>(unit.type)))) {
                 doBounce();
@@ -202,20 +186,18 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
                 }
             }
         }
-        if (canCross) {
-            // 攻占敌方/中立领地：先征服目标格（开拓连占边邻格），再掷敌方反弹——
-            // 与山地骰【独立计算】：本格既为敌又为山时两骰各掷一次（非先锋 bounceMult=1.0
-            // 敌方必然反弹；先锋 0.4 两骰都过才不反弹）。反弹是征服后的"弹回"（原版语义）。
-            if (goalCell->belongi != fid.value) {
-                conquerCell(ctx, goalIdx, fid.value, unit.type);
-                // P7：反弹概率 × 势力增益（基线 bounceChanceMult=1.0 → 恒等，行为不变）。
-                double reboundChance =
-                    cfg.units[static_cast<int>(unit.type)].bounceMult
-                    * ctx.factions[static_cast<size_t>(fid.value)].mods.bounceChanceMult;
-                if (ctx.rng.chance(reboundChance)) {
-                    doBounce();
-                    return {true, false, 0.0};
-                }
+        // 攻占敌方/中立领地：先征服目标格（开拓连占边邻格），再掷敌方反弹——
+        // 与山地骰【独立计算】：本格既为敌又为山时两骰各掷一次（非先锋 bounceMult=1.0
+        // 敌方必然反弹；先锋 bounceMult<1 两骰都过才不反弹）。反弹是征服后的"弹回"（原版语义）。
+        if (goalCell->belongi != fid.value) {
+            conquerCell(ctx, goalIdx, fid.value, unit.type);
+            // P7：反弹概率 × 势力增益（基线 bounceChanceMult=1.0 → 恒等，行为不变）。
+            double reboundChance =
+                cfg.units[static_cast<int>(unit.type)].bounceMult
+                * ctx.factions[static_cast<size_t>(fid.value)].mods.bounceChanceMult;
+            if (ctx.rng.chance(reboundChance)) {
+                doBounce();
+                return {true, false, 0.0};
             }
         }
     } else if (goalCell->land && !onLand.value) {
@@ -254,122 +236,15 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
     return {false, false, 0.0};
 }
 
-// 方形路径：原版 moveArmy 主体（findNextXY 轴对齐格线穿越 + 边界 bounce）。
-static void moveArmySquare(MoveContext& ctx, entt::entity e, comp::Position& pos,
-                           comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
-                           comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
-                           comp::UnitType& unit, comp::LandHistory& hist, comp::MoveCarry& carry) {
-    const auto& map = ctx.map;
-    const int w = map.width();
-
-    double remLength = speed.value;
-    // 过河停顿结转（二期反馈）：本 tick 起始步长 = 上一 tick 结转的剩余量（不补满），用掉即清零。
-    if (carry.value > 0.0) {
-        remLength = carry.value;
-        carry.value = 0.0;
-    }
-    // 河流系统 §6.2：显式维护"当前所在格"（河骰需要 (srcIdx, k)；不用浮点位置反推）。
-    // 位置可能恰在界上（pos.x == width 等），故取整后夹取，越界不读格数据。
-    const auto cellIndexAtPos = [&] {
-        const int cx = std::clamp(static_cast<int>(pos.x), 0, map.width() - 1);
-        const int cy = std::clamp(static_cast<int>(pos.y), 0, map.height() - 1);
-        return cy * w + cx;
-    };
-    int srcIdx = cellIndexAtPos();
-    while (remLength > 0) {
-        const auto t_geom = ctx.moveProfile ? Clock::now() : Clock::time_point{};
-        const int boundaryCode = math::findNextXY(pos.x, pos.y, vel.angle, remLength, ctx.rng);
-        if (ctx.moveProfile)
-            ctx.moveProfile->geomNs += static_cast<std::uint64_t>(
-                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_geom).count());
-        // 战斗检查：每跨一格一次（§2.4）。命中则双方标死，本兵本 tick 移动中止。
-        {
-            MoveTimer ct(ctx.moveProfile, &ctx.moveProfile->combatNs);
-            if (CombatSystem::checkAt(ctx, e, pos, col, fid)) return;
-        }
-
-        if (boundaryCode == -3) continue;  // 撞角：findNextXY 内已反向（+π+微偏置），继续本 tick 移动
-        if (boundaryCode < 0 || boundaryCode > 3) {
-            // -2 走完本段：夹取到界内 + 结束点补一次征服，返回。
-            if (pos.x < 0) pos.x = kEps;
-            if (pos.x > map.width()) pos.x = map.width() - kEps;
-            if (pos.y < 0) pos.y = kEps;
-            if (pos.y > map.height()) pos.y = map.height() - kEps;
-            if (map.at(static_cast<int>(pos.x), static_cast<int>(pos.y)).belongi != fid.value) {
-                {
-                    MoveTimer ct(ctx.moveProfile, &ctx.moveProfile->conquerNs);
-                    conquerAt(ctx, static_cast<int>(pos.x), static_cast<int>(pos.y), fid.value,
-                              static_cast<int>(unit.type));
-                }
-            }
-            return;
-        }
-        // 地图边界（废除环绕后统一反弹：翻角 + 随机小偏置，保留本 tick 剩余移动量继续走）。
-        if (boundaryCode == 0 && pos.x <= 0) {
-            bounce(ctx, vel, boundaryCode);
-            continue;
-        }
-        if (boundaryCode == 1 && pos.y <= 0) {
-            bounce(ctx, vel, boundaryCode);
-            continue;
-        }
-        if (boundaryCode == 2 && pos.x >= map.width()) {
-            bounce(ctx, vel, boundaryCode);
-            continue;
-        }
-        if (boundaryCode == 3 && pos.y >= map.height()) {
-            bounce(ctx, vel, boundaryCode);
-            continue;
-        }
-
-        // 目标格（沿穿越方向 ±eps 取整，见翻新计划 §2.3）。
-        int gx = 0, gy = 0;
-        if (boundaryCode == 0) {
-            gx = static_cast<int>(pos.x - kEps);
-            gy = static_cast<int>(pos.y);
-        }
-        if (boundaryCode == 1) {
-            gx = static_cast<int>(pos.x);
-            gy = static_cast<int>(pos.y - kEps);
-        }
-        if (boundaryCode == 2) {
-            gx = static_cast<int>(pos.x + kEps);
-            gy = static_cast<int>(pos.y);
-        }
-        if (boundaryCode == 3) {
-            gx = static_cast<int>(pos.x);
-            gy = static_cast<int>(pos.y + kEps);
-        }
-        const auto doBounce = [&] { bounce(ctx, vel, boundaryCode); };
-        {
-            MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
-            const int goalIdx = gy * w + gx;
-            const EnterResult result =
-                processEnteredCell(ctx, goalIdx, srcIdx, kSquareEdgeFromBoundary[boundaryCode],
-                                   doBounce, vel, speed, remLength, onLand, mtn, fid, unit, hist);
-            if (!result.bounced) {
-                srcIdx = goalIdx;  // 成功进入 → 跟踪新格；反弹保持原格（与密铺路径一致）
-                if (result.riverPaused) {
-                    carry.value = result.riverCarry;
-                    nudgeIntoEnteredCell(map.geom(), pos, vel.angle);
-                }
-            }
-        }
-    }
-    // 夹取到 [0, Map_x]×[0, Map_y]（每 tick 抖动已取消，Phase 9）。
-    pos.x = std::clamp(pos.x, 0.0, static_cast<double>(map.width()));
-    pos.y = std::clamp(pos.y, 0.0, static_cast<double>(map.height()));
-}
-
-// P12 密铺路径：crossEdge 边穿越 + 顶点穿越 + 边线反射反弹 + 边邻征服。
-// 边界语义：废除环绕后统一为**反弹**（沿所撞边的直线角反射 + 随机小偏置，与方形一致）。
+// 通用移动路径（方/六/三/半正/Laves 统一）：crossEdge 边穿越 + 顶点穿越 + 边线反射反弹 + 边邻征服。
+// 边界语义：废除环绕后统一为**反弹**（沿所撞边的直线角反射 + 随机小偏置）。
 // 简洁原则：不做位置 clamp 兜底（clamp 会掩盖"军队真到边界"的信号，把贴界顶点误判为
 // 仍在格内 → 无限循环卡死）。军队只通过 crossEdge/顶点穿越推进；一旦 worldToCell 无法
 // 解析当前位置（贴界顶点/越界），即按反弹处理。
-static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
-                          comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
-                          comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
-                          comp::UnitType& unit, comp::LandHistory& hist, comp::MoveCarry& carry) {
+static void moveArmyGeom(MoveContext& ctx, entt::entity e, comp::Position& pos,
+                         comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
+                         comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
+                         comp::UnitType& unit, comp::LandHistory& hist, comp::MoveCarry& carry) {
     const auto& map = ctx.map;
     const TilingGeom& g = map.geom();
     double remLength = speed.value;
@@ -389,7 +264,7 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
     int guard = 0;  // 防死循环（异常路径；正常远用不到）
     while (remLength > 0) {
         if (++guard > 1000) {
-            spdlog::warn("moveArmyTiled: stuck guard (pos {:.3f},{:.3f} cell {} rem {:.4f})", pos.x,
+            spdlog::warn("moveArmyGeom: stuck guard (pos {:.3f},{:.3f} cell {} rem {:.4f})", pos.x,
                          pos.y, cellIdx, remLength);
             break;
         }
@@ -426,9 +301,8 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
             pos.y += nudge * std::sin(vel.angle);
             cellIdx = g.worldToCell(pos.x, pos.y);
             if (cellIdx >= 0) continue;  // 已穿越进入相邻格
-            // 顶点两侧都无格：贴地图边界顶点/角。反向 + jitter（与方形撞角语义对应）。
-            vel.angle += kPi + 4.0 * kEps;
-            vel.angle += bounceJitter(ctx);
+            // 顶点两侧都无格：贴地图边界顶点/角。反向 + jitter（纯 π 翻角，无边长可依）。
+            vel.angle = wrapAngle(vel.angle + kPi + 4.0 * kEps) + bounceJitter(ctx);
             continue;
         }
         // 正常穿越：crossed = 边序号；先判邻格是否越界（地图边界），再进入。
@@ -441,7 +315,7 @@ static void moveArmyTiled(MoveContext& ctx, entt::entity e, comp::Position& pos,
             bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed));
             continue;
         }
-        // 进入格（六/三角邻格恒为反向；neighbor 返回界内下标）。
+        // 进入邻格（neighbor 返回界内下标）。
         const int nb = g.neighbor(cellIdx, crossed);
         if (nb < 0) {  // 防御（不应发生；界内已判）
             bounceLine(ctx, vel, edgeLineAngle(g, cellIdx, crossed));
@@ -476,7 +350,7 @@ MoveContext MovementSystem::makeContext(Simulation& sim) {
                     sim.pendingSpawns(), sim.deaths(),     sim.registry(),
                     sim.spatialHash(),   sim.goSeaProbability(),
                     static_cast<int>(sim.tickCount()), sim.config(),
-                    &sim.stats()};  // P11：统计通道（conquerAt/markDead 记录 credit）
+                    &sim.stats()};  // P11：统计通道（conquerAtIndex/markDead 记录 credit）
     ctx.moveProfile = sim.profile().enabled ? &sim.profile().move : nullptr;  // 剖析开关
     return ctx;
 }
@@ -493,7 +367,7 @@ void MovementSystem::update(Simulation& sim) {
                     .view<comp::Position, comp::Velocity, comp::Speed, comp::OnLand,
                           comp::Collider, comp::FactionId, comp::UnitType, comp::LandHistory>();
     // P9 确定性：按实体 id 降序迭代（等价无回收时视图逆序），与存储序无关 →
-    // 快照读档后逐 tick RNG 与直跑一致。移动有 RNG（findNextXY/下海/山地/征服/反弹）。
+    // 快照读档后逐 tick RNG 与直跑一致。移动有 RNG（crossEdge 顶点穿越/下海/山地/征服/反弹）。
     std::vector<entt::entity> armies(view.begin(), view.end());
     std::sort(armies.begin(), armies.end(), [](entt::entity a, entt::entity b) {
         return entt::to_integral(a) > entt::to_integral(b);
@@ -522,12 +396,8 @@ void MovementSystem::moveArmy(MoveContext& ctx, entt::entity e) {
     auto& carry = ctx.registry.get_or_emplace<comp::MoveCarry>(e);
 
     MoveTimer loopTimer(ctx.moveProfile, ctx.moveProfile ? &ctx.moveProfile->loopNs : nullptr);
-    // P12：正方形走原版路径（findNextXY 轴对齐穿越，零行为变化）；六/三角走密铺路径。
-    if (ctx.map.tiling() == TilingType::Square) {
-        moveArmySquare(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist, carry);
-    } else {
-        moveArmyTiled(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist, carry);
-    }
+    // 全密铺统一走几何路径（方/六/三/半正/Laves 同一条）。
+    moveArmyGeom(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist, carry);
 }
 
 }  // namespace lw

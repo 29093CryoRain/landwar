@@ -1,6 +1,6 @@
 // 核心配置文件。导出发行版时，本文件会复制到 data/default/config.jsonc 作为回退副本。
 {
-  "_comment": "核心与模拟配置。长配置段拆分到 render.jsonc、techs.jsonc、factions.jsonc、units.jsonc；Config::loadFromFile 会按同目录片段合并。",
+  "_comment": "核心与模拟配置。长配置段拆分到 render.jsonc、techs.jsonc、factions.jsonc、units.jsonc（其中 units/factions/techs 为 CSV+JSONC 混合，必填单值列见同名 .csv）；Config::loadFromFile 会按同目录片段合并。",
   "map": { // blockSize/panelWidth/capitalMinDistance 为整数；blockSize > 0，其余距离/倍率 >= 0。
     "_comment": "地图文件/尺寸由菜单或 CLI 注入；这里保留模拟相关地图参数。",
     "blockSize": 15, // 正方形单格逻辑像素边长，必须 > 0。

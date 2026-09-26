@@ -1,5 +1,5 @@
 // ProjectileSystem.cpp — 射弹求解（开发计划 P9 任务 3）。
-// 子弹沿角以 Speed.value 逐格推进（findNextXY 不消耗 RNG → 移动确定性）。
+// 子弹沿角以 Speed.value 逐格推进（crossEdge 不消耗 RNG → 移动确定性）。
 //   穿海陆不减速（无 OnLand 组件）；不占领途经领地（P9 改版，2026-08-07：任何地形照飞）；
 //   撞击敌兵 → 敌我双亡（子弹由 DeathSystem 统一销毁，死亡特效 none）；
 //   不能从陆进山（下一格为山且当前不在山 → 消失）；在山地留存变短（mountainLifespanPenalty）；
@@ -65,95 +65,58 @@ void solveProjectile(MoveContext& ctx, entt::entity e, std::vector<entt::entity>
     if (hitEnemyAt(ctx, e, pos, col, fid)) return;
 
     double rem = speed.value;
-    if (ctx.map.tiling() == TilingType::Square) {
-        while (rem > 0) {
-            const int boundaryCode = math::findNextXY(pos.x, pos.y, vel.angle, rem, ctx.rng);
-            if (boundaryCode == -3) continue;  // 撞角：已反向，继续本 tick 移动
-            if (boundaryCode == 0 && pos.x <= 0) { toDestroy.push_back(e); return; }
-            if (boundaryCode == 1 && pos.y <= 0) { toDestroy.push_back(e); return; }
-            if (boundaryCode == 2 && pos.x >= ctx.map.width()) { toDestroy.push_back(e); return; }
-            if (boundaryCode == 3 && pos.y >= ctx.map.height()) { toDestroy.push_back(e); return; }
-            if (boundaryCode < 0) {
-                // -1/-2：走完本段，夹取到界内 + 终点击杀判定。
-                pos.x = std::clamp(pos.x, 0.0, static_cast<double>(ctx.map.width()));
-                pos.y = std::clamp(pos.y, 0.0, static_cast<double>(ctx.map.height()));
-                if (hitEnemyAt(ctx, e, pos, col, fid)) return;
-                break;
-            }
-            // 目标格（沿穿越方向 ±eps 取整，同 MovementSystem §2.3）。
-            const MapCell* goalCell = nullptr;
-            if (boundaryCode == 0)
-                goalCell = &ctx.map.at(static_cast<int>(pos.x - kEps), static_cast<int>(pos.y));
-            if (boundaryCode == 1)
-                goalCell = &ctx.map.at(static_cast<int>(pos.x), static_cast<int>(pos.y - kEps));
-            if (boundaryCode == 2)
-                goalCell = &ctx.map.at(static_cast<int>(pos.x + kEps), static_cast<int>(pos.y));
-            if (boundaryCode == 3)
-                goalCell = &ctx.map.at(static_cast<int>(pos.x), static_cast<int>(pos.y + kEps));
-            // 陆→山：子弹消失（山地中继续飞，仅留存惩罚）。
-            if (goalCell->mountain && !proj.inMountain) { toDestroy.push_back(e); return; }
-            proj.inMountain = goalCell->mountain;
-            // 不占领途经领地（P9 改版：子弹只击杀敌兵，不改变领土归属）。
-            // 进入格后击杀判定。
-            if (hitEnemyAt(ctx, e, pos, col, fid)) return;
-        }
-        pos.x = std::clamp(pos.x, 0.0, static_cast<double>(ctx.map.width()));
-        pos.y = std::clamp(pos.y, 0.0, static_cast<double>(ctx.map.height()));
-    } else {
-        // P12 密铺：crossEdge 逐格穿越 + **世界范围**夹取（方 width/height 是列/行数，非世界单位
-        // ——旧路径会把子弹夹死在 x=width 内，且山地判定取错格 → 穿山/莫名被拦）。
-        const TilingGeom& g = ctx.map.geom();
-        const double ww = ctx.map.worldWidth(), wh = ctx.map.worldHeight();
-        int cellIdx = g.worldToCell(pos.x, pos.y);
-        if (cellIdx < 0) {
-            pos.x = std::clamp(pos.x, kEps, ww - kEps);
-            pos.y = std::clamp(pos.y, kEps, wh - kEps);
-            cellIdx = g.worldToCell(pos.x, pos.y);
-        }
-        while (rem > 0) {
-            const int crossed =
-                (cellIdx >= 0) ? g.crossEdge(cellIdx, pos.x, pos.y, vel.angle, rem) : -1;
-            if (crossed == -2) {
-                // 走完本段：夹取 + 终点击杀判定。
-                pos.x = std::clamp(pos.x, 0.0, ww);
-                pos.y = std::clamp(pos.y, 0.0, wh);
-                if (hitEnemyAt(ctx, e, pos, col, fid)) return;
-                break;
-            }
-            if (crossed == -1) {
-                // 顶点/贴边：nudge 穿越；出界 → 销毁。
-                pos.x += kEps * std::cos(vel.angle);
-                pos.y += kEps * std::sin(vel.angle);
-                cellIdx = g.worldToCell(pos.x, pos.y);
-                if (cellIdx < 0) {
-                    toDestroy.push_back(e);
-                    return;
-                }
-                continue;
-            }
-            int nr, nc;
-            g.neighborRaw(cellIdx, crossed, nr, nc);
-            if (nr < 0 || nr >= g.rows || nc < 0 || nc >= g.cols) {
-                toDestroy.push_back(e);  // 出界销毁
-                return;
-            }
-            const int nb = g.neighbor(cellIdx, crossed);
-            if (nb < 0) {
-                toDestroy.push_back(e);
-                return;
-            }
-            cellIdx = nb;
-            const MapCell& goalCell = ctx.map.atIndex(cellIdx);
-            if (goalCell.mountain && !proj.inMountain) {
-                toDestroy.push_back(e);
-                return;
-            }
-            proj.inMountain = goalCell.mountain;
-            if (hitEnemyAt(ctx, e, pos, col, fid)) return;
-        }
-        pos.x = std::clamp(pos.x, 0.0, ww);
-        pos.y = std::clamp(pos.y, 0.0, wh);
+    // 全密铺统一：crossEdge 逐格穿越 + 世界范围夹取（无密铺特判）。
+    const TilingGeom& g = ctx.map.geom();
+    const double ww = ctx.map.worldWidth(), wh = ctx.map.worldHeight();
+    int cellIdx = g.worldToCell(pos.x, pos.y);
+    if (cellIdx < 0) {
+        pos.x = std::clamp(pos.x, kEps, ww - kEps);
+        pos.y = std::clamp(pos.y, kEps, wh - kEps);
+        cellIdx = g.worldToCell(pos.x, pos.y);
     }
+    while (rem > 0) {
+        const int crossed =
+            (cellIdx >= 0) ? g.crossEdge(cellIdx, pos.x, pos.y, vel.angle, rem) : -1;
+        if (crossed == -2) {
+            // 走完本段：夹取 + 终点击杀判定。
+            pos.x = std::clamp(pos.x, 0.0, ww);
+            pos.y = std::clamp(pos.y, 0.0, wh);
+            if (hitEnemyAt(ctx, e, pos, col, fid)) return;
+            break;
+        }
+        if (crossed == -1) {
+            // 顶点/贴边：nudge 穿越；出界 → 销毁。
+            pos.x += kEps * std::cos(vel.angle);
+            pos.y += kEps * std::sin(vel.angle);
+            cellIdx = g.worldToCell(pos.x, pos.y);
+            if (cellIdx < 0) {
+                toDestroy.push_back(e);
+                return;
+            }
+            continue;
+        }
+        int nr, nc;
+        g.neighborRaw(cellIdx, crossed, nr, nc);
+        if (nr < 0 || nr >= g.rows || nc < 0 || nc >= g.cols) {
+            toDestroy.push_back(e);  // 出界销毁
+            return;
+        }
+        const int nb = g.neighbor(cellIdx, crossed);
+        if (nb < 0) {
+            toDestroy.push_back(e);
+            return;
+        }
+        cellIdx = nb;
+        const MapCell& goalCell = ctx.map.atIndex(cellIdx);
+        if (goalCell.mountain && !proj.inMountain) {
+            toDestroy.push_back(e);
+            return;
+        }
+        proj.inMountain = goalCell.mountain;
+        if (hitEnemyAt(ctx, e, pos, col, fid)) return;
+    }
+    pos.x = std::clamp(pos.x, 0.0, ww);
+    pos.y = std::clamp(pos.y, 0.0, wh);
 }
 
 }  // namespace

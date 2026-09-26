@@ -3,10 +3,12 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <sstream>
@@ -168,6 +170,415 @@ bool readAssetWithDefault(const std::string& path, Json& out, const char* kind) 
     if (fallback == path) return false;
     if (!readJsonFile(fallback, out, kind)) return false;
     spdlog::warn("{} file '{}' unavailable; using default '{}'", kind, path, fallback);
+    return true;
+}
+
+// ---- CSV 侧车表（2026-09：units/factions/techs 的"几乎必填且内容单一"列外置）----
+// 三个记录表分片的核心列改为 CSV 主表；jsonc 只保留各记录的独有/可选字段，按连接键叠加。
+// CSV 约定（详见 .docs/配置说明.md）：
+//   - UTF-8 BOM 自动跳过；空行与整行以 '#' 开头的注释跳过（行首允许空白）。
+//   - 第一条非注释行为表头；列名去首尾空白，末尾空列（多写的逗号）忽略。
+//   - 字段可用双引号包裹以承载逗号/换行/双引号（"" 转义）；未加引号时去首尾空白。
+//   - 列数与表头不符的行丢弃并告警；数字/颜色单元格非法时该键退回 jsonc/内置默认。
+//   - CSV 缺失时 jsonc 独占该段（向后兼容；导出时 A/B 目录均需带上 CSV）。
+enum class CsvCell { Number, Integer, String, ColorRgb, StringList };
+
+// RGB 三列的后缀（注意不是连续字符：'R'+1 = 'S'）。
+constexpr char kColorChannelSuffix[3] = {'R', 'G', 'B'};
+
+struct CsvColumnSpec {
+    const char* column;  // CSV 列名（ColorRgb 用 <column>R/<column>G/<column>B）
+    const char* key;     // 目标 JSON 键名（ColorRgb/StringList 映射为数组）
+    CsvCell type;
+};
+
+struct CsvTable {
+    std::vector<std::string> header;
+    std::vector<std::vector<std::string>> rows;
+    int columnIndex(const std::string& name) const {
+        for (size_t i = 0; i < header.size(); ++i)
+            if (header[i] == name) return static_cast<int>(i);
+        return -1;
+    }
+    const std::string& cell(const std::vector<std::string>& row, int col) const {
+        static const std::string kEmpty;
+        if (col < 0 || col >= static_cast<int>(row.size())) return kEmpty;
+        return row[static_cast<size_t>(col)];
+    }
+};
+
+std::string trimAscii(const std::string& s) {
+    size_t begin = 0;
+    size_t end = s.size();
+    while (begin < end && std::isspace(static_cast<unsigned char>(s[begin]))) ++begin;
+    while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) --end;
+    return s.substr(begin, end - begin);
+}
+
+bool parseCsv(const std::string& text, CsvTable& out, std::string* error) {
+    out = CsvTable{};
+    std::vector<std::vector<std::string>> records;
+    std::vector<std::string> record;
+    std::string field;
+    bool quoted = false;   // 当前字段是否由引号包裹（决定是否保留内部空白）
+    bool inQuotes = false;
+    bool atRecordStart = true;
+    bool comment = false;
+    size_t i = 0;
+    const size_t n = text.size();
+    if (n >= 3 && static_cast<unsigned char>(text[0]) == 0xEF
+        && static_cast<unsigned char>(text[1]) == 0xBB
+        && static_cast<unsigned char>(text[2]) == 0xBF)
+        i = 3;  // UTF-8 BOM
+    const auto endField = [&]() {
+        record.push_back(quoted ? field : trimAscii(field));
+        field.clear();
+        quoted = false;
+    };
+    const auto endRecord = [&]() {
+        bool blank = record.empty();
+        if (!blank) {
+            blank = true;
+            for (const auto& f : record)
+                if (!f.empty()) {
+                    blank = false;
+                    break;
+                }
+        }
+        if (!blank) records.push_back(record);
+        record.clear();
+    };
+    for (; i < n; ++i) {
+        const char c = text[i];
+        if (comment) {
+            if (c == '\n') {
+                comment = false;
+                atRecordStart = true;
+            }
+            continue;
+        }
+        if (inQuotes) {
+            if (c == '"') {
+                if (i + 1 < n && text[i + 1] == '"') {
+                    field.push_back('"');
+                    ++i;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                field.push_back(c);
+            }
+            continue;
+        }
+        if (atRecordStart) {
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+            if (c == '#') {
+                comment = true;
+                continue;
+            }
+            atRecordStart = false;
+        }
+        if (c == '"' && field.empty() && !quoted) {
+            inQuotes = true;
+            quoted = true;
+            continue;
+        }
+        if (c == ',') {
+            endField();
+            continue;
+        }
+        if (c == '\r') continue;
+        if (c == '\n') {
+            endField();
+            endRecord();
+            atRecordStart = true;
+            continue;
+        }
+        field.push_back(c);
+    }
+    if (inQuotes) {
+        if (error) *error = "unterminated quoted field";
+        return false;
+    }
+    if (!field.empty() || !record.empty()) {
+        endField();
+        endRecord();
+    }
+    if (records.empty()) {
+        if (error) *error = "empty csv";
+        return false;
+    }
+    out.header = records.front();
+    records.erase(records.begin());
+    while (!out.header.empty() && out.header.back().empty()) out.header.pop_back();
+    const size_t expected = out.header.size();
+    for (auto& row : records) {
+        while (row.size() > expected && row.back().empty()) row.pop_back();
+        if (row.size() != expected) {
+            spdlog::warn("config csv: row has {} columns, expected {}; row ignored", row.size(),
+                         expected);
+            continue;
+        }
+        out.rows.push_back(std::move(row));
+    }
+    records.clear();
+    return true;
+}
+
+bool readCsvFile(const std::string& path, CsvTable& out, const char* kind) {
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs.is_open()) {
+        spdlog::warn("{} file '{}' not found", kind, path);
+        return false;
+    }
+    std::ostringstream text;
+    text << ifs.rdbuf();
+    std::string error;
+    if (!parseCsv(text.str(), out, &error)) {
+        spdlog::warn("{} file '{}' parse failed: {}", kind, path, error);
+        return false;
+    }
+    return true;
+}
+
+bool parseCsvDouble(const std::string& s, double& out) {
+    if (s.empty()) return false;
+    try {
+        size_t pos = 0;
+        out = std::stod(s, &pos);
+        while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos;
+        return pos == s.size() && std::isfinite(out);
+    } catch (...) {
+        return false;
+    }
+}
+
+bool parseCsvInt(const std::string& s, int& out) {
+    if (s.empty()) return false;
+    try {
+        size_t pos = 0;
+        const long long value = std::stoll(s, &pos);
+        while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos;
+        if (pos != s.size() || value < std::numeric_limits<int>::min()
+            || value > std::numeric_limits<int>::max())
+            return false;
+        out = static_cast<int>(value);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// 单行 CSV → JSON 记录（空单元格表示"该键缺省"，交回 jsonc/内置默认）。
+Json csvRecordToJson(const CsvTable& table, const std::vector<std::string>& row,
+                     const std::vector<CsvColumnSpec>& spec, const std::string& path,
+                     size_t rowIndex) {
+    Json obj = Json::object();
+    const std::string where = path + " row " + std::to_string(rowIndex + 1);
+    const auto get = [&](const std::string& name) -> const std::string& {
+        return table.cell(row, table.columnIndex(name));
+    };
+    for (const auto& f : spec) {
+        switch (f.type) {
+            case CsvCell::String: {
+                const std::string& value = get(f.column);
+                if (!value.empty()) obj[f.key] = value;
+                break;
+            }
+            case CsvCell::Number: {
+                const std::string& value = get(f.column);
+                if (value.empty()) break;
+                double parsed = 0.0;
+                if (!parseCsvDouble(value, parsed)) {
+                    spdlog::warn("config csv {}: '{}' is not a finite number; key ignored", where,
+                                 f.column);
+                    break;
+                }
+                obj[f.key] = parsed;
+                break;
+            }
+            case CsvCell::Integer: {
+                const std::string& value = get(f.column);
+                if (value.empty()) break;
+                int parsed = 0;
+                if (!parseCsvInt(value, parsed)) {
+                    spdlog::warn("config csv {}: '{}' is not an integer; key ignored", where,
+                                 f.column);
+                    break;
+                }
+                obj[f.key] = parsed;
+                break;
+            }
+            case CsvCell::StringList: {
+                const std::string& value = get(f.column);
+                if (value.empty()) break;
+                Json list = Json::array();
+                size_t begin = 0;
+                while (begin <= value.size()) {
+                    const size_t sep = value.find('|', begin);
+                    const std::string part =
+                        trimAscii(sep == std::string::npos ? value.substr(begin)
+                                                           : value.substr(begin, sep - begin));
+                    if (!part.empty()) list.push_back(part);
+                    if (sep == std::string::npos) break;
+                    begin = sep + 1;
+                }
+                if (!list.empty()) obj[f.key] = std::move(list);
+                break;
+            }
+            case CsvCell::ColorRgb: {
+                const std::string base(f.column);
+                int channels[3] = {0, 0, 0};
+                bool ok = true;
+                for (int c = 0; c < 3; ++c) {
+                    const std::string name = base + kColorChannelSuffix[c];
+                    const std::string& value = get(name);
+                    if (!parseCsvInt(value, channels[c]) || channels[c] < 0 || channels[c] > 255) {
+                        spdlog::warn("config csv {}: '{}{}' must be an integer 0..255; key ignored",
+                                     where, base, kColorChannelSuffix[c]);
+                        ok = false;
+                        break;
+                    }
+                }
+                if (!ok) break;
+                obj[f.key] = Json::array({channels[0], channels[1], channels[2]});
+                break;
+            }
+        }
+    }
+    return obj;
+}
+
+// 连接键取字符串化值（units.type / factions.id / techs.id）。
+std::string jsonRecordKey(const Json& record, const char* key) {
+    if (!record.is_object() || !record.contains(key)) return std::string();
+    const Json& value = record[key];
+    if (value.is_string()) return value.get<std::string>();
+    if (value.is_number_integer()) return std::to_string(value.get<long long>());
+    if (value.is_number_unsigned()) return std::to_string(value.get<unsigned long long>());
+    if (value.is_number_float()) return std::to_string(value.get<double>());
+    return std::string();
+}
+
+// CSV 基记录 ⊕ jsonc 覆盖记录：CSV 决定顺序与基字段，jsonc 按连接键匹配后覆盖/补充；
+// jsonc 中未匹配的记录追加到末尾（兼容"只在 jsonc 里新增一条"的旧写法）。
+Json mergeCsvRecords(const Json& base, const Json& overlay, const char* key,
+                     const std::string& kind, const std::string& baseName,
+                     const std::string& overlayName) {
+    if (!base.is_array()) return overlay.is_array() ? overlay : Json::array();
+    if (!overlay.is_array()) return base;
+    Json result = Json::array();
+    std::vector<bool> used(overlay.size(), false);
+    for (const auto& baseRecord : base) {
+        if (!baseRecord.is_object()) continue;
+        Json merged = baseRecord;
+        const std::string recordKey = jsonRecordKey(baseRecord, key);
+        if (!recordKey.empty()) {
+            for (size_t j = 0; j < overlay.size(); ++j) {
+                if (used[j] || !overlay[j].is_object()) continue;
+                if (jsonRecordKey(overlay[j], key) != recordKey) continue;
+                for (auto it = overlay[j].begin(); it != overlay[j].end(); ++it)
+                    merged[it.key()] = it.value();  // jsonc 覆盖/补充 CSV 基字段
+                used[j] = true;
+                break;
+            }
+        }
+        result.push_back(std::move(merged));
+    }
+    for (size_t j = 0; j < overlay.size(); ++j) {
+        if (used[j] || !overlay[j].is_object()) continue;
+        spdlog::warn("{}: record '{}' in {} has no CSV row in {}; appended", kind,
+                     jsonRecordKey(overlay[j], key), overlayName, baseName);
+        result.push_back(overlay[j]);
+    }
+    return result;
+}
+
+// 对 units/factions/tech 三个分片应用 CSV 侧车；其它段直接通过。
+// requireCsv = true（严格校验）时，CSV 缺失记为错误；loadFromFile 下仅告警并退化为 jsonc 独占。
+bool applyCsvSidecarForSection(const std::string& section, Json& fragment,
+                               const std::filesystem::path& dir, bool requireCsv,
+                               std::string* err) {
+    const char* csvFile = nullptr;
+    const char* joinKey = nullptr;
+    const char* arrayKey = nullptr;  // 空 = 段值本身即数组
+    std::vector<CsvColumnSpec> columns;
+    if (section == "units") {
+        csvFile = "units.csv";
+        joinKey = "type";
+        arrayKey = "";
+        columns = {{"type", "type", CsvCell::String},
+                   {"cost", "cost", CsvCell::Number},
+                   {"speedMult", "speedMult", CsvCell::Number},
+                   {"sizeMult", "sizeMult", CsvCell::Number},
+                   {"bounceMult", "bounceMult", CsvCell::Number},
+                   {"visualRadius", "visualRadius", CsvCell::Number}};
+    } else if (section == "factions") {
+        csvFile = "factions.csv";
+        joinKey = "id";
+        arrayKey = "";
+        columns = {{"id", "id", CsvCell::Integer},
+                   {"name", "name", CsvCell::String},
+                   {"description", "description", CsvCell::String},
+                   {"nameColors", "nameColors", CsvCell::StringList},
+                   {"color", "color", CsvCell::ColorRgb},
+                   {"secondary", "secondary", CsvCell::ColorRgb}};
+    } else if (section == "tech") {
+        csvFile = "techs.csv";
+        joinKey = "id";
+        arrayKey = "techs";
+        columns = {{"id", "id", CsvCell::String},
+                   {"name", "name", CsvCell::String},
+                   {"desc", "desc", CsvCell::String}};
+    } else {
+        return true;
+    }
+
+    const std::string csvPath = (dir / csvFile).string();
+    CsvTable table;
+    if (!readCsvFile(csvPath, table, "config csv")) {
+        if (requireCsv) {
+            if (err) *err = "cannot read config csv '" + csvPath + "'";
+            return false;
+        }
+        return true;  // 无 CSV：该段由同目录 jsonc 独占（兼容旧单文件写法，不跨目录回退）
+    }
+    const std::string& usedCsv = csvPath;
+
+    for (const auto& f : columns) {
+        if (f.type == CsvCell::ColorRgb) {
+            for (int c = 0; c < 3; ++c) {
+                const std::string name = std::string(f.column) + kColorChannelSuffix[c];
+                if (table.columnIndex(name) < 0)
+                    spdlog::warn("config csv '{}': missing column '{}'", usedCsv, name);
+            }
+        } else if (table.columnIndex(f.column) < 0) {
+            spdlog::warn("config csv '{}': missing column '{}'", usedCsv, f.column);
+        }
+    }
+
+    Json base = Json::array();
+    for (size_t r = 0; r < table.rows.size(); ++r)
+        base.push_back(csvRecordToJson(table, table.rows[r], columns, usedCsv, r));
+
+    Json overlay = Json::array();
+    if (!arrayKey[0]) {
+        if (fragment.contains(section) && fragment[section].is_array())
+            overlay = fragment[section];
+    } else if (fragment.contains(section) && fragment[section].is_object()
+               && fragment[section].contains(arrayKey) && fragment[section][arrayKey].is_array()) {
+        overlay = fragment[section][arrayKey];
+    }
+
+    Json merged = mergeCsvRecords(base, overlay, joinKey, section, usedCsv, "jsonc");
+    if (!arrayKey[0]) {
+        fragment[section] = std::move(merged);
+    } else {
+        if (!fragment.contains(section) || !fragment[section].is_object())
+            fragment[section] = Json::object();
+        fragment[section][arrayKey] = std::move(merged);
+    }
+    spdlog::info("config csv '{}': {} rows merged into '{}'", usedCsv, base.size(), section);
     return true;
 }
 
@@ -365,7 +776,7 @@ std::vector<int> anchorMaskToBases(std::uint32_t v) {
 }
 
 // 解析单个密铺的等级/形状集（data/city_shapes.jsonc 与 config.jsonc 的
-// city.hex/tri/tilings 共用；shapes[].level → shapeLevelIndex 容差匹配推导）。
+// city.shapes/hex/tri/tilings 共用；shapes[].level → shapeLevelIndex 容差匹配推导）。
 void parseTilingSetJson(const Json& sub, Config::City::TilingSet& set) {
     if (sub.contains("levels") && sub["levels"].is_array()) {
         set.levels.clear();
@@ -433,7 +844,7 @@ void parseTilingSetJson(const Json& sub, Config::City::TilingSet& set) {
 
 // 加载 data/city_shapes.jsonc：全部密铺（square/hex/tri + 半正/Laves）的城市形状表
 //（键 = tilingName，如 "square"、"hex"、"arch_3464"）。文件缺失/损坏时保留代码内置兜底，
-// 仅记警告不阻断。
+// 仅记警告不阻断。全密铺统一写入 sets[枚举值]，无具名分支。
 void loadCityShapesFile(Config::City& c) {
     Json root;
     if (!readAssetWithDefault(kCityShapesPath, root, "city shapes")) return;
@@ -443,20 +854,7 @@ void loadCityShapesFile(Config::City& c) {
         const int idx = static_cast<int>(tt);
         if (idx < 0 || idx >= kTilingTypeCount) continue;
         if (!it.value().is_object()) continue;
-        switch (tt) {
-            case TilingType::Square:
-                parseTilingSetJson(it.value(), c.square);
-                break;
-            case TilingType::Hex:
-                parseTilingSetJson(it.value(), c.hex);
-                break;
-            case TilingType::Tri:
-                parseTilingSetJson(it.value(), c.tri);
-                break;
-            default:
-                parseTilingSetJson(it.value(), c.sets[static_cast<size_t>(idx)]);
-                break;
-        }
+        parseTilingSetJson(it.value(), c.sets[static_cast<size_t>(idx)]);
     }
 }
 
@@ -485,12 +883,12 @@ void initDefaultCity(Config::City& c) {
         return sh;
     };
     // 正方形：大形状围绕锚点展开，与外置形状表保持一致。
-    c.square.levels = {1, 2, 4, 6, 9};
-    c.square.shapes = {sq(1, 1), sq(1, 2), sq(2, 2), sq(2, 3, 0, -1),
+    c.sets[0].levels = {1, 2, 4, 6, 9};
+    c.sets[0].shapes = {sq(1, 1), sq(1, 2), sq(2, 2), sq(2, 3, 0, -1),
                        sq(3, 3, -1, -1)};
     // 六边形：1/3/4/6/7/9（U 偏移已由旧轴向表换算，P12 §3.2 定稿；锚 = (0,0)）。
-    c.hex.levels = {1, 3, 4, 6, 7, 9};
-    c.hex.shapes = {
+    c.sets[1].levels = {1, 3, 4, 6, 7, 9};
+    c.sets[1].shapes = {
         hx({{0.0, 0.0}}),
         hx({{0.0, 0.0}, {-0.5372849659117709, -0.9306048591020997},
             {0.5372849659117709, -0.9306048591020997}}),
@@ -511,8 +909,8 @@ void initDefaultCity(Config::City& c) {
     // 语义（用户 2026-08 定稿）：
     //   L1 = 1 格（不限锚点方向）
     //   L2/L4/L6/L8 = 以正三角基础格为锚；不在运行时生成镜像方向
-    c.tri.levels = {1, 2, 4, 6, 8};
-    c.tri.shapes = {
+    c.sets[2].levels = {1, 2, 4, 6, 8};
+    c.sets[2].shapes = {
         tr({{0.0, 0.0}}),  // L1
         // L2：正格 + 同列下方反格（共水平底边 y = r·h；偏移 (0, −2h/3)）
         tr({{0.0, 0.0}, {0.0, -0.8773826753016616}}),
@@ -529,8 +927,8 @@ void initDefaultCity(Config::City& c) {
             {0.7598356856515962, 0.4386913376508308}, {0.0, 2.6321480259049848},
             {0.0, -0.8773826753016616}}),
     };
-    for (std::size_t i = 1; i < c.tri.shapes.size(); ++i)
-        c.tri.shapes[i].anchorBaseMask = (1u << 0) | (1u << 2);
+    for (std::size_t i = 1; i < c.sets[2].shapes.size(); ++i)
+        c.sets[2].shapes[i].anchorBaseMask = (1u << 0) | (1u << 2);
     // 2026-08-16：先给 1 级城（单格）兜底占位；下面每个已接入几何的密铺都会
     // 用完整等级形状表整体覆盖（开发思路.txt 没提 1 级城的密铺不会被覆盖成 1 级）。
     {
@@ -555,15 +953,13 @@ void initDefaultCity(Config::City& c) {
         loadCityShapesFile(c);
     }
     // 同步 shapeLevelIndex（默认每个 level 一个形状；未来同级多变体时手动调整）。
+    // 全密铺统一：遍历 sets（含 square/hex/tri），无具名分支。
     const auto syncShapeLevels = [](Config::City::TilingSet& s) {
         if (!s.shapeLevelIndex.empty()) return;
         s.shapeLevelIndex.clear();
         for (int i = 0; i < static_cast<int>(s.shapes.size()); ++i)
             s.shapeLevelIndex.push_back(i);
     };
-    syncShapeLevels(c.square);
-    syncShapeLevels(c.hex);
-    syncShapeLevels(c.tri);
     for (auto& s : c.sets)
         if (!s.shapes.empty() && s.shapeLevelIndex.empty()) syncShapeLevels(s);
 }
@@ -1220,26 +1616,25 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
             getNum(cityJson, "levelRankExponent", cfg.city.levelRankExponent);
         // 正方形 shapes 覆盖（可选）：P1.2 起仅支持泛化 [{level, cells:[dx,dy], ...}]，
         // 不再兼容旧 [{level, w, h}]。缺省保持内置表/data/city_shapes.jsonc。
+        // 命中 sets[0]（square）；JSON 侧沿用 `shapes` 具名键以兼容旧文件。
         if (cityJson.contains("shapes") && cityJson["shapes"].is_array()) {
             Json squareObj;
-            squareObj["levels"] = cfg.city.square.levels;
+            squareObj["levels"] = cfg.city.sets[0].levels;
             squareObj["shapes"] = cityJson["shapes"];
-            parseTilingSetJson(squareObj, cfg.city.square);
+            parseTilingSetJson(squareObj, cfg.city.sets[0]);
         }
         // P12：六/三角形状表（可选）。P1.2 起 cells 统一为 [dx, dy] 世界单位 U 偏移；
         // 解析逻辑 = parseTilingSetJson（匿名命名空间，与 data/city_shapes.jsonc 共用）。
         if (cityJson.contains("hex") && cityJson["hex"].is_object())
-            parseTilingSetJson(cityJson["hex"], cfg.city.hex);
+            parseTilingSetJson(cityJson["hex"], cfg.city.sets[1]);
         if (cityJson.contains("tri") && cityJson["tri"].is_object())
-            parseTilingSetJson(cityJson["tri"], cfg.city.tri);
-        // 2026-08-16：半正/Laves 形状表（可选；city.tilings 下按 tilingName 存）。
+            parseTilingSetJson(cityJson["tri"], cfg.city.sets[2]);
+        // 任意密铺形状表（按 tilingName 存；含 square/hex/tri，同名键以后者为准）。
         if (cityJson.contains("tilings") && cityJson["tilings"].is_object()) {
             for (auto it = cityJson["tilings"].begin(); it != cityJson["tilings"].end(); ++it) {
                 const TilingType tt = tilingFromName(it.key());
                 const int idx = static_cast<int>(tt);
                 if (idx < 0 || idx >= kTilingTypeCount) continue;
-                if (tt == TilingType::Square || tt == TilingType::Hex || tt == TilingType::Tri)
-                    continue;  // 具名段已解析，避免重复
                 if (!it.value().is_object()) continue;
                 parseTilingSetJson(it.value(), cfg.city.sets[static_cast<size_t>(idx)]);
             }
@@ -1461,6 +1856,7 @@ Config Config::loadFromFile(const std::string& path) {
         for (const auto& [section, file] : fragments) {
             Json fragment;
             const std::string fragmentName = fragmentPath(file);
+            bool usedDefaultFragment = false;
             if (!readJsonFile(fragmentName, fragment, "config fragment")) {
                 const std::string defaultFragment =
                     (std::filesystem::path(kConfigDefaultDir) / file).string();
@@ -1469,7 +1865,13 @@ Config Config::loadFromFile(const std::string& path) {
                     continue;
                 spdlog::warn("config fragment '{}' unavailable; using default '{}'", fragmentName,
                              defaultFragment);
+                usedDefaultFragment = true;
             }
+            // CSV 侧车（units/factions/tech）：CSV 提供必填单值列，jsonc 提供独有/可选字段。
+            // CSV 与 jsonc 取自同一来源目录（A 或 B），避免把两份配置混在一起。
+            const std::filesystem::path fragmentDir =
+                usedDefaultFragment ? std::filesystem::path(kConfigDefaultDir) : parent;
+            applyCsvSidecarForSection(section, fragment, fragmentDir, false, nullptr);
             if (!fragment.contains(section)) {
                 spdlog::warn("config fragment '{}' has no '{}' section; ignored", fragmentName, section);
                 continue;
@@ -1526,6 +1928,8 @@ bool Config::validateFile(const std::string& path, std::string* err) {
             if (err) *err = "cannot read or parse config fragment '" + fragmentPath + "'";
             return false;
         }
+        // 严格校验：记录表分片必须带同目录 CSV 侧车（CSV 是这些列的主来源）。
+        if (!applyCsvSidecarForSection(section, fragment, parent, true, err)) return false;
         if (!fragment.contains(section)) {
             if (err) *err = "config fragment '" + fragmentPath + "' has no '" + section + "' section";
             return false;
@@ -1762,12 +2166,11 @@ bool Config::validate(std::string* err) const {
             if (level < 1 || level > 10) return fail(std::string(name) + " icon level invalid");
         return true;
     };
-    if (!validateSet(city.square, "city.square") || !validateSet(city.hex, "city.hex")
-        || !validateSet(city.tri, "city.tri"))
-        return false;
-    for (int i = static_cast<int>(TilingType::Arch33336); i < kTilingTypeCount; ++i)
-        if (!validateSet(city.sets[static_cast<size_t>(i)], tilingName(static_cast<TilingType>(i))))
-            return false;
+    // 全密铺统一校验（0/1/2 的报错标签 = "city." + tilingName，与旧 "city.square/hex/tri" 一致）。
+    for (int i = 0; i < kTilingTypeCount; ++i) {
+        const std::string label = std::string("city.") + tilingName(static_cast<TilingType>(i));
+        if (!validateSet(city.sets[static_cast<size_t>(i)], label.c_str())) return false;
+    }
     if (!nonNegative(city.levelIncomeExponent) || !positive(city.levelRankExponent))
         return fail("city exponent invalid");
     if (!positive(tech.thresholdBase) || !positive(tech.thresholdStep)
@@ -1958,8 +2361,9 @@ std::string Config::toJson() const {
             result["iconLevels"] = set.iconLevels;
         return result;
     };
-    Json shapesJ = shapeArrayJ(city.square);
-    // 2026-08-16：半正/Laves 形状表统一放 city.tilings.<tilingName>；缺省为空集。
+    Json shapesJ = shapeArrayJ(city.sets[0]);
+    // 半正/Laves 形状表统一放 city.tilings.<tilingName>；square/hex/tri 沿用下方具名键
+    //（`shapes`/`hex`/`tri`）以保持文件格式不变，故此处跳过 0/1/2。
     Json tilingsJ = Json::object();
     for (int i = 0; i < kTilingTypeCount; ++i) {
         const TilingType tt = static_cast<TilingType>(i);
@@ -1969,8 +2373,8 @@ std::string Config::toJson() const {
     j["city"] = {{"levelIncomeExponent", city.levelIncomeExponent},
                  {"levelRankExponent", city.levelRankExponent},
                  {"shapes", std::move(shapesJ)},
-                 {"hex", tilingSetJ(city.hex)},
-                 {"tri", tilingSetJ(city.tri)},
+                 {"hex", tilingSetJ(city.sets[1])},
+                 {"tri", tilingSetJ(city.sets[2])},
                  {"tilings", std::move(tilingsJ)}};
 
     j["capital"] = {{"relocationDelayTicks", capital.relocationDelayTicks}};

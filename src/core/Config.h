@@ -343,27 +343,17 @@ struct Config {
         // beta 按当前密铺最小等级动态取 (1 - minLevel)/2。
         double levelRankExponent = 0.5;
         // 各密铺等级/形状表（默认从 data/city_shapes.jsonc 加载；代码内置表作无文件兜底。
-        // P1.2 起 square/hex/tri/半正/Laves 的 cells 统一为世界单位 U 偏移，config.jsonc 的 city 段
-        // 仍可覆盖。square/hex/tri 保留具名成员以兼容旧 JSON；14 种新密铺放 sets[枚举值]）。
-        TilingSet square;  // 默认 1/2/4/6/9：1×1 / 1×2 / 2×2 / 2×3 / 3×3
-        TilingSet hex;     // 默认 1/3/4/6/7/9（P12 形状表，U 偏移）
-        TilingSet tri;     // 默认 1/2/4/6/8（P12 形状表，U 偏移）
-        std::array<TilingSet, kTilingTypeCount> sets;  // 半正/Laves 的等级形状表（默认空）
+        // P1.2 起所有密铺（含 square/hex/tri）的 cells 统一为世界单位 U 偏移，config.jsonc 的
+        // city 段仍可覆盖。**唯一存储**：sets[枚举值]（下标 0/1/2 = square/hex/tri）。
+        // JSON 侧仍保留 `shapes`（square）/`hex`/`tri` 具名段以兼容旧文件，加载时折进 sets。
+        std::array<TilingSet, kTilingTypeCount> sets;
         // 默认构造：填充全部密铺内置等级/形状表（裸 City{} 即可用，Map::cityConfig_ 等）。
         City();
         // 幂律总指数 s = alpha + gamma（采样用；经济 alpha 仍为 levelIncomeExponent）。纯函数。
         double rankExponent() const { return levelIncomeExponent + levelRankExponent; }
         const TilingSet& setFor(TilingType t) const {
-            switch (t) {
-                case TilingType::Square: return square;
-                case TilingType::Hex: return hex;
-                case TilingType::Tri: return tri;
-                default: return sets[static_cast<size_t>(static_cast<int>(t))];
-            }
-        }
-        // 等级 → 形状（默认第一变体；找不到返回 nullptr；等级为实数，按容差匹配）。纯函数。
-        const Shape* shapeFor(TilingType t, double level) const {
-            return setFor(t).shapeFor(level, 0);
+            const int i = static_cast<int>(t);
+            return sets[static_cast<size_t>(i >= 0 && i < kTilingTypeCount ? i : 0)];
         }
     } city;
 
@@ -535,9 +525,12 @@ struct Config {
     // 从 JSON/JSONC 文本解析（覆盖默认值，缺键保持默认）。
     static Config loadFromJson(const std::string& jsonText);
     // 从文件解析；核心文件同目录的 render.jsonc/techs.jsonc/factions.jsonc/units.jsonc
-    // 按对应顶层段覆盖核心配置。A 缺失/损坏时回退 data/default/ 中的 B，再以代码默认值兜底。
+    // 按对应顶层段覆盖核心配置。其中 techs/factions/units 为 CSV+JSONC 混合（.csv 提供
+    // 必填单值列，.jsonc 提供独有/可选字段并按连接键叠加）。A 缺失/损坏时回退
+    // data/default/ 中的 B（含对应 CSV），再以代码默认值兜底。
     static Config loadFromFile(const std::string& path);
     // 严格校验指定配置及其同目录分片，不触发 loadFromFile 的回退；供发布检查/CLI 使用。
+    // units/factions/techs 分片存在时，其 CSV 侧车缺失即视为错误。
     static bool validateFile(const std::string& path, std::string* err = nullptr);
     // 从外置 data/city_icon_fits.jsonc 加载 render.city.iconFitScale/iconFitOffsetY（2026-08-26）。
     // 该两块不再读 config.json；缺省空（任何密铺缺 fit 时按 1 倍缩放兜底，P1.2/P1.3）。

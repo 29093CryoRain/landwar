@@ -55,12 +55,7 @@ public:
     void setCapitalSourceSize(int srcW, int srcH);
 
     // ---- 纯几何（单测用，无需 SDL）----
-    // 基建地块外廓矩形（屏幕像素；仅高缩放档生成）。颜色 = 该城归属势力的加深色。
-    struct Outline {
-        int x, y, w, h;
-        int colorIndex;   // 势力色下标（= City.ownerId）
-    };
-    // P12：六/三角基建地块外廓 = 形状边界线段集合（邻格不在形状内的边段）。
+    // 基建地块外廓 = 形状边界线段集合（邻格不在形状内的边段；全密铺统一）。
     struct Hull {
         int colorIndex;
         std::vector<std::array<int, 4>> segs;  // {x0,y0,x1,y1} 屏幕像素
@@ -77,10 +72,8 @@ public:
     // capitalStatus[c.id]：0=普通城市、1=正式首都、2=候补指定新都（虚化首都图标）。
     // 空向量 = 全普通（向后兼容，单测可省）。
     struct Frame {
-        std::vector<Outline> outlines;        // 普通城市细线（render.city.lineThickness）
-        std::vector<Outline> capitalOutlines; // 正式首都细线（render.capital.lineThickness 更粗）
-        std::vector<Hull> hulls;              // P12：六/三角普通城市边界线段
-        std::vector<Hull> capitalHulls;       // P12：六/三角正式首都边界线段
+        std::vector<Hull> hulls;              // 普通城市边界线段（render.city.lineThickness）
+        std::vector<Hull> capitalHulls;       // 正式首都边界线段（render.capital.lineThickness 更粗）
         std::vector<Icon> icons;              // 普通城市等级塔图标
         std::vector<Icon> capitalIcons;       // 正式首都图标（data/tower/capital.png，全不透明）
         std::vector<Icon> designatedIcons;    // 候补指定新都（虚化首都图标，designatedAlpha）

@@ -529,7 +529,7 @@ bool shapeConnected(const TilingGeom& g, const std::vector<int>& cells) {
 // 形状表不变量：shapeLevelIndex 关联等级；同级可有多个显式形状变体。
 TEST(Tiling, CityShapeCountEqualsLevel) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
-    const lw::Config::City::TilingSet* sets[3] = {&cfg.city.square, &cfg.city.hex, &cfg.city.tri};
+    const lw::Config::City::TilingSet* sets[3] = {&cfg.city.setFor(lw::TilingType::Square), &cfg.city.setFor(lw::TilingType::Hex), &cfg.city.setFor(lw::TilingType::Tri)};
     const int expectLv[3][6] = {{1, 2, 4, 6, 9}, {1, 3, 4, 6, 7, 9}, {1, 2, 4, 6, 8}};
     for (int t = 0; t < 3; ++t) {
         const auto& set = *sets[t];
@@ -557,8 +557,8 @@ TEST(Tiling, CityShapeCountEqualsLevel) {
 TEST(Tiling, CityHexShapesConnected) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     const TilingGeom g{TilingType::Hex, 24, 14};
-    for (std::size_t shapeIndex = 0; shapeIndex < cfg.city.hex.shapes.size(); ++shapeIndex) {
-        const std::vector<int> cells = shapeToCells(cfg.city.hex.shapes[shapeIndex], g);
+    for (std::size_t shapeIndex = 0; shapeIndex < cfg.city.setFor(lw::TilingType::Hex).shapes.size(); ++shapeIndex) {
+        const std::vector<int> cells = shapeToCells(cfg.city.setFor(lw::TilingType::Hex).shapes[shapeIndex], g);
         EXPECT_TRUE(shapeConnected(g, cells)) << "hex shape " << shapeIndex;
     }
 }
@@ -566,8 +566,8 @@ TEST(Tiling, CityHexShapesConnected) {
 TEST(Tiling, CityTriShapesConnectedForExplicitAnchorBases) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     const TilingGeom g{TilingType::Tri, 24, 14};
-    for (std::size_t shapeIndex = 0; shapeIndex < cfg.city.tri.shapes.size(); ++shapeIndex) {
-        const auto& shape = cfg.city.tri.shapes[shapeIndex];
+    for (std::size_t shapeIndex = 0; shapeIndex < cfg.city.setFor(lw::TilingType::Tri).shapes.size(); ++shapeIndex) {
+        const auto& shape = cfg.city.setFor(lw::TilingType::Tri).shapes[shapeIndex];
         for (int anchorBase = 0; anchorBase < g.baseCount(); ++anchorBase) {
             if (shape.anchorBaseMask != 0 &&
                 (shape.anchorBaseMask & (1u << anchorBase)) == 0)
@@ -583,7 +583,7 @@ TEST(Tiling, CityTriShapesConnectedForExplicitAnchorBases) {
 TEST(Tiling, TriL2HorizontalSharedEdge) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
     const TilingGeom g{TilingType::Tri, 24, 14};
-    const auto* shape = cfg.city.tri.shapeFor(2, 0);
+    const auto* shape = cfg.city.setFor(lw::TilingType::Tri).shapeFor(2, 0);
     ASSERT_NE(shape, nullptr);
     for (int anchorBase : {0, 2}) {
         const std::vector<int> cells = shapeToCells(*shape, g, anchorBase);
@@ -597,9 +597,9 @@ TEST(Tiling, TriL2HorizontalSharedEdge) {
 
 TEST(Tiling, TriL4HasExplicitUpAndDownVariants) {
     const lw::Config cfg = lw::Config::loadFromJson("{}");
-    ASSERT_EQ(cfg.city.tri.variantCount(4), 2);
-    const auto* down = cfg.city.tri.shapeFor(4, 0);
-    const auto* up = cfg.city.tri.shapeFor(4, 1);
+    ASSERT_EQ(cfg.city.setFor(lw::TilingType::Tri).variantCount(4), 2);
+    const auto* down = cfg.city.setFor(lw::TilingType::Tri).shapeFor(4, 0);
+    const auto* up = cfg.city.setFor(lw::TilingType::Tri).shapeFor(4, 1);
     ASSERT_NE(down, nullptr);
     ASSERT_NE(up, nullptr);
     EXPECT_EQ(down->anchorBaseMask, (1u << 1) | (1u << 3));

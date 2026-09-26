@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Landwar units.jsonc",
+  "description": "稀疏 JSONC 覆盖层：units.csv 保存每个兵种的必填单值列（type/cost/speedMult/sizeMult/bounceMult/visualRadius），本文件只写各兵种的独有/可选字段，按 type 与 CSV 行对应；合并后才是完整配置。",
   "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["units"],
   "properties": {
     "units": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["type"], "properties": {

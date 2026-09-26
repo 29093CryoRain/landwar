@@ -67,7 +67,7 @@ TEST(Performance, SpatialHashPrunesToLocalCandidates) {
         }
     EXPECT_GE(placed.size(), 2000u);
 
-    hash.build(reg, sim.map().width(), sim.map().height());
+    hash.build(reg, sim.map().geom());
     const auto found = hash.queryCircle(reg, 30.5, 30.5, 1.5);
     // 半径 1.5 覆盖 3×3 邻格 → 至多 9 兵（精确过滤）。全量暴力扫描要检查 2500 个。
     EXPECT_LE(found.size(), 25u);

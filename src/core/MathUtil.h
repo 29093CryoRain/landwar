@@ -27,11 +27,6 @@ double toScreenYf(double y, double blockSize, double mapHeight);
 int toScreenX(double x, double blockSize, int panelWidth);
 int toScreenY(double y, double blockSize, double mapHeight);
 
-// 原版 find_next_xy：网格穿越，返回先撞到的边界方向并更新位置/余长。
-// 返回值：0/2 = 水平边界(x1/x2)、1/3 = 垂直边界(y1/y2)；-2 = 走完本段；-3 = 撞角/两向相等（已反向）。
-// 注意：撞角时会把 angle 反向（+=π + 微小偏置，2026-08 用户定夺；原版为随机角）并返回 -3。
-int findNextXY(double& x, double& y, double& angle, double& remLength, Rng& rng);
-
 // 原版 point_distance_from_segment：点到线段（起点 startX,startY + 方向 angle + 长度 length）距离。
 double pointDistanceFromSegment(double px, double py, double startX, double startY,
                                 double angle, double length, double& closestX, double& closestY);

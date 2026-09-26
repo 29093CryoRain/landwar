@@ -15,9 +15,8 @@ namespace lw {
 class SpatialHash {
 public:
     // 重建桶索引：桶内为「有 Position+Collider 且非 Dead」的实体（即活兵）。
+    // 全密铺统一接收 TilingGeom（方/六/三/半正/Laves 同一条路径）。
     void build(entt::registry& reg, const TilingGeom& g);
-    // 兼容重载：正方形（旧签名；等价 build(reg, {Square, w, h})）。
-    void build(entt::registry& reg, int width, int height);
 
     // 圆查询：返回与 (x,y) 距离 < radius 的候选实体（精确过滤）。
     std::vector<entt::entity> queryCircle(const entt::registry& reg, double x, double y,

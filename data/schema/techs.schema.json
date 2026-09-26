@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Landwar techs.jsonc",
+  "description": "稀疏 JSONC 覆盖层：techs.csv 保存每个科技的 id/name/desc，本文件保存全局标量与各科技的 levels/preferenceUnits，按 id 与 CSV 行对应；合并后才是完整配置。",
   "type": "object",
   "additionalProperties": false,
   "patternProperties": {"^_": {}},
@@ -23,7 +24,7 @@
             "type": "object",
             "additionalProperties": false,
             "patternProperties": {"^_": {}},
-            "required": ["id", "name", "desc", "levels", "preferenceUnits"],
+            "required": ["id"],
             "properties": {
               "id": {"type": "string", "minLength": 1},
               "name": {"type": "string"},

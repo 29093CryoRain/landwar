@@ -565,23 +565,130 @@ TEST(Config, ShapeForHandlesNonContiguousVariants) {
 TEST(Config, CityShapesFileProvidesSquareHexTri) {
     // P1.2：square/hex/tri 形状表从 data/city_shapes.jsonc 加载，cells 为世界单位 U 偏移。
     const lw::Config cfg = lw::Config::loadFromJson("{}");
-    ASSERT_EQ(cfg.city.square.levels.size(), 5u);
-    ASSERT_EQ(cfg.city.square.shapes.size(), 5u);
-    ASSERT_GE(cfg.city.square.shapes[1].cells.size(), 2u);
-    EXPECT_NEAR(cfg.city.square.shapes[1].cells[1].dx, 0.0, 1e-12);
-    EXPECT_NEAR(cfg.city.square.shapes[1].cells[1].dy, 1.0, 1e-12);  // 1×2：第二格在下方
+    ASSERT_EQ(cfg.city.setFor(lw::TilingType::Square).levels.size(), 5u);
+    ASSERT_EQ(cfg.city.setFor(lw::TilingType::Square).shapes.size(), 5u);
+    ASSERT_GE(cfg.city.setFor(lw::TilingType::Square).shapes[1].cells.size(), 2u);
+    EXPECT_NEAR(cfg.city.setFor(lw::TilingType::Square).shapes[1].cells[1].dx, 0.0, 1e-12);
+    EXPECT_NEAR(cfg.city.setFor(lw::TilingType::Square).shapes[1].cells[1].dy, 1.0, 1e-12);  // 1×2：第二格在下方
 
-    ASSERT_EQ(cfg.city.hex.levels.size(), 6u);
-    ASSERT_GE(cfg.city.hex.shapes.size(), 6u);
-    ASSERT_GE(cfg.city.hex.shapes[1].cells.size(), 3u);
-    EXPECT_NEAR(cfg.city.hex.shapes[1].cells[1].dx, -0.5372849659117709, 1e-12);
-    EXPECT_NEAR(cfg.city.hex.shapes[1].cells[1].dy, -0.9306048591020997, 1e-12);
+    ASSERT_EQ(cfg.city.setFor(lw::TilingType::Hex).levels.size(), 6u);
+    ASSERT_GE(cfg.city.setFor(lw::TilingType::Hex).shapes.size(), 6u);
+    ASSERT_GE(cfg.city.setFor(lw::TilingType::Hex).shapes[1].cells.size(), 3u);
+    EXPECT_NEAR(cfg.city.setFor(lw::TilingType::Hex).shapes[1].cells[1].dx, -0.5372849659117709, 1e-12);
+    EXPECT_NEAR(cfg.city.setFor(lw::TilingType::Hex).shapes[1].cells[1].dy, -0.9306048591020997, 1e-12);
 
-    ASSERT_EQ(cfg.city.tri.levels.size(), 5u);
-    ASSERT_GE(cfg.city.tri.shapes.size(), 5u);
-    ASSERT_GE(cfg.city.tri.shapes[1].cells.size(), 2u);
-    EXPECT_NEAR(cfg.city.tri.shapes[1].cells[1].dx, 0.0, 1e-12);
-    EXPECT_NEAR(cfg.city.tri.shapes[1].cells[1].dy, -0.8773826753016616, 1e-12);
+    ASSERT_EQ(cfg.city.setFor(lw::TilingType::Tri).levels.size(), 5u);
+    ASSERT_GE(cfg.city.setFor(lw::TilingType::Tri).shapes.size(), 5u);
+    ASSERT_GE(cfg.city.setFor(lw::TilingType::Tri).shapes[1].cells.size(), 2u);
+    EXPECT_NEAR(cfg.city.setFor(lw::TilingType::Tri).shapes[1].cells[1].dx, 0.0, 1e-12);
+    EXPECT_NEAR(cfg.city.setFor(lw::TilingType::Tri).shapes[1].cells[1].dy, -0.8773826753016616, 1e-12);
+}
+
+
+// ---- CSV+JSONC 侧车（2026-09）----
+// 测试在系统临时目录搭一份最小配置：core config.jsonc 用 "{}"（其余分片缺失时回退
+// data/default/），只覆盖被测分片，避免依赖 data/ 下随时会调值的具体数值。
+bool writeTextFile(const std::filesystem::path& path, const std::string& text) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out.is_open()) return false;
+    out << text;
+    return out.good();
+}
+
+std::filesystem::path makeTempConfigDir(const std::string& name) {
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / name;
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    return dir;
+}
+
+TEST(Config, CsvSidecarMergesColumnsAndJsoncOverlay) {
+    const std::filesystem::path dir = makeTempConfigDir("landwar_test_csv_units");
+    ASSERT_TRUE(writeTextFile(dir / "config.jsonc", "{}"));
+    ASSERT_TRUE(writeTextFile(dir / "units.csv",
+                              "# units.csv\n"
+                              "type,cost,speedMult,sizeMult,bounceMult,visualRadius\n"
+                              "normal,111,1.0,1.0,1.0,12.0\n"
+                              "laser,222,0.6,1.8,1.0,20.0\n"));
+    // laser：jsonc 覆盖 CSV 的 cost，并补充独有字段；normal 只由 CSV 供数。
+    ASSERT_TRUE(writeTextFile(dir / "units.jsonc",
+                              "{ \"units\": [ { \"type\": \"laser\", \"cost\": 333, "
+                              "\"bulletCount\": 9, \"mountainEnterMult\": 2 } ] }"));
+    const lw::Config cfg = lw::Config::loadFromFile((dir / "config.jsonc").string());
+    std::filesystem::remove_all(dir);
+
+    const int normal = static_cast<int>(lw::ArmyType::normal);
+    const int laser = static_cast<int>(lw::ArmyType::laser);
+    const int vanguard = static_cast<int>(lw::ArmyType::vanguard);
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(normal)].cost, 111.0);   // 纯 CSV 列
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(normal)].speedMult, 1.0);
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(laser)].cost, 333.0);    // jsonc 覆盖优先
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(laser)].speedMult, 0.6); // 其余仍来自 CSV
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(laser)].mountainEnterMult, 2.0);
+    EXPECT_EQ(cfg.units[static_cast<size_t>(laser)].bulletCount, 9);
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(vanguard)].cost, 3.97);  // CSV 未列出 → 内置默认
+}
+
+TEST(Config, EmptyJsoncSidecarStillKeepsCsv) {
+    // "即使 jsonc 被搬空也保留"：空对象 jsonc 不阻断 CSV 供数。
+    const std::filesystem::path dir = makeTempConfigDir("landwar_test_csv_empty_jsonc");
+    ASSERT_TRUE(writeTextFile(dir / "config.jsonc", "{}"));
+    ASSERT_TRUE(writeTextFile(dir / "units.csv",
+                              "type,cost,speedMult,sizeMult,bounceMult,visualRadius\n"
+                              "normal,42,1.0,1.0,1.0,12.0\n"));
+    ASSERT_TRUE(writeTextFile(dir / "units.jsonc", "{ }  // 被搬空，仅作占位\n"));
+    const lw::Config cfg = lw::Config::loadFromFile((dir / "config.jsonc").string());
+    std::filesystem::remove_all(dir);
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(static_cast<int>(lw::ArmyType::normal))].cost,
+                     42.0);
+}
+
+TEST(Config, UnitFragmentWithoutCsvUsesJsoncOnly) {
+    // 旧式自定义配置（无 CSV）：该段由 jsonc 独占，保持向后兼容。
+    const std::filesystem::path dir = makeTempConfigDir("landwar_test_csv_missing");
+    ASSERT_TRUE(writeTextFile(dir / "config.jsonc", "{}"));
+    ASSERT_TRUE(writeTextFile(dir / "units.jsonc",
+                              "{ \"units\": [ { \"type\": \"normal\", \"cost\": 7, "
+                              "\"speedMult\": 1.0, \"sizeMult\": 1.0, \"bounceMult\": 1.0, "
+                              "\"visualRadius\": 12.0 } ] }"));
+    const lw::Config cfg = lw::Config::loadFromFile((dir / "config.jsonc").string());
+    std::filesystem::remove_all(dir);
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(static_cast<int>(lw::ArmyType::normal))].cost,
+                     7.0);
+    EXPECT_DOUBLE_EQ(cfg.units[static_cast<size_t>(static_cast<int>(lw::ArmyType::vanguard))].cost,
+                     3.97);  // 未覆盖 → 内置默认
+}
+
+TEST(Config, ValidateFileRequiresCsvSidecar) {
+    const std::filesystem::path dir = makeTempConfigDir("landwar_test_csv_validate");
+    ASSERT_TRUE(writeTextFile(dir / "config.jsonc", "{}"));
+    ASSERT_TRUE(writeTextFile(dir / "units.jsonc", "{ }"));
+    std::string error;
+    EXPECT_FALSE(lw::Config::validateFile((dir / "config.jsonc").string(), &error));
+    EXPECT_NE(error.find("units.csv"), std::string::npos) << error;
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Config, FactionCsvParsesBomCommentsAndQuotedFields) {
+    const std::filesystem::path dir = makeTempConfigDir("landwar_test_csv_factions");
+    ASSERT_TRUE(writeTextFile(dir / "config.jsonc", "{}"));
+    // UTF-8 BOM + 整行 '#' 注释 + 带逗号/双引号的引号字段 + '|' 分隔的多值列。
+    const std::string csv = std::string("\xEF\xBB\xBF") + "# comment line, ignored\n"
+                            "id,name,description,nameColors,colorR,colorG,colorB,"
+                            "secondaryR,secondaryG,secondaryB\n"
+                            "0,中立,\"a,b\",primary,96,96,96,191,191,191\n"
+                            "1,红,\"带\"\"引号\",primary|secondary,1,2,3,4,5,6\n";
+    ASSERT_TRUE(writeTextFile(dir / "factions.csv", csv));
+    ASSERT_TRUE(writeTextFile(dir / "factions.jsonc", "{ }"));
+    const lw::Config cfg = lw::Config::loadFromFile((dir / "config.jsonc").string());
+    std::filesystem::remove_all(dir);
+
+    EXPECT_EQ(cfg.factions[0].description, "a,b");
+    EXPECT_EQ(cfg.factions[1].description, "带\"引号");
+    EXPECT_EQ(cfg.factions[1].nameColors, (std::vector<std::string>{"primary", "secondary"}));
+    EXPECT_EQ(cfg.factions[1].color, (std::array<int, 3>{1, 2, 3}));
+    EXPECT_EQ(cfg.factions[1].secondary, (std::array<int, 3>{4, 5, 6}));
+    EXPECT_EQ(cfg.factions[0].color, (std::array<int, 3>{96, 96, 96}));
 }
 
 

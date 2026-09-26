@@ -84,10 +84,11 @@ TEST(MapEditorModel, CoastalMountainsAreReportedAndRemainMountainOnExport) {
 
 TEST(MapEditorModel, UnresolvedCityMarksRemainCityOnExport) {
     lw::Config::City cityConfig;
-    cityConfig.square.levels = {2.0};
-    cityConfig.square.shapes.resize(1);
-    cityConfig.square.shapes[0].cells = {{0.0, 0.0}, {1.0, 0.0}};
-    cityConfig.square.shapeLevelIndex = {0};
+    auto& squareSet = cityConfig.sets[static_cast<std::size_t>(lw::TilingType::Square)];
+    squareSet.levels = {2.0};
+    squareSet.shapes.resize(1);
+    squareSet.shapes[0].cells = {{0.0, 0.0}, {1.0, 0.0}};
+    squareSet.shapeLevelIndex = {0};
 
     lw::editor::MapEditorModel model(lw::TilingType::Square, 2, 2, cityConfig);
     ASSERT_TRUE(model.setCityMark(0));
@@ -273,7 +274,7 @@ TEST(MapEditorModel, HexCityResolutionUsesPeriodicBlockCoordinates) {
     lw::editor::MapEditorModel model(lw::TilingType::Hex, 24, 14, cfg.city);
     ASSERT_EQ(model.floodFillTerrain(0, lw::MapTerrain::Land), model.cellCount());
 
-    const auto* shape = cfg.city.hex.shapeFor(3.0, 0);
+    const auto* shape = cfg.city.setFor(lw::TilingType::Hex).shapeFor(3.0, 0);
     ASSERT_NE(shape, nullptr);
     const int anchor = model.geometry().cellIndexAt(6, 10, 0);
     const std::vector<int> expected = directShapeCells(model.geometry(), *shape, anchor);
@@ -299,7 +300,7 @@ TEST(MapEditorModel, TriCityResolutionUsesPeriodicBlockCoordinates) {
     lw::editor::MapEditorModel model(lw::TilingType::Tri, 24, 14, cfg.city);
     ASSERT_EQ(model.floodFillTerrain(0, lw::MapTerrain::Land), model.cellCount());
 
-    const auto* shape = cfg.city.tri.shapeFor(4.0, 1);
+    const auto* shape = cfg.city.setFor(lw::TilingType::Tri).shapeFor(4.0, 1);
     ASSERT_NE(shape, nullptr);
     const int anchor = model.geometry().cellIndexAt(6, 10, 0);
     const std::vector<int> expected = directShapeCells(model.geometry(), *shape, anchor);
@@ -333,7 +334,7 @@ TEST(MapEditorModel, TriShapeOrientationsUseExplicitVariants) {
     const int down = map.geom().cellIndexAt(6, 10, 1);
     EXPECT_TRUE(map.canPlaceCity(4.0, up));
     EXPECT_TRUE(map.canPlaceCity(4.0, down));
-    EXPECT_EQ(cfg.city.tri.variantCount(4.0), 2);
+    EXPECT_EQ(cfg.city.setFor(lw::TilingType::Tri).variantCount(4.0), 2);
 }
 
 }  // namespace

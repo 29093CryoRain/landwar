@@ -115,7 +115,7 @@ TEST(Stats, CombatMutualKillCredited) {
     SpawnSystem::spawnArmy(sim, 10.5, 10.5, 1, ArmyType::normal);
     SpawnSystem::spawnArmy(sim, 10.8, 10.5, 2, ArmyType::vanguard);
     auto ctx = MovementSystem::makeContext(sim);
-    ctx.spatialHash.build(ctx.registry, ctx.map.width(), ctx.map.height());
+    ctx.spatialHash.build(ctx.registry, ctx.map.geom());
     std::vector<entt::entity> armies;
     for (auto e : ctx.registry.view<comp::UnitType>()) armies.push_back(e);
     ASSERT_EQ(armies.size(), 2u);

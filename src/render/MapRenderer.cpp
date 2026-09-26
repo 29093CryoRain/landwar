@@ -416,16 +416,7 @@ void MapRenderer::drawBoundaryOutline(const Map& map) {
     Renderer r(ren_);
     const TilingGeom& g = map.geom();
     const int thick = 2;
-    if (g.type == TilingType::Square) {
-        const int x0 = cam_.toScreenXi(0.0), y0 = cam_.toScreenYi(0.0);
-        const int x1 = cam_.toScreenXi(static_cast<double>(map.width()));
-        const int y1 = cam_.toScreenYi(static_cast<double>(map.height()));
-        r.fillThickSegment(x0, y0, x1, y0, thick, outline);
-        r.fillThickSegment(x1, y0, x1, y1, thick, outline);
-        r.fillThickSegment(x1, y1, x0, y1, thick, outline);
-        r.fillThickSegment(x0, y1, x0, y0, thick, outline);
-        return;
-    }
+    // 全密铺统一：逐格找"对侧无邻格"的边（地图边界边）画粗线段。方/六/三/半正/Laves 同一条路径。
     const double vx0 = cam_.viewWorldX0(), vx1 = cam_.viewWorldX1();
     const double vy0 = cam_.viewWorldY0(), vy1 = cam_.viewWorldY1();
     int r0, r1, c0, c1;

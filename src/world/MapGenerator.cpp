@@ -144,8 +144,6 @@ void applyCoastElevationFalloff(std::vector<double>& height, bool forceCoast,
 }  // namespace
 
 // 前向声明（generate 分派用；实现见文件后部）。
-static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
-                           const Config::City& cityConfig, const Config::River::Gen& riverGen);
 static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
                           const Config::City& cityConfig, const Config::River::Gen& riverGen);
 
@@ -303,8 +301,7 @@ bool MapGenerator::generate(std::uint32_t seed, const MapGenParams& raw, MapDefi
                             const Config::City& cityConfig, const Config::River::Gen& riverGen) {
     const MapGenParams p = normalizedParams(raw);
     out = MapDefinition{};
-    if (p.tiling == TilingType::Square)
-        return generateSquare(out, seed, p, cityConfig, riverGen);
+    // 全密铺统一走同一生成器（方/六/三/半正/Laves）；square 的 chooseTableDomain 是恒等映射。
     return generateTiled(out, seed, p, cityConfig, riverGen);
 }
 
@@ -328,47 +325,9 @@ bool MapGenerator::generate(const std::string& path, std::uint32_t seed, const M
     return true;
 }
 
-// Square tiling terrain generation.
-static bool generateSquare(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
-                           const Config::City& cityConfig, const Config::River::Gen& riverGen) {
-    const int w = p.width, h = p.height;
-    Rng noiseRng(Rng::deriveSeed(seed, kStageNoise));
-    ValueNoise2D noise(noiseRng);
-    Rng riverRng(Rng::deriveSeed(seed, kStageRiver));
-    Rng cityRng(Rng::deriveSeed(seed, kStageCity));
-    const double baseCell = std::max(w, h) / 6.0;
-
-    // ① 海拔场。
-    std::vector<double> height(static_cast<size_t>(w) * h, 0.0);
-    std::vector<GradVec> gradVec(height.size());
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const size_t idx = static_cast<size_t>(y) * w + x;
-            height[idx] = noise.fbm(x / baseCell, y / baseCell);
-            double dx = 0.0, dy = 0.0;
-            noise.gradient(x / baseCell, y / baseCell, kGradientBaseStep, dx, dy);
-            gradVec[idx] = {dx, dy};
-        }
-    }
-    const TilingGeom squareGeom{TilingType::Square, w, h};
-    // 河流专用梯度（二期反馈：只在河流生成里用更大采样面积；山脉仍用上面的 gradVec）。
-    std::vector<GradVec> riverGradVec;
-    if (p.riverDensity > 0.0) {
-        riverGradVec.resize(height.size());
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                double dx = 0.0, dy = 0.0;
-                noise.gradient(x / baseCell, y / baseCell, riverSampleStep(riverGen), dx, dy);
-                riverGradVec[static_cast<size_t>(y) * w + x] = {dx, dy};
-            }
-    }
-    return finishGeneratedTerrain(out, p, cityConfig, riverGen, squareGeom, height, gradVec,
-                                  riverGradVec, false, riverRng, cityRng);
-}
-
-// 六/三角密铺：海拔场每格中心**直接采样 fbm**（最朴素原始版，无任何平滑/平均/插值
-// 后处理；2026-08-15 用户拍板回退，先以纯净基线定位"横纹/同向三角"现象），其余流程与
-// 方形一致（分位数切海陆 + 内陆山 + 城权重），输出 native terrain records。
+// 地形生成（全密铺统一；方/六/三/半正/Laves 同一条路径）：海拔场按**格中心**直接采样 fbm
+//（无任何平滑/平均/插值后处理；2026-08-15 用户拍板回退，先以纯净基线定位"横纹/同向三角"现象），
+// 后续统一为分位数切海陆 + 内陆山 + 城权重 + 河，输出 native terrain records。
 static bool generateTiled(MapDefinition& out, std::uint32_t seed, const MapGenParams& p,
                           const Config::City& cityConfig, const Config::River::Gen& riverGen) {
     const TilingGeom g{p.tiling, p.width, p.height};

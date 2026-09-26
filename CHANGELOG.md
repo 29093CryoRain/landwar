@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### 新功能
+
+- **数据格式：`units`/`factions`/`techs` 改为 CSV+JSONC 混合**。把这三张记录表里“几乎必填且内容单一”
+  的列外置为 `data/units.csv`、`data/factions.csv`、`data/techs.csv`（兵种 `type/cost/speedMult/
+  sizeMult/bounceMult/visualRadius`、势力 `id/name/description/nameColors/color/secondary`、
+  科技 `id/name/desc`），同名 `.jsonc` 只保留各记录的独有/可选字段（`buffs`、`levels`、`bullet*` 等），
+  按 `type`/`id` 连接键叠加；即使某个 `.jsonc` 被搬空也继续保留。
+  CSV 支持 `#` 整行注释、UTF-8 BOM、双引号字段与 `|` 分隔的多值列；颜色拆成 `colorR/colorG/colorB` 等列。
+  `--validate-config` 在分片存在时要求同目录 CSV 成对存在；`data/default/` 回退副本同步带上 CSV。
+
 ## [v0.115] - 2026-09-25
 
 ### 修复

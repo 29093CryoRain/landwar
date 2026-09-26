@@ -40,8 +40,6 @@ struct City {
 
 // 单个网格单元（原版 Map 类）。
 struct MapCell {
-    int x = 0;
-    int y = 0;
     int belongi = 0;    // 归属势力 id，0 = 中立
     bool land = false;  // false = 海, true = 陆
     bool mountain = false;  // 山（P5；陆地子集：land=true 且 mountain=true）
@@ -137,7 +135,7 @@ public:
                                   Rng& rng);
     // 兼容重载：正方形等级集（旧签名，测试用）。
     static double sampleCityLevel(const Config::City& cc, Rng& rng) {
-        return sampleCityLevel(cc, cc.square, rng);
+        return sampleCityLevel(cc, cc.setFor(TilingType::Square), rng);
     }
     int cityCount() const { return static_cast<int>(cities_.size()); }
     const std::vector<City>& cities() const { return cities_; }

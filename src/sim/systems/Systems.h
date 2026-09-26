@@ -36,21 +36,8 @@ struct MoveContext {
     MoveProfile* moveProfile = nullptr;
 };
 
-// 征服 (x,y) 归势力 factionId（经 MoveContext 转 ConquerContext）。
-// P11：unitType = 负责的兵种（>0 才记录占领 credit；移动征服=该兵、特效征服=Creator.unitType）。
-inline void conquerAt(MoveContext& ctx, int x, int y, int factionId, int unitType = -1) {
-    ConquerContext cc{ctx.map, ctx.factions, ctx.rng, ctx.pendingSpawns,
-                      /*freeArmyEnabled=*/true,
-                      /*tick=*/static_cast<std::uint64_t>(ctx.ttime)};
-    // P11：统计"占领"须界内/陆地/归属实际变更（前置判断，conquer 后 belongi 已改）。
-    const bool landChanged =
-        x >= 0 && y >= 0 && x < ctx.map.width() && y < ctx.map.height()
-        && ctx.map.at(x, y).land && ctx.map.at(x, y).belongi != factionId;
-    ctx.factions[static_cast<size_t>(factionId)].conquer(cc, x, y);
-    if (ctx.stats && unitType >= 0 && landChanged) ctx.stats->recordLand(factionId, unitType);
-}
-
-// P12：按格下标征服（密铺路径；六/三角格 ≠ floor 坐标，征服统一走下标）。
+// 按格下标征服（全密铺统一；格坐标 ≠ floor(x,y)，故一律走下标）。
+// unitType = 负责的兵种（>=0 才记录占领 credit；移动征服=该兵、特效征服=Creator.unitType）。
 inline void conquerAtIndex(MoveContext& ctx, int index, int factionId, int unitType = -1) {
     ConquerContext cc{ctx.map, ctx.factions, ctx.rng, ctx.pendingSpawns,
                       /*freeArmyEnabled=*/true,

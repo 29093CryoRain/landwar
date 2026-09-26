@@ -31,6 +31,9 @@ inline const std::string kFallbackConfigPath = "data/default/config.jsonc";
 inline const std::string kConfigDefaultDir = "data/default";
 inline const std::string kConfigSchemaDir = "data/schema";
 // Config 长段（由 Config::loadFromFile 按核心配置所在目录加载）。
+// 2026-09 起 units/factions/techs 三个"记录表"分片采用 CSV+JSONC 混合：
+//   units.csv / factions.csv / techs.csv 保存必填单值列，同名 .jsonc 是稀疏覆盖层；
+//   两者必须同目录成对出现（A=data/ 与 B=data/default/ 各一份）。
 inline const std::string kRenderConfigPath = "data/render.jsonc";
 inline const std::string kTechConfigPath = "data/techs.jsonc";
 inline const std::string kFactionsConfigPath = "data/factions.jsonc";

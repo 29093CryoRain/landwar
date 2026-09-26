@@ -71,16 +71,6 @@ double Map::sampleCityLevel(const Config::City& cc, const Config::City::TilingSe
 
 void Map::clear() {
     cells_.assign(static_cast<size_t>(cellCount()), MapCell{});
-    for (int idx = 0; idx < cellCount(); ++idx) {
-        MapCell& c = cells_[static_cast<size_t>(idx)];
-        c = MapCell{};
-        // P12：格坐标语义 = (列, 行)。方：(x,y)；六：(c,r)；三：(i 对, r 行)；
-        // 半正/Laves：表驱动 (r*cols+c)*B+b。
-        int rr, cc, bb;
-        geom_.indexToRowCol(idx, rr, cc, bb);
-        c.x = cc;
-        c.y = rr;
-    }
     capitalX_.clear();
     capitalY_.clear();
     capitalB_.clear();
@@ -313,7 +303,7 @@ void Map::finishTerrain(const std::vector<CellChannels>& ch, Rng& rng) {
     };
     auto info = levelInfos(set);
     if (info.empty()) return;
-    const auto squareInfo = levelInfos(cityConfig_.square);
+    const auto squareInfo = levelInfos(cityConfig_.sets[static_cast<size_t>(TilingType::Square)]);
     double eTiling = 0.0;
     double eSquare = 0.0;
     for (const auto& [lv, inf] : info) eTiling += inf.prod;
@@ -650,50 +640,33 @@ void Map::cityCenter(const City& c, double& wx, double& wy) const {
     }
 }
 
-// P12：重算全部城市的 baseIndex/几何中心（快照读档后调用；方 = baseX+w/2 同旧式）。
+// P12：重算城市的 baseIndex/几何中心/AABB（全密铺统一；**baseIndex 为权威**，baseX/baseY 为派生）。
+// addCity 与快照读档共用同一规则。
 void Map::updateCityGeometry(City& c) {
-        if (geom_.type == TilingType::Square) {
-            c.baseIndex = c.baseY * geom_.cols + c.baseX;
-            c.w = 1;
-            c.h = 1;
-            const Config::City::Shape* sh = cityConfig_.shapeFor(geom_.type, c.level);
-            if (sh) {
-                double minX = 0.0, maxX = 0.0, minY = 0.0, maxY = 0.0;
-                for (const auto& sc : sh->cells) {
-                    minX = std::min(minX, sc.dx);
-                    maxX = std::max(maxX, sc.dx);
-                    minY = std::min(minY, sc.dy);
-                    maxY = std::max(maxY, sc.dy);
-                }
-                c.w = std::max(1, static_cast<int>(std::lround(maxX - minX)) + 1);
-                c.h = std::max(1, static_cast<int>(std::lround(maxY - minY)) + 1);
-            }
-        } else {
-            int row = 0, col = 0, base = 0;
-            geom_.indexToRowCol(c.baseIndex, row, col, base);
-            c.baseX = col;
-            c.baseY = row;
-        }
-        double cx0, cy0;
-        cityCenter(c, cx0, cy0);
-        c.centerX_ = cx0;
-        c.centerY_ = cy0;
-        // AABB（显示用；六/三取形状格中心的世界包围盒折算列/行）。
-        const std::vector<int> cells = cityCells(c);
-        if (!cells.empty() && geom_.type != TilingType::Square) {
-            double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
-            for (int idx : cells) {
-                if (idx < 0) continue;
-                double ccx, ccy;
-                cellCenter(idx, ccx, ccy);
-                minX = std::min(minX, ccx);
-                maxX = std::max(maxX, ccx);
-                minY = std::min(minY, ccy);
-                maxY = std::max(maxY, ccy);
-            }
-            c.w = std::max(1, static_cast<int>(std::lround((maxX - minX) + 1.0)));
-            c.h = std::max(1, static_cast<int>(std::lround((maxY - minY) + 1.0)));
-        }
+    int row = 0, col = 0, base = 0;
+    geom_.indexToRowCol(c.baseIndex, row, col, base);
+    c.baseX = col;
+    c.baseY = row;
+    double cx0, cy0;
+    cityCenter(c, cx0, cy0);
+    c.centerX_ = cx0;
+    c.centerY_ = cy0;
+    // AABB（显示用）：形状格中心的世界包围盒 + 1 格。方/六/三/半正/Laves 同一条路径。
+    const std::vector<int> cells = cityCells(c);
+    double minX = 1e18, maxX = -1e18, minY = 1e18, maxY = -1e18;
+    for (int idx : cells) {
+        if (idx < 0) continue;
+        double ccx, ccy;
+        cellCenter(idx, ccx, ccy);
+        minX = std::min(minX, ccx);
+        maxX = std::max(maxX, ccx);
+        minY = std::min(minY, ccy);
+        maxY = std::max(maxY, ccy);
+    }
+    if (minX <= maxX && minY <= maxY) {  // 无有效格（异常）→ 保留原 w/h
+        c.w = std::max(1, static_cast<int>(std::lround((maxX - minX) + 1.0)));
+        c.h = std::max(1, static_cast<int>(std::lround((maxY - minY) + 1.0)));
+    }
 }
 
 void Map::recomputeCityGeometry() {

@@ -1,0 +1,16 @@
+# factions.csv — 势力"几乎必填且内容单一"的列（2026-09 从 factions.jsonc 外置为 CSV+JSONC 混合格式）。
+# id 为连接键，必须从 0 开始连续；name/description 用于菜单、消息和排行榜。
+# nameColors 用 '|' 分隔（primary/secondary，不足部分运行时用 primary 补齐）；颜色列为 0..255 整数。
+# 空单元格 = 该键缺省（退回 factions.jsonc 或内置默认）。
+# 可选字段（unitPreference、buffs）仍写在 factions.jsonc；导出时本文件与 factions.jsonc 一并复制到 default/。
+id,name,description,nameColors,colorR,colorG,colorB,secondaryR,secondaryG,secondaryB
+0,中立,不参与战争的中立土地与城市。,primary,96,96,96,191,191,191
+1,红,偏好普通兵，擅长稳定推进。,primary,255,0,0,191,191,191
+2,黄,均衡使用激光、炸弹和地雷。,primary,255,255,0,191,191,191
+3,青,偏好先锋，拥有更快的全军速度。,primary,0,255,255,191,191,191
+4,蓝,偏好开拓，适合扩张和山地作战。,primary,0,85,255,191,191,191
+5,绿,偏好激光，拥有更强的激光火力。,primary,0,255,0,191,191,191
+6,橙,偏好炸弹，爆炸范围更大。,primary,255,127,0,191,191,191
+7,紫,偏好地雷，地雷爆炸范围更大。,primary,127,0,255,191,191,191
+8,品红,攻占城市时有机会获得免费兵力。,primary|primary,255,0,255,191,191,191
+9,测试,用于debug,primary|secondary,255,204,181,168,255,89

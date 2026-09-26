@@ -342,7 +342,7 @@ TEST(Combat, TwoEnemiesCollideBothDie) {
             w.map.at(x, y).land = true;
     auto a = addArmy(w, 5.0, 5.0, 1, ArmyType::normal, 0.0, 0.3, true);
     auto b = addArmy(w, 5.0, 5.0, 2, ArmyType::normal, 0.0, 0.3, true);
-    w.hash.build(w.reg, w.map.width(), w.map.height());
+    w.hash.build(w.reg, w.map.geom());
     moveOnce(w, a);
     EXPECT_TRUE(w.reg.all_of<comp::Dead>(a));
     EXPECT_TRUE(w.reg.all_of<comp::Dead>(b));  // 双方同归于尽
@@ -358,7 +358,7 @@ TEST(Combat, SameFactionDoesNotCollide) {
             w.map.at(x, y).land = true;
     auto a = addArmy(w, 5.0, 5.0, 1, ArmyType::normal, 0.0, 0.3, true);
     auto b = addArmy(w, 5.0, 5.0, 1, ArmyType::normal, 0.0, 0.3, true);  // 同势力
-    w.hash.build(w.reg, w.map.width(), w.map.height());
+    w.hash.build(w.reg, w.map.geom());
     moveOnce(w, a);
     EXPECT_FALSE(w.reg.all_of<comp::Dead>(a));
     EXPECT_FALSE(w.reg.all_of<comp::Dead>(b));

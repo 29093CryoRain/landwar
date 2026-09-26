@@ -50,7 +50,10 @@ Linux 构建和测试同样由 GitHub Actions 自动执行。完整依赖、版�
 
 ## 配置与扩展
 
-`data/` 中的 JSONC 文件可以调整游戏规则。可以在 `data/factions.jsonc` 中追加连续 ID 的势力
+`data/` 中的 JSONC / CSV 文件可以调整游戏规则。兵种、势力、科技采用 **CSV+JSONC 混合**：
+必填单值列在 `data/units.csv`、`data/factions.csv`、`data/techs.csv`，独有/可选字段在对应的
+`.jsonc` 覆盖层（按 `type`/`id` 合并）。可以在 `data/factions.csv` 追加连续 ID 的势力
+（可选字段写进 `data/factions.jsonc`）。
 
 ID 0 保留给中立势力，ID 必须从 0 开始连续。修改后运行：
 
