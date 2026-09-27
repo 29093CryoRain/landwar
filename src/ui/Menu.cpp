@@ -226,6 +226,25 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
                        }),
         options.factions.end());
 
+    // 联盟归一化：成员必须是本局已选势力，且一个势力只保留在最先出现的联盟里
+    //（Options::validate 会拒绝非法组合，此处把菜单可产生的最小合法态修好）。
+    {
+        std::vector<bool> inGame(static_cast<size_t>(factionCount + 1), false);
+        for (const auto& slot : options.factions)
+            inGame[static_cast<size_t>(slot.factionId)] = true;
+        std::vector<bool> used(static_cast<size_t>(factionCount + 1), false);
+        for (auto& group : options.alliances) {
+            std::vector<int> kept;
+            for (int fid : group) {
+                if (fid <= 0 || fid > factionCount || !inGame[static_cast<size_t>(fid)]) continue;
+                if (used[static_cast<size_t>(fid)]) continue;
+                used[static_cast<size_t>(fid)] = true;
+                kept.push_back(fid);
+            }
+            group = std::move(kept);
+        }
+    }
+
     const char* aiItems[] = {"默认AI", "玩家"};
     // ---- 已选势力列表：条目顺序就是加入顺序 ----
     char buf[96];
@@ -335,6 +354,67 @@ void drawMainScreen(MenuState& st, Options& options, const Config& cfg,
         if (ImGui::Button("取消", ImVec2(actionWidth, 0.0f))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+
+    ImGui::Separator();
+    // ---- 联盟配置（《兵运动与盟友系统开发文档》§5.3）：列表式，一个联盟一行； ----
+    // 成员互为盟友；未加入任何联盟的势力与所有人敌对。成员只从"本局已选且未入盟"里挑。
+    ImGui::TextUnformatted("联盟配置");
+    ImGui::TextUnformatted("（同联盟互为盟友；未加入联盟的势力与所有人敌对）");
+    const auto factionInAlliance = [&](int id) {
+        for (const auto& group : options.alliances)
+            if (std::find(group.begin(), group.end(), id) != group.end()) return true;
+        return false;
+    };
+    ImGui::BeginChild("##alliance-list", ImVec2(0.0f, scaled(120.0f, uiScale)), true);
+    for (size_t g = 0; g < options.alliances.size();) {
+        ImGui::PushID(static_cast<int>(g));
+        auto& group = options.alliances[g];
+        std::snprintf(buf, sizeof(buf), "联盟 %zu", g + 1);
+        ImGui::TextUnformatted(buf);
+        ImGui::SameLine();
+        for (size_t m = 0; m < group.size();) {
+            ImGui::PushID(static_cast<int>(m));
+            const int fid = group[m];
+            if (fid > 0 && fid <= factionCount)
+                drawFactionName(cfg.factions[static_cast<size_t>(fid)]);
+            else
+                ImGui::TextUnformatted("?");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("×##remove-member")) {
+                group.erase(group.begin() + static_cast<std::ptrdiff_t>(m));
+                ImGui::PopID();
+                continue;
+            }
+            ImGui::PopID();
+            ImGui::SameLine();
+            ++m;
+        }
+        if (ImGui::Button("添加势力##add-member")) ImGui::OpenPopup("选择联盟势力");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("移除联盟")) {
+            options.alliances.erase(options.alliances.begin() + static_cast<std::ptrdiff_t>(g));
+            ImGui::PopID();
+            continue;
+        }
+        if (ImGui::BeginPopup("选择联盟势力")) {
+            ImGui::TextUnformatted("选择势力");
+            bool any = false;
+            for (const auto& slot : options.factions) {
+                const int fid = slot.factionId;
+                if (fid <= 0 || fid > factionCount || factionInAlliance(fid)) continue;
+                any = true;
+                std::snprintf(buf, sizeof(buf), "##pick-ally-%d", fid);
+                if (factionNameSelectable(cfg.factions[static_cast<size_t>(fid)], false, buf))
+                    group.push_back(fid);
+            }
+            if (!any) ImGui::TextUnformatted("没有可加入的势力");
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+        ++g;
+    }
+    ImGui::EndChild();
+    if (ImGui::Button("增加联盟", ImVec2(-1.0f, 0.0f))) options.alliances.emplace_back();
 
     ImGui::Separator();
     std::string err;
