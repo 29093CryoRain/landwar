@@ -146,9 +146,10 @@ struct Config {
         double leakPerCell = 0.03;
         // η：容忍裕度（次/格），与 c 同量纲；判据有效泄漏率为 c+η。默认取 0.1c。
         double tolerancePerCell = 0.003;
-        // h：CUSUM 报警阈值（证据量）。越小放行越快、越容易（见 .docs/包围检测.md §5 的
-        // 误报-延迟权衡）。默认 3：40 格封闭地块约 2–3 s 内放行；调回 5 会更"像墙"但更慢。
-        double alarmThreshold = 3.0;
+        // h：CUSUM 报警阈值（证据量）。判据松紧的主旋钮：误放行概率 ≈ (r/(c+η))^h（几何下降），
+        // 放行延迟 ≈ h/(r−c−η)（线性上升）。默认 4：40 格封闭地块约 3.4 s 放行；越大越精确、
+        // 越慢（5 约 4.4 s、8 约 6.5 s），越小越快越易误放行（3 约 2.6 s）。
+        double alarmThreshold = 4.0;
     } allyGate;
 
     // 兵种基础定义（下标 = ArmyType）。
