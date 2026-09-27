@@ -74,6 +74,38 @@ void moveOnce(TestWorld& w, entt::entity e) {
     MovementSystem::moveArmy(ctx, e);
 }
 
+// 把 w 布置成"己方 8×5=40 格地块被盟友领土完全包围"（须用 TestWorld(16,14) 构造）；
+// 闸门端到端测试共用同一场景。
+void setupEnclosedFortyCellPocket(TestWorld& w) {
+    constexpr int kCols = 16, kRows = 14;
+    constexpr int kOwnX0 = 4, kOwnY0 = 4, kOwnW = 8, kOwnH = 5;
+    for (int y = 0; y < kRows; ++y)
+        for (int x = 0; x < kCols; ++x) {
+            lwtest::atXY(w.map, x, y).land = true;
+            lwtest::atXY(w.map, x, y).belongi = 2;  // 全图盟友领土：把己方地块四面完全包住
+        }
+    for (int y = kOwnY0; y < kOwnY0 + kOwnH; ++y)
+        for (int x = kOwnX0; x < kOwnX0 + kOwnW; ++x) lwtest::atXY(w.map, x, y).belongi = 1;
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    w.factions[1].landCount = kOwnW * kOwnH;
+    w.factions[2].landCount = kCols * kRows - kOwnW * kOwnH;
+}
+
+// 从当前位置起推进，返回兵离开己方地块（进入盟友领土）的 tick；maxTicks 内没离开 → -1。
+// alarmed（可选）记录期间闸门统计量是否曾达阈值。
+int tickUntilLeavesOwnLand(TestWorld& w, entt::entity e, int maxTicks, bool* alarmed = nullptr) {
+    for (int i = 0; i < maxTicks; ++i) {
+        moveOnce(w, e);
+        if (alarmed && w.reg.get<comp::AllyGate>(e).cusum >= w.cfg.allyGate.alarmThreshold)
+            *alarmed = true;
+        const auto& p = w.reg.get<comp::Position>(e);
+        const int cell = w.map.geom().worldToCell(p.x, p.y);
+        if (cell >= 0 && w.map.atIndex(cell).belongi != 1) return i + 1;
+    }
+    return -1;
+}
+
 // ---- Spawn ----
 
 TEST(Spawn, ArmyFieldsCorrect) {
@@ -550,42 +582,40 @@ TEST(Movement, AllyGateIgnoresNonBorderCrossings) {
 
 // 端到端：己方 40 格地块被盟友领土完全包围 → 兵必须在有限时间内借道通行（不再永久滞留）。
 TEST(Movement, AllyGateFreesEnclosedFortyCellRegion) {
-    constexpr int kCols = 16, kRows = 14;
-    constexpr int kOwnX0 = 4, kOwnY0 = 4, kOwnW = 8, kOwnH = 5;  // 己方 8×5 = 40 格
-    TestWorld w(kCols, kRows);
-    for (int y = 0; y < kRows; ++y)
-        for (int x = 0; x < kCols; ++x) {
-            lwtest::atXY(w.map, x, y).land = true;
-            lwtest::atXY(w.map, x, y).belongi = 2;  // 全图盟友领土：把己方地块四面完全包住
-        }
-    for (int y = kOwnY0; y < kOwnY0 + kOwnH; ++y)
-        for (int x = kOwnX0; x < kOwnX0 + kOwnW; ++x) lwtest::atXY(w.map, x, y).belongi = 1;
-    w.factions[1].allianceId = 0;
-    w.factions[2].allianceId = 0;
-    w.factions[1].landCount = kOwnW * kOwnH;
-    w.factions[2].landCount = kCols * kRows - kOwnW * kOwnH;
-    // 从地块内部随机相位出发（非边界格，且避开格心对称轨道）。
+    TestWorld w(16, 14);
+    setupEnclosedFortyCellPocket(w);
+    constexpr int kOwnX0 = 4, kOwnY0 = 4, kOwnW = 8, kOwnH = 5;
+    // 从地块内部非对称相位出发（避开格心对称轨道）。
     auto e = addArmy(w, kOwnX0 + kOwnW * 0.37, kOwnY0 + kOwnH * 0.61, 1, ArmyType::normal, 0.3,
                      0.15, true);
 
     bool alarmed = false;
-    int escapeTick = -1;
-    for (int i = 0; i < 3600; ++i) {  // 硬上界 60 s @60 tick：超时即视为"滞留"
-        moveOnce(w, e);
-        if (w.reg.get<comp::AllyGate>(e).cusum >= w.cfg.allyGate.alarmThreshold) alarmed = true;
-        const auto& p = w.reg.get<comp::Position>(e);
-        const int cell = w.map.geom().worldToCell(p.x, p.y);
-        if (cell >= 0 && w.map.atIndex(cell).belongi != 1) {
-            escapeTick = i + 1;
-            break;
-        }
-    }
+    // 硬上界 3600 tick = 60 s @60 tick：超时即视为"滞留"。
+    const int escapeTick = tickUntilLeavesOwnLand(w, e, 3600, &alarmed);
     EXPECT_TRUE(alarmed);        // 闸门确实报警（而不是从顶点漏出去）
     EXPECT_GT(escapeTick, 0);    // 有限时间内通行
     EXPECT_LE(escapeTick, 600);  // 且远快于"永久滞留"（10 s @60 tick）
     // 借道不征服：盟友领土归属不变。
     EXPECT_EQ(lwtest::atXY(w.map, kOwnX0 - 1, kOwnY0).belongi, 2);
     EXPECT_EQ(w.factions[1].landCount, kOwnW * kOwnH);
+}
+
+// 判据对兵速自适应（同一场景、不同兵速）：脱困的**路程**相同，时间 ∝ 1/速度。
+// 覆盖普通兵 0.15、先锋 0.3、以及更慢的 0.075/0.09（0.6×）与更快的 0.45 —— 也即
+// "未来兵种速度可变"时的行为：判据按每格尝试次数计，速度只改变用时，不改变是否/何时（按路程）放行。
+TEST(Movement, AllyGateReleaseDistanceIndependentOfArmySpeed) {
+    double refDist = -1.0;
+    for (double speed : {0.075, 0.09, 0.15, 0.30, 0.45}) {
+        TestWorld w(16, 14);
+        setupEnclosedFortyCellPocket(w);
+        auto e = addArmy(w, 4.0 + 8 * 0.37, 4.0 + 5 * 0.61, 1, ArmyType::normal, 0.3, speed, true);
+        // 最慢 0.075 格/tick 时路程 ~30 格 → 约 420 tick，给 10 倍余量。
+        const int escapeTick = tickUntilLeavesOwnLand(w, e, 40000);
+        ASSERT_GT(escapeTick, 0) << "speed=" << speed;
+        const double distance = escapeTick * speed;  // 近似行进路程（判据的"每格"口径）
+        if (refDist < 0.0) refDist = distance;
+        EXPECT_NEAR(distance, refDist, 1.0) << "speed=" << speed;  // 各路速度下路程一致
+    }
 }
 
 // 非盟友边界（敌方领土的反弹）不喂养闸门。
