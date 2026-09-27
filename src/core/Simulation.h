@@ -25,24 +25,27 @@
 namespace lw {
 
 // 游戏事件（开发计划 P4，思路 6.0.5）：重大事件通用通道。
+// **结构化、不含文案**：模拟核心只发 kind + 结构化字段，展示文案（中文、时间前缀、势力名分段）
+// 由 UI 层组装（`ui::formatGameEvent`，见 .docs/工程规范.md「展示文本不进模拟核心」）——
+// 势力名以 id 传递，渲染端按 id 画名字，不存在"在文案里找名字"的字符串匹配。
 // 纯展示：不进快照（与 PlayerIntent 同理）；Application 每帧 takeEvents() → MessagePanel。
 enum class GameEventKind {
-    FactionAnnihilated,  // 势力灭亡（城市+兵力+特效全灭）
-    Unification,         // 统一（只剩一个 alive 势力，或剩余 alive 同属一个联盟）
-    TechAcquired,        // 取得科技（P8）
-    CapitalLost,         // 正式首都沦陷（P15：整城易主含首都 → 发消息）
-    Custom,              // 自定义
+    FactionAnnihilated,  // 势力灭亡（城市+兵力+特效全灭）：factionId = 灭亡势力
+    Unification,         // 统一：factionId = 统一者（联盟统一 = 首个存活成员）、
+                         // data = allianceId（-1 = 单势力统一）、factionIds = 全部存活成员
+    TechAcquired,        // 取得科技（P8）：factionId = 取得方、data = 科技下标、level = 升级后等级
+    CapitalLost,         // 正式首都沦陷（P15：整城易主含首都）：factionId = 沦陷方
+    Custom,              // 自定义：literal 原样展示（不做势力名着色）
 };
 
 struct GameEvent {
     GameEventKind kind = GameEventKind::Custom;
-    int factionId = 0;      // 相关势力（TechAcquired 为取得方）
-    int data = 0;           // 附加量（如科技 id / 等级）
-    std::string text;       // 组装好的文案（渲染层直接显示）
-    std::uint64_t tick = 0; // 产生时的逻辑帧
-    // 文案中需要按势力色着色的势力名集合（空 = 只着色 factionId）。一条消息含多个势力名时用
-    // （目前仅"联盟 N（A、B）统一天下"）；消息通道只读，进不了快照。
-    std::vector<int> highlightFactionIds;
+    int factionId = 0;            // 主体势力（见各 kind 注释）
+    int data = 0;                 // 附加量：Unification = allianceId；TechAcquired = 科技下标
+    int level = 0;                // 附加量：TechAcquired = 升级后的等级
+    std::vector<int> factionIds;  // Unification：全部存活成员（含 factionId，确定性顺序）
+    std::string literal;          // 仅 Custom：原样展示文本
+    std::uint64_t tick = 0;       // 产生时的逻辑帧
 };
 
 // 玩家产兵意图（P2）：外部输入，不消耗 Rng、不进快照。

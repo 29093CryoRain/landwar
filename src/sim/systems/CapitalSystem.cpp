@@ -50,10 +50,11 @@ void CapitalSystem::update(Simulation& sim) {
                 cs.capitalCityId = -1;
                 cs.lostTick = now;
                 cs.immediateRelocate = false;
-                sim.pushEvent(GameEvent{GameEventKind::CapitalLost, fid, 0,
-                                        formatEventTime(now, cfg.sim.tickRate) + " 势力 "
-                                             + f.name + " 的首都被攻破",
-                                        now, {}});
+                GameEvent capitalLost;
+                capitalLost.kind = GameEventKind::CapitalLost;
+                capitalLost.factionId = fid;
+                capitalLost.tick = now;
+                sim.pushEvent(std::move(capitalLost));
             }
             continue;
         }

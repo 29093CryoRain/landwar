@@ -87,46 +87,4 @@ bool factionNameSelectable(const Config::Faction& faction, bool selected, const 
     return ImGui::InvisibleButton(id, ImVec2(width, height));
 }
 
-void drawTextWithFactionNames(const Simulation& sim, const std::vector<int>& factionIds,
-                              const std::string& text, const ImVec4& base) {
-    std::vector<TextSeg> segments;
-    const auto appendBase = [&](std::size_t begin, std::size_t end) {
-        if (end > begin) segments.push_back({text.substr(begin, end - begin), base});
-    };
-    // 从左到右扫描：当前位置能匹配某个待着色势力名 → 输出该名的逐字颜色并跳过；
-    // 否则输出一个 UTF-8 字符的 base 段。同位置多个名字可匹配时取最长（防止短名截断长名）。
-    std::size_t plainBegin = 0;
-    std::size_t pos = 0;
-    while (pos < text.size()) {
-        int matched = 0;
-        std::size_t matchedLen = 0;
-        for (int fid : factionIds) {
-            if (fid < 1 || fid >= sim.factionCount()) continue;
-            const std::string& name = sim.faction(fid).name;
-            if (name.empty() || name.size() <= matchedLen) continue;
-            if (text.compare(pos, name.size(), name) == 0) {
-                matched = fid;
-                matchedLen = name.size();
-            }
-        }
-        if (matched == 0) {
-            pos += utf8CharLength(text, pos);
-            continue;
-        }
-        appendBase(plainBegin, pos);
-        std::vector<TextSeg> nameSegments =
-            factionNameSegments(sim.config().factions[static_cast<std::size_t>(matched)]);
-        segments.insert(segments.end(), nameSegments.begin(), nameSegments.end());
-        pos += matchedLen;
-        plainBegin = pos;
-    }
-    appendBase(plainBegin, text.size());
-    drawSegmentedText(segments);
-}
-
-void drawTextWithFactionName(const Simulation& sim, int factionId, const std::string& text,
-                             const ImVec4& base) {
-    drawTextWithFactionNames(sim, {factionId}, text, base);
-}
-
 }  // namespace lw::ui

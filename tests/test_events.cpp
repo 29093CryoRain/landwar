@@ -1,6 +1,6 @@
 // test_events.cpp — 消息系统单测（开发计划 P4）。
 // 事件通道（takeEvents 排空）、灭亡检测（含特效/兵残留不误报）、统一检测（恰一次）、
-// 事件不进快照；MessageLog（过期/上限/渐隐 alpha，纯逻辑可单测）。
+// 事件不进快照；结构化事件 → 消息文本段组装（MessageFormat）；MessageLog（上限/留存，纯逻辑）。
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -13,6 +13,7 @@
 #include "replay/Snapshot.h"
 #include "sim/components.h"
 #include "sim/systems/SpawnSystem.h"
+#include "ui/panels/MessageFormat.h"
 #include "ui/panels/MessageLog.h"
 #include "TestUtil.h"
 
@@ -32,18 +33,39 @@ void killAllBut(Simulation& sim, std::initializer_list<int> keep) {
     }
 }
 
+// 把消息段拍平成"可见文本"（势力名段按 sim 里的名字展开），便于断言文案；
+// "哪些段是势力名"另用 factionSpanIds 断言（这才是渲染是否正确的结构依据）。
+std::string flattenSpans(const Simulation& sim, const std::vector<ui::MessageSpan>& spans) {
+    std::string out;
+    for (const auto& s : spans) {
+        if (s.factionId >= 0) out += sim.faction(s.factionId).name;
+        else out += s.literal;
+    }
+    return out;
+}
+
+std::vector<int> factionSpanIds(const std::vector<ui::MessageSpan>& spans) {
+    std::vector<int> ids;
+    for (const auto& s : spans) {
+        if (s.factionId >= 0) ids.push_back(s.factionId);
+    }
+    return ids;
+}
+
 // ---- 事件通道 ----
 
 TEST(Events, TakeEventsDrains) {
     lw::Simulation sim(loadCfg(), 42);
     ASSERT_TRUE(sim.init());
-    sim.pushEvent({GameEventKind::Custom, 1, 0, "a", 1, {}});
-    sim.pushEvent({GameEventKind::Custom, 2, 0, "b", 1, {}});
+    sim.pushEvent({GameEventKind::Custom, 1, 0, 0, {}, "a", 1});
+    sim.pushEvent({GameEventKind::Custom, 2, 0, 0, {}, "b", 1});
 
     auto events = sim.takeEvents();
     ASSERT_EQ(events.size(), 2u);
-    EXPECT_EQ(events[0].text, "a");
-    EXPECT_EQ(events[1].text, "b");
+    EXPECT_EQ(events[0].kind, GameEventKind::Custom);
+    EXPECT_EQ(events[0].factionId, 1);
+    EXPECT_EQ(events[0].literal, "a");
+    EXPECT_EQ(events[1].literal, "b");
     EXPECT_TRUE(sim.takeEvents().empty());  // 取后清空
 }
 
@@ -61,9 +83,11 @@ TEST(Annihilation, ZeroCitiesNoArmyNoEffectEmitsEvent) {
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].kind, GameEventKind::FactionAnnihilated);
     EXPECT_EQ(events[0].factionId, 2);
-    EXPECT_NE(events[0].text.find("黄"), std::string::npos);  // 文案含势力名
-    EXPECT_NE(events[0].text.find("(0s)"), std::string::npos);  // 含事件时间前缀（tick=0 → 0s）
-    EXPECT_FALSE(sim.faction(2).alive);                       // 置 alive=false
+    EXPECT_FALSE(sim.faction(2).alive);  // 置 alive=false
+    // 文案由 UI 层按结构化字段组装：时间前缀 + "势力 " + [势力名 id] + " 被灭亡"。
+    const auto spans = ui::formatGameEvent(sim, events[0]);
+    EXPECT_EQ(flattenSpans(sim, spans), "(0s) 势力 黄 被灭亡");
+    EXPECT_EQ(factionSpanIds(spans), (std::vector<int>{2}));
 }
 
 TEST(Annihilation, ResidualEffectPreventsAnnihilation) {
@@ -122,10 +146,12 @@ TEST(Unification, OnlyOneAliveEmitsOnce) {
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].kind, GameEventKind::Unification);
     EXPECT_EQ(events[0].factionId, 3);
-    EXPECT_NE(events[0].text.find("青"), std::string::npos);       // 文案含势力名
-    EXPECT_NE(events[0].text.find("(0s)"), std::string::npos);     // 含事件时间前缀
-    EXPECT_EQ(events[0].text.find("联盟"), std::string::npos);     // 单势力统一：不提"联盟"
-    EXPECT_EQ(events[0].highlightFactionIds, (std::vector<int>{3}));  // 仅着色该势力名
+    EXPECT_EQ(events[0].data, -1);  // 单势力统一：无联盟号
+    EXPECT_EQ(events[0].factionIds, (std::vector<int>{3}));
+    // 结构化文案：单势力统一不出现"联盟"，势力名以 id 段表达。
+    const auto spans = ui::formatGameEvent(sim, events[0]);
+    EXPECT_EQ(flattenSpans(sim, spans), "(0s) 势力 青 统一天下");
+    EXPECT_EQ(factionSpanIds(spans), (std::vector<int>{3}));
 
     // 再次检测不再发（恰一次）。
     sim.detectAnnihilationAndUnification();
@@ -153,12 +179,13 @@ TEST(Unification, SameAllianceSurvivorsEmitAllianceWin) {
     const auto events = sim.takeEvents();
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].kind, GameEventKind::Unification);
-    EXPECT_EQ(events[0].factionId, 2);  // 首个存活成员（消息着色锚点）
-    EXPECT_NE(events[0].text.find("联盟 1"), std::string::npos);
-    EXPECT_NE(events[0].text.find(sim.faction(2).name), std::string::npos);
-    EXPECT_NE(events[0].text.find(sim.faction(4).name), std::string::npos);
-    // 两个成员名都要按各自势力色渲染 → 事件携带完整着色集合（顺序 = selectedFactionIds_）。
-    EXPECT_EQ(events[0].highlightFactionIds, (std::vector<int>{2, 4}));
+    EXPECT_EQ(events[0].factionId, 2);  // 首个存活成员（事件主体）
+    EXPECT_EQ(events[0].data, 0);       // 联盟号 allianceId
+    // 全部存活成员以 id 列表携带（顺序 = selectedFactionIds_）→ 每个名字各自着色。
+    EXPECT_EQ(events[0].factionIds, (std::vector<int>{2, 4}));
+    const auto spans = ui::formatGameEvent(sim, events[0]);
+    EXPECT_EQ(flattenSpans(sim, spans), "(0s) 联盟 1（黄、蓝）统一天下");
+    EXPECT_EQ(factionSpanIds(spans), (std::vector<int>{2, 4}));
 
     // 恰一次。
     sim.detectAnnihilationAndUnification();
@@ -210,7 +237,7 @@ TEST(Unification, SnapshotPreservesEmittedState) {
 TEST(Events, NotSerializedInSnapshot) {
     lw::Simulation sim(loadCfg(), 42);
     ASSERT_TRUE(sim.init());
-    sim.pushEvent({GameEventKind::Custom, 1, 0, "not persisted", 5, {}});
+    sim.pushEvent({GameEventKind::Custom, 1, 0, 0, {}, "not persisted", 5});
     EXPECT_EQ(sim.takeEvents().size(), 1u);
 
     const std::string json = Snapshot::serialize(sim);
@@ -219,44 +246,105 @@ TEST(Events, NotSerializedInSnapshot) {
     EXPECT_TRUE(loaded.takeEvents().empty());  // 纯展示通道，不进存档
 }
 
+// ---- 结构化事件 → 消息文本段（UI 层组装；模拟核心不发文案）----
+
+TEST(MessageFormat, AnnihilatedUsesFactionIdSpanNotTextSearch) {
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    GameEvent ev;
+    ev.kind = GameEventKind::FactionAnnihilated;
+    ev.factionId = 2;
+    ev.tick = 600;  // 600/60 = 10s
+    const auto spans = ui::formatGameEvent(sim, ev);
+    EXPECT_EQ(flattenSpans(sim, spans), "(10s) 势力 黄 被灭亡");
+    EXPECT_EQ(factionSpanIds(spans), (std::vector<int>{2}));
+}
+
+TEST(MessageFormat, TechAcquiredCarriesTechNameAndLevel) {
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    ASSERT_FALSE(sim.config().tech.techs.empty());
+    const std::string techName = sim.config().tech.techs[0].name;
+    GameEvent ev;
+    ev.kind = GameEventKind::TechAcquired;
+    ev.factionId = 1;
+    ev.data = 0;
+    ev.level = 2;
+    const auto spans = ui::formatGameEvent(sim, ev);
+    EXPECT_EQ(flattenSpans(sim, spans), "(0s) 势力 红 获得科技 " + techName + "(2级)");
+    EXPECT_EQ(factionSpanIds(spans), (std::vector<int>{1}));
+}
+
+TEST(MessageFormat, OutOfRangeTechIndexFallsBackWithoutCrash) {
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    GameEvent ev;
+    ev.kind = GameEventKind::TechAcquired;
+    ev.factionId = 1;
+    ev.data = 9999;
+    ev.level = 1;
+    const auto spans = ui::formatGameEvent(sim, ev);
+    EXPECT_NE(flattenSpans(sim, spans).find("?("), std::string::npos);
+    EXPECT_EQ(factionSpanIds(spans), (std::vector<int>{1}));
+}
+
+TEST(MessageFormat, CustomUsesLiteralVerbatim) {
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    GameEvent ev;
+    ev.kind = GameEventKind::Custom;
+    ev.literal = "自定义消息";
+    ev.tick = 120;
+    const auto spans = ui::formatGameEvent(sim, ev);
+    EXPECT_EQ(flattenSpans(sim, spans), "自定义消息");  // 自定义事件自带完整文案
+}
+
 // ---- MessageLog（纯逻辑，P4 修正：无限留存，仅超上限丢最旧）----
 
 TEST(MessageLog, MessagesPersistIndefinitely) {
     lw::ui::MessageLog log;
-    log.add("m", 0, 1);        // tick=0（很早的消息）
-    log.add("m2", 10000, 2);   // tick=10000（很晚的消息）
-    log.prune(12);             // 上限内 → 全部保留（不按时间过期）
+    log.add({{"m", -1}}, 0);        // tick=0（很早的消息）
+    log.add({{"m2", -1}}, 10000);   // tick=10000（很晚的消息）
+    log.prune(12);                  // 上限内 → 全部保留（不按时间过期）
     ASSERT_EQ(log.messages().size(), 2u);
-    EXPECT_EQ(log.messages()[0].text, "m");
-    EXPECT_EQ(log.messages()[1].text, "m2");
+    ASSERT_EQ(log.messages()[0].spans.size(), 1u);
+    EXPECT_EQ(log.messages()[0].spans[0].literal, "m");
+    EXPECT_EQ(log.messages()[1].spans[0].literal, "m2");
 }
 
 TEST(MessageLog, PruneDropsOldestWhenOverMax) {
     lw::ui::MessageLog log;
-    for (int i = 0; i < 5; ++i) log.add("m" + std::to_string(i), static_cast<unsigned>(i), 1);
+    for (int i = 0; i < 5; ++i)
+        log.add({{"m" + std::to_string(i), -1}}, static_cast<unsigned>(i));
     log.prune(3);  // 上限 3 → 只留最后 3 条（最旧 2 条丢弃）
     const auto& ms = log.messages();
     ASSERT_EQ(ms.size(), 3u);
-    EXPECT_EQ(ms[0].text, "m2");
-    EXPECT_EQ(ms[2].text, "m4");
+    EXPECT_EQ(ms[0].spans[0].literal, "m2");
+    EXPECT_EQ(ms[2].spans[0].literal, "m4");
 }
 
 TEST(MessageLog, Clear) {
     lw::ui::MessageLog log;
-    log.add("m", 0, 1);
+    log.add({{"m", -1}}, 0);
     log.clear();
     EXPECT_TRUE(log.empty());
 }
 
-// 多势力名文案（联盟共同统一）：着色集合随消息保存；不传 = 空（渲染回退到单个 factionId）。
-TEST(MessageLog, KeepsHighlightFactionIds) {
+// 势力名以 id 段保存（联盟共同统一有多个名字）→ 渲染端按 id 着色，不做字符串匹配。
+TEST(MessageLog, KeepsFactionNameSpans) {
     lw::ui::MessageLog log;
-    log.add("联盟 1（黄、蓝）统一天下", 5, 2, {2, 4});
-    log.add("势力 红 被灭亡", 6, 1);
+    log.add({{"联盟 1（", -1}, {"", 2}, {"、", -1}, {"", 4}, {"）统一天下", -1}}, 5);
+    log.add({{"势力 ", -1}, {"", 1}, {" 被灭亡", -1}}, 6);
     ASSERT_EQ(log.messages().size(), 2u);
-    EXPECT_EQ(log.messages()[0].factionId, 2);
-    EXPECT_EQ(log.messages()[0].highlightIds, (std::vector<int>{2, 4}));
-    EXPECT_TRUE(log.messages()[1].highlightIds.empty());
+    const auto& alliance = log.messages()[0].spans;
+    ASSERT_EQ(alliance.size(), 5u);
+    EXPECT_EQ(alliance[0].literal, "联盟 1（");
+    EXPECT_EQ(alliance[1].factionId, 2);
+    EXPECT_EQ(alliance[3].factionId, 4);
+    EXPECT_EQ(alliance[4].literal, "）统一天下");
+    const auto& annihilated = log.messages()[1].spans;
+    ASSERT_EQ(annihilated.size(), 3u);
+    EXPECT_EQ(annihilated[1].factionId, 1);
 }
 
 }  // namespace

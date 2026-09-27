@@ -1,30 +1,39 @@
 // MessagePanel.cpp — 消息面板实现（开发计划 P4 修正）。
-// 消息持续留存（不自动消失），仅超上限丢最旧；文本含事件时间前缀；
-// 渲染时仅势力名按势力色着色，其余文本白色。
+// 消息持续留存（不自动消失），仅超上限丢最旧。
+// 文案由结构化事件在 UI 层组装（MessageFormat.h）；渲染按 MessageSpan 逐段绘制：
+// 势力名段 → 按势力色逐字着色，字面段 → 白色。**不做字符串匹配**（旧 text.find(名字) 已删除）。
 #include "ui/panels/MessagePanel.h"
 
 #include <imgui.h>
 
-#include "core/Simulation.h"  // Simulation::tickCount / config
+#include <vector>
+
+#include "core/Simulation.h"  // Simulation::config
 #include "ui/UiText.h"
+#include "ui/panels/MessageFormat.h"
 
 namespace lw::ui {
 
 namespace {
 
-// 渲染一条消息：文案里的势力名按势力色、其余白色（如 "(333s) 势力 红 被灭亡"，只有"红"红色）。
-// highlightIds 非空 → 逐个名字着色（联盟共同统一有多个成员名）；否则回退到 factionId 的单个名字。
-// factionId=0 或文本中找不到势力名时整段白色（如自定义消息）。
-void renderMessageText(const Simulation& sim, const Message& m) {
-    if (!m.highlightIds.empty()) {
-        drawTextWithFactionNames(sim, m.highlightIds, m.text);
-        return;
+// 逐段绘制：势力名段走 drawFactionName(sim, id)（内部逐字着色），字面段白色；
+// 段间 SameLine(0,0) 无缝拼接（与 drawSegmentedText 同款）。
+void drawMessageSpans(const Simulation& sim, const std::vector<MessageSpan>& spans) {
+    bool first = true;
+    for (const auto& span : spans) {
+        if (span.factionId >= 0) {
+            if (!first) ImGui::SameLine(0.0f, 0.0f);
+            drawFactionName(sim, span.factionId);
+            first = false;
+        } else if (!span.literal.empty()) {
+            if (!first) ImGui::SameLine(0.0f, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+            ImGui::TextUnformatted(span.literal.c_str());
+            ImGui::PopStyleColor();
+            first = false;
+        }
     }
-    if (m.factionId < 1 || m.factionId >= sim.factionCount()) {
-        ImGui::TextUnformatted(m.text.c_str());
-        return;
-    }
-    drawTextWithFactionName(sim, m.factionId, m.text);
+    if (first) ImGui::TextUnformatted("");  // 空消息（防御）：仍占一行
 }
 
 }  // namespace
@@ -39,8 +48,8 @@ MessagePanel::MessagePanel() {
 void MessagePanel::addEvents(std::vector<lw::GameEvent> events, const Simulation& sim) {
     if (events.empty()) return;
     const int maxShown = sim.config().ui.messageMaxShown;
-    for (auto& ev : events) {
-        log_.add(std::move(ev.text), ev.tick, ev.factionId, std::move(ev.highlightFactionIds));
+    for (const auto& ev : events) {
+        log_.add(formatGameEvent(sim, ev), ev.tick);
     }
     log_.prune(maxShown);  // 消息过多 → 立即丢最旧（不过期）
     // 2026-08-08 用户定夺：消息面板被隐藏后**不再自动弹出**（有消息也继续隐藏；
@@ -56,7 +65,7 @@ void MessagePanel::draw(PanelCtx& ctx) {
         return;
     }
     for (const auto& m : log_.messages()) {
-        renderMessageText(sim, m);
+        drawMessageSpans(sim, m.spans);
     }
 }
 

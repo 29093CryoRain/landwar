@@ -142,12 +142,14 @@ void TechSystem::applyTech(Simulation& sim, int factionId, int techIndex) {
     rescaleExistingArmySpeed(sim, factionId, def.levels[static_cast<size_t>(newLevel - 1)],
                              oldMods);
 
-    // 4. 事件（消息面板显示；data = 科技下标）。
-    sim.pushEvent(GameEvent{GameEventKind::TechAcquired, factionId, techIndex,
-                            formatEventTime(sim.tickCount(), cfg.sim.tickRate) + " 势力 "
-                                 + sim.faction(factionId).name + " 获得科技 " + def.name + "("
-                                + std::to_string(newLevel) + "级)",
-                            sim.tickCount(), {}});
+    // 4. 事件（结构化：文案与势力名着色由 UI 层按 data/level 组装，见 ui::formatGameEvent）。
+    GameEvent techAcquired;
+    techAcquired.kind = GameEventKind::TechAcquired;
+    techAcquired.factionId = factionId;
+    techAcquired.data = techIndex;
+    techAcquired.level = newLevel;
+    techAcquired.tick = sim.tickCount();
+    sim.pushEvent(std::move(techAcquired));
 }
 
 }  // namespace lw

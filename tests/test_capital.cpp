@@ -11,6 +11,7 @@
 #include "replay/Snapshot.h"
 #include "sim/systems/CapitalSystem.h"
 #include "sim/systems/EconomySystem.h"
+#include "ui/panels/MessageFormat.h"
 #include "world/Map.h"
 #include "TestUtil.h"
 
@@ -164,7 +165,10 @@ TEST(Capital, CapitalLostDetectedAndEmitsEvent) {
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].kind, GameEventKind::CapitalLost);
     EXPECT_EQ(events[0].factionId, 1);
-    EXPECT_NE(events[0].text.find("首都被攻破"), std::string::npos);
+    // 文案由 UI 层按结构化事件组装：时间前缀 + "势力 " + [势力名 id] + " 的首都被攻破"。
+    const auto spans = ui::formatGameEvent(sim, events[0]);
+    ASSERT_EQ(spans.size(), 3u);
+    EXPECT_EQ(spans[1].factionId, 1);
 }
 
 // 收复旧都并重新指定 → 计时不重置，期满迁回。

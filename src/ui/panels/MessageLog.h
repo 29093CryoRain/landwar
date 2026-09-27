@@ -6,26 +6,32 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace lw::ui {
 
+// 消息文本的一段：
+//   factionId >= 0 → 该位置是"势力名"，渲染端按 Config::Faction.nameColors 逐字着色；
+//   factionId < 0  → 该位置是字面文本（默认白色）。
+// 势力名以 **id** 表达而不是字符串 → 渲染端不需要、也不允许在文案里 find 名字
+// （旧实现"文本 + 单个 factionId + text.find(名字)"已删除）。
+struct MessageSpan {
+    std::string literal;
+    int factionId = -1;
+};
+
 struct Message {
-    std::string text;        // 完整文案（含事件时间前缀与势力名，如 "(333s) 势力 红 被灭亡"）
+    // 结构化文本段（文案与势力名分段在 UI 层组装：ui::formatGameEvent）。
+    std::vector<MessageSpan> spans;
     std::uint64_t tick = 0;  // 事件发生时间（tick；显示用，P4 修正）
-    int factionId = 0;       // 相关势力（事件锚点；0=中立灰）
-    // 文案中需要按势力色着色的势力名集合（空 = 只着色 factionId）。一条消息含多个势力名时用
-    //（如"联盟 N（A、B）统一天下"——每个成员名各按自己的势力色）。
-    std::vector<int> highlightIds;
 };
 
 class MessageLog {
 public:
-    // 追加一条消息（text 移动；不过期，持续留存）。
-    void add(std::string text, std::uint64_t tick, int factionId,
-             std::vector<int> highlightIds = {}) {
-        messages_.push_back(
-            Message{std::move(text), tick, factionId, std::move(highlightIds)});
+    // 追加一条消息（段表移动；不过期，持续留存）。
+    void add(std::vector<MessageSpan> spans, std::uint64_t tick) {
+        messages_.push_back(Message{std::move(spans), tick});
     }
 
     // 仅按上限丢弃最旧（消息过多时立即消失；无时间过期）。

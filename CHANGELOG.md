@@ -30,9 +30,12 @@
   使注释承诺的“回退默认字体 + 告警”真正生效（此前 Debug 下 `AddFontFromFileTTF` 对缺失文件
   直接断言 abort，兜底分支根本走不到）。
 - 编入联盟的势力不再互相抢占领土、不再误伤友军。
-- **联盟统一消息里的势力名着色**：此前消息通道只带一个势力 id，`联盟 N（A、B）统一天下` 里只有
-  第一个成员名按势力色、其余保持白色。现在事件与消息携带完整着色集合，每个成员名各按自己的
-  势力色渲染（`ui::drawTextWithFactionNames`）；单势力统一行为不变。
+- **消息改为结构化事件 + UI 组装文本**：此前 `Simulation` 直接拼好中文文案（含势力名），消息面板
+  只能靠"在文案里 find 势力名"着色——像 `联盟 N（A、B）统一天下` 这种一句话含多个势力名的消息
+  因此只染上第一个名字。现在 `GameEvent` 只带结构化字段（`kind`/`factionId`/`data`/`level`/
+  `factionIds`/`literal`），中文文案、时间前缀与势力名分段由 UI 层 `ui::formatGameEvent` 组装成
+  `MessageSpan`，渲染按 **id** 逐段画名字：不再有任何字符串匹配，联盟统一的每个成员名各按自己的
+  势力色。单势力统一、灭亡、科技、首都沦陷的文案与旧版一致（灭亡/科技/首都沦陷顺带走同一条路）。
 - **被盟友领土围死的兵不再永久滞留**：己方小飞地四面都是盟友领土时，兵每次撞边界都被弹回、
   越积越多。现在每个兵维护一个 CUSUM 统计量（盟友边界反弹喂养、泄漏按步长归一 → 与兵速无关），
   持续受压越过阈值后**下一次穿越盟友边界放行一次**（不反弹、不征服），从而自行脱困。
@@ -44,6 +47,9 @@
   快照版本升到 14（新增 `allianceIds`），旧存档不再兼容。
 - 新增唯一入口 `ConquestRules.h::isAlliedLand`（盟友陆地判定，`canConquerCell` 共用）；新增兵组件
   `comp::AllyGate` 与配置段 `allyGate`；快照版本升到 15（新增 `allyGate` 字段），旧存档不再兼容。
+- 消息通道去文案化：`GameEvent` 只带结构化字段；新增 `ui/panels/MessageFormat.h`
+  （`formatGameEvent`：事件 → 消息文本段，纯逻辑可单测）与 `MessageLog.h` 的
+  `MessageSpan{literal|factionId}`；删除 `UiText` 里"在文案中 find 势力名"的着色实现。
 - 数据格式：`units`/`factions`/`techs` 改为 CSV+JSONC 混合。把这三张记录表里“几乎必填且内容单一”
   的列外置为 `data/units.csv`、`data/factions.csv`、`data/techs.csv`（兵种 `type/cost/speedMult/
   sizeMult/bounceMult/visualRadius`、势力 `id/name/description/nameColors/color/secondary`、

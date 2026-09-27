@@ -359,11 +359,11 @@ void Simulation::detectAnnihilationAndUnification() {
         if (!f.alive) continue;
         if (f.cityCount == 0 && countArmies(id) == 0 && countEffects(id) == 0) {
             f.alive = false;
-            events_.push_back(
-                GameEvent{GameEventKind::FactionAnnihilated, id, 0,
-                          formatEventTime(tickCount_, config_.sim.tickRate) + " 势力 "
-                              + f.name + " 被灭亡",
-                          tickCount_, {}});
+            GameEvent annihilated;
+            annihilated.kind = GameEventKind::FactionAnnihilated;
+            annihilated.factionId = id;
+            annihilated.tick = tickCount_;
+            events_.push_back(std::move(annihilated));
         }
     }
     // 统一判定：alive 可玩势力恰剩一个 → 该势力统一；或剩多个但**同属一个联盟**
@@ -388,23 +388,15 @@ void Simulation::detectAnnihilationAndUnification() {
     unificationEmitted_ = true;
     // P11：统一时刻截止统计（此后 record* 全部忽略，冻结）。
     stats_.cutoffTick = tickCount_;
-    const int firstAlive = aliveIds.front();
-    std::string who;
-    if (aliveIds.size() == 1) {
-        who = "势力 " + factions_[static_cast<size_t>(firstAlive)].name;
-    } else {
-        who = "联盟 " + std::to_string(sharedAlliance + 1) + "（";
-        for (std::size_t i = 0; i < aliveIds.size(); ++i) {
-            if (i > 0) who += "、";
-            who += factions_[static_cast<size_t>(aliveIds[i])].name;
-        }
-        who += "）";
-    }
-    // 文案里出现的每个成员名都各按自己的势力色（联盟统一有多个名字）→ 携带完整着色集合。
-    events_.push_back(GameEvent{GameEventKind::Unification, firstAlive, 0,
-                                formatEventTime(tickCount_, config_.sim.tickRate) + " " + who
-                                    + " 统一天下",
-                                tickCount_, aliveIds});
+    // 结构化事件：只发"谁统一了"；文案（"势力 X 统一天下"/"联盟 N（A、B）统一天下"）
+    // 与成员名着色由 UI 层按 factionIds 组装（.docs/工程规范.md「展示文本不进模拟核心」）。
+    GameEvent unified;
+    unified.kind = GameEventKind::Unification;
+    unified.factionId = aliveIds.front();
+    unified.data = sharedAlliance;
+    unified.factionIds = std::move(aliveIds);
+    unified.tick = tickCount_;
+    events_.push_back(std::move(unified));
 }
 
 }  // namespace lw
