@@ -54,6 +54,10 @@ struct Options {
     // 本局已选势力，顺序即主菜单显示顺序；未选势力不进入此列表。
     std::vector<FactionSlot> factions;
 
+    // 联盟（等价关系）：每个元素 = 一个联盟的成员势力 id 列表（列表下标即 allianceId）。
+    // 同一联盟内的势力互为盟友；未列入任何联盟的势力与所有人敌对。空组允许（菜单未填完）。
+    std::vector<std::vector<int>> alliances;
+
     Options();
     MapSelection map;
     std::vector<PanelLayout> panels;  // 面板布局（P3；可移动面板 id/可见性/位置/大小）

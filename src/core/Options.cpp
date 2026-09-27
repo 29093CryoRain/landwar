@@ -67,6 +67,25 @@ bool Options::validate(std::string* err) const {
         if (err) *err = "最多只能有一个势力由玩家操控 (aiId=1)";
         return false;
     }
+    // 联盟：成员必须是本局已选势力，且一个势力至多属于一个联盟（等价关系）。
+    std::vector<bool> allied(static_cast<size_t>(kMaxFactionCount), false);
+    for (const auto& group : alliances) {
+        for (int fid : group) {
+            if (fid <= 0 || fid >= kMaxFactionCount) {
+                if (err) *err = "联盟成员势力 ID 无效";
+                return false;
+            }
+            if (!seen[static_cast<size_t>(fid)]) {
+                if (err) *err = "联盟成员必须是本局已选势力";
+                return false;
+            }
+            if (allied[static_cast<size_t>(fid)]) {
+                if (err) *err = "势力不能加入多个联盟";
+                return false;
+            }
+            allied[static_cast<size_t>(fid)] = true;
+        }
+    }
     return true;
 }
 
@@ -98,6 +117,18 @@ Options Options::loadFromJson(const std::string& jsonText) {
             slot.aiId = getInt(slotJson, "aiId", 0);
             o.factions.push_back(slot);
             ++i;
+        }
+    }
+
+    // 联盟（等价关系）：数组的数组；缺键回退空 = 无联盟。空组保留以维持往返对称。
+    if (root.contains("alliances") && root["alliances"].is_array()) {
+        for (const auto& groupJson : root["alliances"]) {
+            if (!groupJson.is_array()) continue;
+            std::vector<int> group;
+            for (const auto& memberJson : groupJson) {
+                if (memberJson.is_number_integer()) group.push_back(memberJson.get<int>());
+            }
+            o.alliances.push_back(std::move(group));
         }
     }
 
@@ -160,6 +191,9 @@ std::string Options::toJson() const {
                                   {"enabled", slot.enabled},
                                   {"aiId", slot.aiId}});
     }
+    // 联盟（等价关系）：与 loadFromJson 键严格对称。
+    j["alliances"] = Json::array();
+    for (const auto& group : alliances) j["alliances"].push_back(group);
     // P6 随机图参数：与 loadFromJson 键严格对称（快照/options 往返依赖）。
     j["map"] = {{"kind", map.kind == MapSelection::Kind::Random ? "random" : "file"},
                 {"file", map.file},

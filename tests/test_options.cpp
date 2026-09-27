@@ -215,6 +215,52 @@ TEST(OptionsSim, RemovingFactionChangesSelectedCapitalCount) {
     EXPECT_EQ(full.map().capitalCount(), 8);
 }
 
+TEST(Options, AllianceRoundTripAndValidate) {
+    lw::Options a;
+    a.alliances = {{1, 3}, {2, 5, 7}, {}};  // 含空组（菜单未填完）
+    const lw::Options b = lw::Options::loadFromJson(a.toJson());
+    EXPECT_EQ(b.alliances, a.alliances);
+    EXPECT_EQ(b.toJson(), a.toJson());  // 键严格对称
+    EXPECT_TRUE(b.validate());
+
+    // 重复入盟 → 无效。
+    lw::Options dup;
+    dup.alliances = {{1, 2}, {2, 3}};
+    std::string err;
+    EXPECT_FALSE(dup.validate(&err));
+    EXPECT_FALSE(err.empty());
+
+    // 未选势力入盟 → 无效。
+    lw::Options unknown;
+    unknown.factions.resize(2);  // 仅势力 1、2
+    unknown.alliances = {{1, 8}};
+    EXPECT_FALSE(unknown.validate(&err));
+
+    // 势力 0（中立）入盟 → 无效。
+    lw::Options neutral;
+    neutral.alliances = {{0, 1}};
+    EXPECT_FALSE(neutral.validate(&err));
+}
+
+TEST(OptionsSim, AllianceAssignsAllianceIdBeforeCapitals) {
+    lw::Options opts;
+    opts.alliances = {{1, 3}, {2, 5}, {}};
+    lw::Simulation a(loadCfg(), 42), b(loadCfg(), 42);
+    ASSERT_TRUE(a.init(opts));
+    ASSERT_TRUE(b.init(opts));
+    EXPECT_EQ(a.faction(1).allianceId, 0);
+    EXPECT_EQ(a.faction(3).allianceId, 0);
+    EXPECT_EQ(a.faction(2).allianceId, 1);
+    EXPECT_EQ(a.faction(5).allianceId, 1);
+    EXPECT_EQ(a.faction(4).allianceId, -1);  // 未入盟
+    EXPECT_EQ(a.faction(0).allianceId, -1);  // 中立永不入盟
+    // 联盟不引入额外 RNG：同选项同种子 → 首都位置一致。
+    for (int i = 0; i < a.map().capitalCount(); ++i) {
+        EXPECT_EQ(a.map().capitalX(i), b.map().capitalX(i));
+        EXPECT_EQ(a.map().capitalY(i), b.map().capitalY(i));
+    }
+}
+
 // ---- 产兵 AI 分派 ----
 
 TEST(ProductionDispatch, PlayerAiStubProducesNothingDefaultAiProduces) {

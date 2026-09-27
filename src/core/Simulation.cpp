@@ -145,6 +145,17 @@ void Simulation::initFactions() {
         selectedFactionIds_.push_back(fid);
     }
 
+    // 联盟（等价关系）：Options.alliances 的列表下标即 allianceId（同号即互为盟友）。
+    // 必须在征服首都之前写入——首都初始化征服同样走 canConquerCell 的盟友闸门。
+    for (size_t g = 0; g < options_.alliances.size(); ++g) {
+        for (int fid : options_.alliances[g]) {
+            if (fid <= 0 || fid >= static_cast<int>(factions_.size())) continue;
+            Faction& f = factions_[static_cast<size_t>(fid)];
+            if (!f.selected) continue;  // 防御：Options::validate 已拒绝未选势力
+            f.allianceId = static_cast<int>(g);
+        }
+    }
+
     // 回合顺序：初始为选入列表下标排列（原版 random_shuffle；新版用注入 Rng 的 Fisher-Yates）。
     // 首都位置先按地图顺序生成，但在这里随机分配给势力，避免“后放置位置”固定对应某个势力。
     // 无论势力是否禁用都执行洗牌（消耗相同 RNG），保证确定性不受 options 影响。

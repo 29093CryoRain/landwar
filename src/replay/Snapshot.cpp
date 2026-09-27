@@ -25,7 +25,7 @@ namespace lw {
 namespace {
 using Json = nlohmann::json;
 
-constexpr int kSnapshotVersion = 13;  // v11：三种规则密铺统一使用周期块索引
+constexpr int kSnapshotVersion = 14;  // v14：盟友 allianceId；v11：三种规则密铺统一使用周期块索引
                                       // v12：map.rivers（河流系统 §5.3）
                                       // v13：兵组件 moveCarry（过河停顿结转，二期反馈）
 
@@ -161,6 +161,7 @@ bool validateSnapshotShape(const Json& root, std::string* err) {
              {"config", 0, "config"}, {"map", 0, "map"}, {"rng", 0, "rng"},
              {"factions", 1, "factions"}, {"turnOrder", 1, "turnOrder"},
              {"selectedFactionIds", 1, "selectedFactionIds"},
+             {"allianceIds", 1, "allianceIds"},
              {"pendingSpawns", 1, "pendingSpawns"}, {"registry", 0, "registry"},
              {"stats", 0, "stats"},
              {"cityIconFits", 0, "cityIconFits"}}) {
@@ -373,6 +374,10 @@ std::string Snapshot::serialize(const Simulation& sim) {
     root["nextEntityId"] = sim.nextEntityId_;  // 实体单调 id 分配器（读档后新实体 id 确定）
     root["unificationEmitted"] = sim.unificationEmitted_;
     root["selectedFactionIds"] = sim.selectedFactionIds();
+    // 联盟（等价关系）：每个势力一个 allianceId（-1 = 无联盟）；影响战斗/征服，必须入档。
+    root["allianceIds"] = Json::array();
+    for (int fid = 0; fid < sim.factionCount(); ++fid)
+        root["allianceIds"].push_back(sim.faction(fid).allianceId);
 
     // P11：统计（perFactionUnit + cutoffTick；汇总为派生，读档 recompute 重建）。
     root["stats"]["perFactionUnit"] = Json::array();
@@ -690,6 +695,15 @@ bool Snapshot::deserializeInto(Simulation& sim, const std::string& json, std::st
             f.rebuildBuffsFromDef(sim.config_.factions[fi], sim.config_);
         }
     }
+
+    // 盟友（等价关系）：与势力数等长；-1 = 无联盟。读档后战斗/征服判定依赖它。
+    const std::vector<int> allianceIds = root.at("allianceIds").get<std::vector<int>>();
+    if (allianceIds.size() != sim.factions_.size()) {
+        setErr(err, "snapshot: allianceIds size mismatch");
+        return false;
+    }
+    for (size_t i = 0; i < allianceIds.size(); ++i)
+        sim.factions_[i].allianceId = allianceIds[i];
 
     // ---- 回合顺序 / 待产兵 ----
     sim.turnOrder_ = root.at("turnOrder").get<std::vector<int>>();

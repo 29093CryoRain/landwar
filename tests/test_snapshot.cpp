@@ -201,6 +201,7 @@ TEST(Snapshot, RoundTripPreservesState) {
         EXPECT_DOUBLE_EQ(a.freeArmyChance, b.freeArmyChance) << "fid " << i;
         EXPECT_DOUBLE_EQ(a.spawnAngle, b.spawnAngle) << "fid " << i;
         EXPECT_EQ(a.spawnAngleSet, b.spawnAngleSet) << "fid " << i;
+        EXPECT_EQ(a.allianceId, b.allianceId) << "fid " << i;  // 盟友（等价关系）
         EXPECT_EQ(a.armyCost, b.armyCost) << "fid " << i;
         EXPECT_EQ(a.producedCost, b.producedCost) << "fid " << i;  // 公平调度堆累计花费
         ASSERT_EQ(a.cityIds.size(), b.cityIds.size()) << "fid " << i;
