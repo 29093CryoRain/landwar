@@ -23,7 +23,7 @@ Config baseCfg() { return lwtest::loadCfg(); }
 // 注册一座归 fid 所有的城市（可指定 lastCapturedTick）。
 int addOwnedCity(Simulation& sim, int fid, int level, int baseX, int baseY,
                  std::uint64_t lastCaptured = 0) {
-    const int cid = sim.map().addCity(level, baseX, baseY);
+    const int cid = sim.map().addCity(level, lwtest::cellIndex(sim.map(), baseX, baseY));
     sim.map().city(cid).ownerId = fid;
     sim.map().city(cid).lastCapturedTick = lastCaptured;
     return cid;

@@ -12,9 +12,17 @@
 
 #include "core/Config.h"
 #include "core/Random.h"
+#include "world/Map.h"
 #include "world/MapDefinition.h"
 
 namespace lwtest {
+
+// 方格格坐标 (x, y) → 格下标 / 取格。通用地图 API 一律用格下标，这里只为方形测试省去手写乘加。
+inline int cellIndex(const lw::Map& map, int x, int y) { return y * map.width() + x; }
+inline lw::MapCell& atXY(lw::Map& map, int x, int y) { return map.atIndex(cellIndex(map, x, y)); }
+inline const lw::MapCell& atXY(const lw::Map& map, int x, int y) {
+    return map.atIndex(cellIndex(map, x, y));
+}
 
 // 可控 Rng：chance() 返回预设结果，便于确定性分支测试（Phase 3 下海/反弹、Phase 2 势力8 免费兵）。
 class MockRng final : public lw::Rng {

@@ -80,7 +80,7 @@ Config techCfg() {
 
 // 注册一座归 fid 所有的城市（tech 累积用）。
 int addOwnedCity(Simulation& sim, int fid, int level, int bx, int by) {
-    const int cid = sim.map().addCity(level, bx, by);
+    const int cid = sim.map().addCity(level, lwtest::cellIndex(sim.map(), bx, by));
     sim.map().city(cid).ownerId = fid;
     return cid;
 }

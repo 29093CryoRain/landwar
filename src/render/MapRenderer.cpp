@@ -176,12 +176,6 @@ void MapRenderer::draw(const Map& map, const std::vector<std::array<int, 3>>& ti
     drawTiled(map, tileColors, gradeColors);
 }
 
-void MapRenderer::draw(const Map& map,
-                       const std::array<std::array<int, 3>, kFactionTotal>& tileColors) {
-    std::vector<std::array<int, 3>> colors(tileColors.begin(), tileColors.end());
-    draw(map, colors);
-}
-
 void MapRenderer::drawGrid(const Map& map, const SDL_Color& color) {
     ensureTiledVertices(map);
     const TilingGeom& g = map.geom();
@@ -234,7 +228,7 @@ void MapRenderer::drawSquare(const Map& map, const std::vector<std::array<int, 3
     const int j1 = std::clamp(static_cast<int>(std::ceil(cam_.viewWorldY1())), 0, map.height() - 1);
     for (int j = j0; j <= j1; ++j)
         for (int i = i0; i <= i1; ++i) {
-            const MapCell& cell = map.at(i, j);
+            const MapCell& cell = map.atIndex(j * map.width() + i);
             if (!cell.land) continue;
             const int group = std::clamp(static_cast<int>(cell.belongi), 0, colorGroups - 1);
             squareBatches_[static_cast<size_t>(group)].push_back(cam_.cellRect(i, j));
@@ -246,7 +240,7 @@ void MapRenderer::drawSquare(const Map& map, const std::vector<std::array<int, 3
 
     for (int j = j0; j <= j1; ++j)
         for (int i = i0; i <= i1; ++i) {
-            const MapCell& cell = map.at(i, j);
+            const MapCell& cell = map.atIndex(j * map.width() + i);
             if (cell.land && cell.mountain) drawMountain(map, j * map.width() + i, r);
         }
     drawRivers(map);

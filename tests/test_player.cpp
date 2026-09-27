@@ -43,8 +43,8 @@ void setupPlayer(Simulation& sim, double economy) {
     f.aiId = 1;
     // P13：城市注册到 Map 注册表，PlayerAI 按中心坐标匹配（2026-08-07 起意图坐标 = 中心）。
     // 1 级城形状 {1,1} → 中心 (baseX+0.5, baseY+0.5)：城1 (10.5,10.5)、城2 (20.5,20.5)。
-    const int c1 = sim.map().addCity(1, 10, 10);
-    const int c2 = sim.map().addCity(1, 20, 20);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
+    const int c2 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 20, 20));
     f.cityIds = {c1, c2};
     f.cityCount = 2;
     f.economy = economy;

@@ -104,9 +104,7 @@ public:
     bool placeCapitals(Rng& rng, int factionCount = kPlayerFactionCount);
 
 
-    MapCell& at(int x, int y);
-    const MapCell& at(int x, int y) const;
-    // P12：按格下标取格（平铺数组下标，见 Tiling.h 头注；非方形路径统一用）。
+    // P12：按格下标取格（平铺数组下标，见 Tiling.h 头注；全密铺统一用）。
     MapCell& atIndex(int idx);
     const MapCell& atIndex(int idx) const;
     // P12：密铺几何（世界范围/中心/取格/邻接/穿越）。
@@ -133,10 +131,6 @@ public:
     // set = 该密铺的等级集（cfg.city.setFor(tiling)）。
     static double sampleCityLevel(const Config::City& cc, const Config::City::TilingSet& set,
                                   Rng& rng);
-    // 兼容重载：正方形等级集（旧签名，测试用）。
-    static double sampleCityLevel(const Config::City& cc, Rng& rng) {
-        return sampleCityLevel(cc, cc.setFor(TilingType::Square), rng);
-    }
     int cityCount() const { return static_cast<int>(cities_.size()); }
     const std::vector<City>& cities() const { return cities_; }
     const City& city(int id) const { return cities_[static_cast<size_t>(id)]; }
@@ -144,8 +138,8 @@ public:
     // P12：城市基建格下标集合（形状 = 锚点 + level 查密铺形状表，经 U 偏移解析）。
     std::vector<int> cityCells(const City& c) const;
     // P12：形状 → 基建格下标（level + 锚点格 index + 变体 variant；界外格 = -1）。
-    // 公开供放置/渲染/测试。variant < 0 时按锚点确定性选取（旧行为，测试用）。
-    std::vector<int> shapeCells(double level, int anchorIndex, int variant = -1) const;
+    // 公开供放置/渲染/测试。
+    std::vector<int> shapeCells(double level, int anchorIndex, int variant) const;
     // P12：城市形状几何中心（世界坐标；= 全部基建格中心平均；方 = baseX+w/2 同旧式）。
     void cityCenter(const City& c, double& wx, double& wy) const;
     // P12：重算全部城市的 baseIndex/AABB/几何中心（快照读档后调用）。
@@ -156,15 +150,9 @@ public:
     // 都能出现，2026-08-17 修复：旧逻辑总选第一个变体 → 后续变体永不出现，如 Laves31212
     // 的菱形 6 级城）。rng 为空 → 第一个能放下的变体（测试/兼容路径）。
     int addCity(double level, int index, Rng* rng = nullptr);
-    // 兼容重载：正方形 (baseX, baseY) 锚点（旧签名，测试用；等价 index = baseY*width+baseX）。
-    int addCity(double level, int baseX, int baseY) { return addCity(level, baseY * width_ + baseX); }
     // 锚点 (index) 处放置 level 级城的形状占用检查：界内 ∧ 锚点可成城 ∧ 全部基建格
     // 陆地（含山）∧ 无重叠（cityId==-1）。P12：形状不可跨环绕接缝（界内即含此约束）。
     bool canPlaceCity(double level, int index) const;
-    // 兼容重载：正方形 (baseX, baseY) 锚点（旧签名，测试用）。
-    bool canPlaceCity(double level, int baseX, int baseY) const {
-        return canPlaceCity(level, baseY * width_ + baseX);
-    }
 
     // Populate exact city records for an in-memory random map.
     void populateRandomCities(Rng& rng, double cityDensity, double mountainWeight = 0.3);

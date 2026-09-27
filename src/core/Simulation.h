@@ -127,10 +127,8 @@ public:
     // 单步推进模拟（60Hz 逻辑帧）。顺序见翻新计划 §2.10。
     void tick();
 
-    // 征服 (x,y) 归势力 factionId（供 Movement/Effect 系统调用，见翻新计划 §2.8）。
+    // 按格下标征服（全密铺统一路径；首都多格城逐格征服用）。
     // freeArmyEnabled=false：跳过势力8 免费产兵（init 阶段用，去掉开局免费兵；用户定夺 2026-08）。
-    void conquer(int x, int y, int factionId, bool freeArmyEnabled = true);
-    // P12：按格下标征服（密铺统一路径；首都多格城逐格征服用）。
     void conquerIndex(int index, int factionId, bool freeArmyEnabled = true);
 
     std::uint64_t tickCount() const { return tickCount_; }

@@ -24,7 +24,7 @@ void clearToLand(Simulation& sim, int owner) {
     auto& map = sim.map();
     for (int y = 0; y < map.height(); ++y)
         for (int x = 0; x < map.width(); ++x) {
-            auto& c = map.at(x, y);
+            auto& c = lwtest::atXY(map, x, y);
             c.land = true;
             c.cityId = -1;
             c.belongi = owner;
@@ -74,16 +74,16 @@ TEST(Effect, BombConquersCircleAndExpires) {
 
     placeEffect(sim, 20.5, 20.5, 1, CombatEffectType::bomb, 2.4);
     sim.tick();  // tt=0：r = sqrt(1)*2.4 = 2.4，0%4==0 → 征服
-    EXPECT_EQ(sim.map().at(20, 20).belongi, 1);  // 圆心格
-    EXPECT_EQ(sim.map().at(19, 20).belongi, 1);  // 距离 1.0 < 2.4
-    EXPECT_EQ(sim.map().at(22, 22).belongi, 0);  // 距离 2.83 > 2.4 未征服
-    EXPECT_EQ(sim.map().at(20, 30).belongi, 0);  // 远处未征服
+    EXPECT_EQ(lwtest::atXY(sim.map(), 20, 20).belongi, 1);  // 圆心格
+    EXPECT_EQ(lwtest::atXY(sim.map(), 19, 20).belongi, 1);  // 距离 1.0 < 2.4
+    EXPECT_EQ(lwtest::atXY(sim.map(), 22, 22).belongi, 0);  // 距离 2.83 > 2.4 未征服
+    EXPECT_EQ(lwtest::atXY(sim.map(), 20, 30).belongi, 0);  // 远处未征服
 
     sim.tick();  // tt=1（非 4 的倍数不征服）
     sim.tick();  // tt=2（扩散时间倍率 0.5，未到征服周期）
     sim.tick();  // tt=3（非 4 的倍数不征服）
     sim.tick();  // tt=4：r = sqrt(3)*2.4 = 4.16 → (22,22) 距离 2.83 被征服
-    EXPECT_EQ(sim.map().at(22, 22).belongi, 1);
+    EXPECT_EQ(lwtest::atXY(sim.map(), 22, 22).belongi, 1);
 
     for (int t = 0; t < 16; ++t) sim.tick();  // 超过 tt=16 后消亡
     EXPECT_EQ(countEffects(sim, CombatEffectType::bomb), 0);
@@ -230,7 +230,7 @@ TEST(Effect, LaserStopsAtEnemyTerritory) {
     ASSERT_TRUE(sim.init());
     clearToLand(sim, 1);
     clearArmies(sim);
-    sim.map().at(12, 10).belongi = 2;  // 敌领土：激光停在 (12,10) 边界
+    lwtest::atXY(sim.map(), 12, 10).belongi = 2;  // 敌领土：激光停在 (12,10) 边界
 
     placeEffect(sim, 10.5, 10.5, 1, CombatEffectType::laser, 0.0);
     auto enemy = SpawnSystem::spawnArmy(sim, 20.5, 10.5, 2, ArmyType::normal);
@@ -238,7 +238,7 @@ TEST(Effect, LaserStopsAtEnemyTerritory) {
 
     sim.tick();  // tt=0：光束延伸 1 格，尚未到达 (12,10)
     sim.tick();  // tt=1：光束到 (12,10) 边界停（length=1.5 < lst+1）→ 尖端格征服
-    EXPECT_EQ(sim.map().at(12, 10).belongi, 1);  // 尖端敌格被征服
+    EXPECT_EQ(lwtest::atXY(sim.map(), 12, 10).belongi, 1);  // 尖端敌格被征服
     EXPECT_TRUE(sim.registry().valid(enemy));     // 线段外的敌兵未死
 }
 

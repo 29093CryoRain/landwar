@@ -20,8 +20,8 @@ TEST(Camera, IdentityMatchesScreenTransform) {
     const auto cam = makeCam();
     const lw::math::ScreenTransform tf{15.0, 600, 95};
     EXPECT_EQ(cam.zoom(), 1.0);
-    EXPECT_DOUBLE_EQ(cam.toScreenX(10.0), tf.toX(10.0));
-    EXPECT_DOUBLE_EQ(cam.toScreenY(40.0), tf.toY(40.0));
+    EXPECT_DOUBLE_EQ(cam.toScreenX(10.0), tf.toXf(10.0));
+    EXPECT_DOUBLE_EQ(cam.toScreenY(40.0), tf.toYf(40.0));
     EXPECT_DOUBLE_EQ(cam.cellPx(), 15.0);
 }
 

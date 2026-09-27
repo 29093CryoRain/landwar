@@ -154,8 +154,8 @@ TEST(Spawn, AngleUsesFactionSequence) {
 
 TEST(Movement, GoToSeaSucceeds) {
     TestWorld w(5, 5);
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
     // (2,1) 默认海。
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
     w.rng.results = {true};  // 下海成功
@@ -168,8 +168,8 @@ TEST(Movement, GoToSeaSucceeds) {
 
 TEST(Movement, GoToSeaBouncesWhenChanceFails) {
     TestWorld w(5, 5);
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
     w.rng.results = {false};  // 下海失败 → 水平反弹
     moveOnce(w, e);
@@ -182,8 +182,8 @@ TEST(Movement, BounceJitterUsesConfiguredUnitRange) {
     TestWorld w(5, 5);
     for (int y = 0; y < 5; ++y)
         for (int x = 0; x < 5; ++x) {
-            w.map.at(x, y).land = true;
-            w.map.at(x, y).belongi = 1;
+            lwtest::atXY(w.map, x, y).land = true;
+            lwtest::atXY(w.map, x, y).belongi = 1;
         }
     auto e = addArmy(w, 0.2, 2.5, 1, ArmyType::normal, kPi, 0.3, true);
     w.rng.units = {0.0};  // 反弹偏置取下界 -rangeRad。
@@ -195,27 +195,27 @@ TEST(Movement, BounceJitterUsesConfiguredUnitRange) {
 
 TEST(Movement, LandingFromSeaRestoresSpeed) {
     TestWorld w(5, 5);
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).belongi = 0;  // 中立陆
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 0;  // 中立陆
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, false);
     moveOnce(w, e);
     EXPECT_TRUE(w.reg.get<comp::OnLand>(e).value);
     EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.3);  // speed ×2 恢复
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);                    // 登陆征服
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);                    // 登陆征服
     EXPECT_EQ(w.factions[1].landCount, 1);
 }
 
 TEST(Movement, ConquersEnemyLandAndBounces) {
     TestWorld w(6, 6);
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
     w.factions[2].landCount = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
     w.rng.results = {true};  // 反弹
     moveOnce(w, e);
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 攻占成功
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);  // 攻占成功
     EXPECT_EQ(w.factions[1].landCount, 1);
     EXPECT_EQ(w.factions[2].landCount, 0);
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);  // 反弹角 + 随机小偏置
@@ -224,30 +224,30 @@ TEST(Movement, ConquersEnemyLandAndBounces) {
 TEST(Movement, ConquersEnemyLandVanguardDoesNotBounce) {
     // 细节改进：先锋兵碰敌方领土概率不反弹（bounceMult=0.4）→ 征服后继续前进。
     TestWorld w(6, 6);
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
     w.factions[2].landCount = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::vanguard, 0.0, 0.3, true);
     w.rng.results = {false};  // 敌方反弹不中 → 不反弹
     moveOnce(w, e);
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, 0.0, 1e-9);
 }
 
 TEST(Movement, VanguardBouncesOnEnemy) {
     // 先锋也可能反弹（bounceMult=0.4 中签）：先征服再反弹（原版"弹回"语义）。
     TestWorld w(6, 6);
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
     w.factions[2].landCount = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::vanguard, 0.0, 0.3, true);
     w.rng.results = {true};  // 敌方阻挡命中 → 反弹
     moveOnce(w, e);
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 征服已发生
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);  // 征服已发生
     EXPECT_EQ(w.factions[1].landCount, 1);
     EXPECT_EQ(w.factions[2].landCount, 0);
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);  // 反弹角 + 随机小偏置
@@ -256,26 +256,26 @@ TEST(Movement, VanguardBouncesOnEnemy) {
 TEST(Movement, PioneerConquersAdjacentCellsOnEnemy) {
     // 细节改进：开拓兵碰敌方领土时，上下左右 4 邻格也一起占领（正方形网格）。
     TestWorld w(6, 6);
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;   // 目标格：敌方
-    w.map.at(2, 1).belongi = 2;
-    w.map.at(2, 2).land = true;   // 上
-    w.map.at(2, 2).belongi = 2;
-    w.map.at(2, 0).land = true;   // 下
-    w.map.at(2, 0).belongi = 2;
-    w.map.at(3, 1).land = true;   // 右
-    w.map.at(3, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;   // 目标格：敌方
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
+    lwtest::atXY(w.map, 2, 2).land = true;   // 上
+    lwtest::atXY(w.map, 2, 2).belongi = 2;
+    lwtest::atXY(w.map, 2, 0).land = true;   // 下
+    lwtest::atXY(w.map, 2, 0).belongi = 2;
+    lwtest::atXY(w.map, 3, 1).land = true;   // 右
+    lwtest::atXY(w.map, 3, 1).belongi = 2;
     w.factions[1].landCount = 1;  // 原点 (1,1)
     w.factions[2].landCount = 4;  // 目标+上+下+右
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::pioneer, 0.0, 0.3, true);
     w.rng.results = {false};  // 敌方反弹不中（开拓 bounceMult=1.0 实际必反弹，此处测试连占路径）
     moveOnce(w, e);
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 目标格
-    EXPECT_EQ(w.map.at(2, 2).belongi, 1);  // 上
-    EXPECT_EQ(w.map.at(2, 0).belongi, 1);  // 下
-    EXPECT_EQ(w.map.at(3, 1).belongi, 1);  // 右
-    EXPECT_EQ(w.map.at(1, 1).belongi, 1);  // 左（原点，同势力不变）
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);  // 目标格
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 2).belongi, 1);  // 上
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 0).belongi, 1);  // 下
+    EXPECT_EQ(lwtest::atXY(w.map, 3, 1).belongi, 1);  // 右
+    EXPECT_EQ(lwtest::atXY(w.map, 1, 1).belongi, 1);  // 左（原点，同势力不变）
     EXPECT_EQ(w.factions[1].landCount, 5);  // 原点 1 + 新占 4
     EXPECT_EQ(w.factions[2].landCount, 0);
 }
@@ -287,8 +287,8 @@ TEST(Movement, BouncesOffLeftWall) {
     TestWorld w(10, 10);
     for (int y = 0; y < 10; ++y)
         for (int x = 0; x < 10; ++x) {
-            w.map.at(x, y).land = true;
-            w.map.at(x, y).belongi = 1;
+            lwtest::atXY(w.map, x, y).land = true;
+            lwtest::atXY(w.map, x, y).belongi = 1;
         }
     // x=0.2 向左冲左墙 → 反弹向右，回弹走了 0.1。
     auto e = addArmy(w, 0.2, 5.5, 1, ArmyType::normal, kPi, 0.3, true);
@@ -302,8 +302,8 @@ TEST(Movement, BouncesOffTopWall) {
     TestWorld w(10, 10);
     for (int y = 0; y < 10; ++y)
         for (int x = 0; x < 10; ++x) {
-            w.map.at(x, y).land = true;
-            w.map.at(x, y).belongi = 1;
+            lwtest::atXY(w.map, x, y).land = true;
+            lwtest::atXY(w.map, x, y).belongi = 1;
         }
     // y=0.2 向上冲顶墙 → 反弹向下。
     auto e = addArmy(w, 5.5, 0.2, 1, ArmyType::normal, -kPi / 2, 0.3, true);
@@ -317,8 +317,8 @@ TEST(Movement, BouncesOffRightAndBottomWall) {
     TestWorld w(10, 10);
     for (int y = 0; y < 10; ++y)
         for (int x = 0; x < 10; ++x) {
-            w.map.at(x, y).land = true;
-            w.map.at(x, y).belongi = 1;
+            lwtest::atXY(w.map, x, y).land = true;
+            lwtest::atXY(w.map, x, y).belongi = 1;
         }
     auto e = addArmy(w, 9.8, 5.5, 1, ArmyType::normal, 0.0, 0.3, true);
     moveOnce(w, e);
@@ -339,7 +339,7 @@ TEST(Combat, TwoEnemiesCollideBothDie) {
     TestWorld w(10, 10);
     for (int y = 0; y < 10; ++y)
         for (int x = 0; x < 10; ++x)
-            w.map.at(x, y).land = true;
+            lwtest::atXY(w.map, x, y).land = true;
     auto a = addArmy(w, 5.0, 5.0, 1, ArmyType::normal, 0.0, 0.3, true);
     auto b = addArmy(w, 5.0, 5.0, 2, ArmyType::normal, 0.0, 0.3, true);
     w.hash.build(w.reg, w.map.geom());
@@ -355,7 +355,7 @@ TEST(Combat, SameFactionDoesNotCollide) {
     TestWorld w(10, 10);
     for (int y = 0; y < 10; ++y)
         for (int x = 0; x < 10; ++x)
-            w.map.at(x, y).land = true;
+            lwtest::atXY(w.map, x, y).land = true;
     auto a = addArmy(w, 5.0, 5.0, 1, ArmyType::normal, 0.0, 0.3, true);
     auto b = addArmy(w, 5.0, 5.0, 1, ArmyType::normal, 0.0, 0.3, true);  // 同势力
     w.hash.build(w.reg, w.map.geom());

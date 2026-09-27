@@ -48,7 +48,7 @@ struct TechState {
     std::vector<int> candidates;  // 玩家候选 tech 下标（-1=空位；AI 恒空）
 };
 
-// 征服上下文：Simulation 注入 conquer 所需的一切（保持 Faction::conquer 可独立测试）。
+// 征服上下文：Simulation 注入 conquer 所需的一切（保持 Faction::conquerIndex 可独立测试）。
 struct ConquerContext {
     Map& map;
     std::vector<Faction>& factions;  // 下标即 id（0..8）
@@ -78,9 +78,7 @@ public:
     // removeCity 无法仅凭 cityIds 得到剩余城市等级，易主路径在移除最高城后调用重扫。
     void recomputeMaxCityLevel(const Map& map);
 
-    // 征服（原版 conquer，见翻新计划 §2.8）。势力8 攻占城市时按概率记待产兵请求。
-    void conquer(ConquerContext& ctx, int x, int y);
-    // P12：按格下标征服（密铺统一路径；方 = 等价 conquer(ctx, x, y)）。含整城易主。
+    // 按格下标征服（全密铺统一路径）。势力8 攻占城市时按概率记待产兵请求。
     // 若 ctx.originIndex >= 0（兵进入前的格），占完目标格后一并尝试占它。
     void conquerIndex(ConquerContext& ctx, int index);
 

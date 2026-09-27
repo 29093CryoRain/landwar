@@ -24,7 +24,7 @@ struct SmallWorld {
         map.configure(mapCfg);
         for (int y = 0; y < height; ++y)
             for (int x = 0; x < width; ++x)
-                map.at(x, y).land = true;
+                lwtest::atXY(map, x, y).land = true;
 
         const lw::Config cfg = lw::Config::loadFromJson("{}");
         factions.resize(static_cast<size_t>(lw::kFactionTotal));
@@ -36,7 +36,7 @@ struct SmallWorld {
         int neutralLand = 0;
         for (int y = 0; y < height; ++y)
             for (int x = 0; x < width; ++x)
-                if (map.at(x, y).land) ++neutralLand;
+                if (lwtest::atXY(map, x, y).land) ++neutralLand;
         factions[0].landCount = neutralLand;
     }
 };
@@ -74,7 +74,7 @@ TEST(Faction, InsertAndRemoveCity) {
     EXPECT_EQ(f.cityCount, 0);
 
     // P13：城市注册到 Map（addCity 返回 cityId），Faction 持 cityIds 列表。
-    const int c1 = w.map.addCity(1, 3, 4);
+    const int c1 = w.map.addCity(1, lwtest::cellIndex(w.map, 3, 4));
     f.insertCity(c1, w.map.city(c1).level);
     ASSERT_EQ(f.cityCount, 1);
     EXPECT_EQ(w.map.city(c1).baseX, 3);
@@ -83,7 +83,7 @@ TEST(Faction, InsertAndRemoveCity) {
     f.insertCity(c1, w.map.city(c1).level);  // 去重
     ASSERT_EQ(f.cityCount, 1);
 
-    const int c2 = w.map.addCity(1, 5, 5);
+    const int c2 = w.map.addCity(1, lwtest::cellIndex(w.map, 5, 5));
     f.insertCity(c2, w.map.city(c2).level);
     ASSERT_EQ(f.cityCount, 2);
 
@@ -95,8 +95,8 @@ TEST(Faction, InsertAndRemoveCity) {
 TEST(Faction, MaxCityLevelTracksInsertAndRemoval) {
     SmallWorld w;
     auto& f = w.factions[1];
-    const int low = w.map.addCity(1, 1, 1);
-    const int high = w.map.addCity(4, 4, 4);
+    const int low = w.map.addCity(1, lwtest::cellIndex(w.map, 1, 1));
+    const int high = w.map.addCity(4, lwtest::cellIndex(w.map, 4, 4));
     f.insertCity(low, w.map.city(low).level);
     f.insertCity(high, w.map.city(high).level);
     EXPECT_DOUBLE_EQ(f.maxCityLevel, 4.0);
@@ -116,7 +116,7 @@ TEST(Faction, InsertCityRejectsInvalidId) {
 TEST(Faction, NeutralCannotOwnCities) {
     SmallWorld w;
     auto& f = w.factions[0];
-    const int cid = w.map.addCity(1, 1, 1);
+    const int cid = w.map.addCity(1, lwtest::cellIndex(w.map, 1, 1));
     f.insertCity(cid, w.map.city(cid).level);
     EXPECT_EQ(f.cityCount, 0);
     f.removeCity(cid, w.map.city(cid).level);
@@ -126,13 +126,13 @@ TEST(Faction, NeutralCannotOwnCities) {
 TEST(Faction, ConquerFromNeutral) {
     SmallWorld w;
     auto& f = w.factions[3];
-    const int cid = w.map.addCity(1, 3, 4);
-    w.map.at(3, 4).belongi = 0;
+    const int cid = w.map.addCity(1, lwtest::cellIndex(w.map, 3, 4));
+    lwtest::atXY(w.map, 3, 4).belongi = 0;
     lwtest::MockRng rng;
     lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
-    f.conquer(ctx, 3, 4);
+    f.conquerIndex(ctx, lwtest::cellIndex(w.map, 3, 4));
 
-    EXPECT_EQ(w.map.at(3, 4).belongi, 3);
+    EXPECT_EQ(lwtest::atXY(w.map, 3, 4).belongi, 3);
     EXPECT_EQ(f.cityCount, 1);
     EXPECT_EQ(w.map.city(cid).ownerId, 3);
     EXPECT_EQ(f.landCount, 1);
@@ -143,18 +143,17 @@ TEST(Faction, ConquerFromNeutral) {
 TEST(Faction, ConquerIgnoresOutOfBoundsAndSameOwner) {
     SmallWorld w;
     auto& f = w.factions[2];
-    const int cid = w.map.addCity(1, 1, 1);
-    w.map.at(1, 1).belongi = 2;  // 已属自己
+    const int cid = w.map.addCity(1, lwtest::cellIndex(w.map, 1, 1));
+    lwtest::atXY(w.map, 1, 1).belongi = 2;  // 已属自己
 
     lwtest::MockRng rng;
     lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
-    f.conquer(ctx, -1, 0);
-    f.conquer(ctx, 0, 100);
-    f.conquer(ctx, 10, 0);
-    f.conquer(ctx, 1, 1);
+    f.conquerIndex(ctx, -1);                    // 下标下界外 → 忽略
+    f.conquerIndex(ctx, w.map.cellCount());     // 下标上界外 → 忽略
+    f.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 1));  // 已属自己 → 忽略
     EXPECT_EQ(f.cityCount, 0);
     EXPECT_EQ(f.landCount, 0);
-    EXPECT_EQ(w.map.at(1, 1).belongi, 2);
+    EXPECT_EQ(lwtest::atXY(w.map, 1, 1).belongi, 2);
     EXPECT_EQ(w.map.city(cid).ownerId, 0);  // 仍中立
 }
 
@@ -162,24 +161,24 @@ TEST(Faction, ConquerStealsFromOwner) {
     SmallWorld w;
     auto& owner = w.factions[5];
     auto& thief = w.factions[6];
-    const int cid = w.map.addCity(1, 4, 4);
-    w.map.at(4, 4).belongi = 0;
+    const int cid = w.map.addCity(1, lwtest::cellIndex(w.map, 4, 4));
+    lwtest::atXY(w.map, 4, 4).belongi = 0;
     lwtest::MockRng rng;
     {
         lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
-        owner.conquer(ctx, 4, 4);
+        owner.conquerIndex(ctx, lwtest::cellIndex(w.map, 4, 4));
     }
-    EXPECT_EQ(w.map.at(4, 4).belongi, 5);
+    EXPECT_EQ(lwtest::atXY(w.map, 4, 4).belongi, 5);
     EXPECT_EQ(owner.cityCount, 1);
     EXPECT_EQ(w.map.city(cid).ownerId, 5);
     EXPECT_EQ(owner.landCount, 1);
 
-    w.map.at(4, 4).belongi = 5;
+    lwtest::atXY(w.map, 4, 4).belongi = 5;
     {
         lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
-        thief.conquer(ctx, 4, 4);
+        thief.conquerIndex(ctx, lwtest::cellIndex(w.map, 4, 4));
     }
-    EXPECT_EQ(w.map.at(4, 4).belongi, 6);
+    EXPECT_EQ(lwtest::atXY(w.map, 4, 4).belongi, 6);
     EXPECT_EQ(owner.cityCount, 0);
     EXPECT_EQ(owner.landCount, 0);
     EXPECT_EQ(thief.cityCount, 1);
@@ -190,13 +189,13 @@ TEST(Faction, ConquerStealsFromOwner) {
 TEST(Faction, Faction8FreeArmyOnCity) {
     SmallWorld w;
     auto& f = w.factions[8];
-    const int cid = w.map.addCity(1, 2, 2);
-    w.map.at(2, 2).belongi = 0;
+    const int cid = w.map.addCity(1, lwtest::cellIndex(w.map, 2, 2));
+    lwtest::atXY(w.map, 2, 2).belongi = 0;
     lwtest::MockRng rng;
     rng.results = {true};
     {
         lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
-        f.conquer(ctx, 2, 2);
+        f.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));
     }
 
     ASSERT_EQ(w.pending.size(), 1u);
@@ -211,17 +210,17 @@ TEST(Faction, Faction8FreeArmyOnCity) {
 TEST(Faction, Faction8FreeArmyMiss) {
     SmallWorld w;
     auto& f = w.factions[8];
-    const int cid = w.map.addCity(1, 2, 2);
-    w.map.at(2, 2).belongi = 0;
+    const int cid = w.map.addCity(1, lwtest::cellIndex(w.map, 2, 2));
+    lwtest::atXY(w.map, 2, 2).belongi = 0;
     lwtest::MockRng rng;
     rng.results = {false};
     {
         lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
-        f.conquer(ctx, 2, 2);
+        f.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));
     }
 
     EXPECT_TRUE(w.pending.empty());
-    EXPECT_EQ(w.map.at(2, 2).belongi, 8);  // 征服本身仍生效
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 2).belongi, 8);  // 征服本身仍生效
     EXPECT_EQ(w.map.city(cid).ownerId, 8);
 }
 
@@ -230,33 +229,33 @@ TEST(Faction, PartialOccupationDoesNotTransferCity) {
     SmallWorld w;
     auto& f3 = w.factions[3];
     auto& f4 = w.factions[4];
-    const int cid = w.map.addCity(4, 1, 1);  // 4 级 = 2×2：基建格 (1,1)(2,1)(1,2)(2,2)
-    w.map.at(1, 1).belongi = 0;
-    w.map.at(2, 1).belongi = 0;
-    w.map.at(1, 2).belongi = 0;
-    w.map.at(2, 2).belongi = 0;
+    const int cid = w.map.addCity(4, lwtest::cellIndex(w.map, 1, 1));  // 4 级 = 2×2：基建格 (1,1)(2,1)(1,2)(2,2)
+    lwtest::atXY(w.map, 1, 1).belongi = 0;
+    lwtest::atXY(w.map, 2, 1).belongi = 0;
+    lwtest::atXY(w.map, 1, 2).belongi = 0;
+    lwtest::atXY(w.map, 2, 2).belongi = 0;
     lwtest::MockRng rng;
     lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
 
-    f3.conquer(ctx, 1, 1);  // 部分占领 1/4 格
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 1));  // 部分占领 1/4 格
     EXPECT_EQ(w.map.city(cid).ownerId, 0);
     EXPECT_EQ(f3.cityCount, 0);
 
-    f4.conquer(ctx, 2, 2);  // 第三方占领 1 格（f3 仍持 1 格）
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));  // 第三方占领 1 格（f3 仍持 1 格）
     EXPECT_EQ(w.map.city(cid).ownerId, 0);
     EXPECT_EQ(f3.cityCount, 0);
     EXPECT_EQ(f4.cityCount, 0);
 
-    f4.conquer(ctx, 1, 2);
-    f4.conquer(ctx, 2, 1);  // f4 持 3 格，f3 持 1 格 → 仍不整城易主
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 2));
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 1));  // f4 持 3 格，f3 持 1 格 → 仍不整城易主
     EXPECT_EQ(w.map.city(cid).ownerId, 0);
     EXPECT_EQ(f4.cityCount, 0);
 
-    f3.conquer(ctx, 2, 2);  // f3 夺回 (2,2)：f3 持 (1,1)(2,2)，f4 持 (1,2)(2,1) → 无
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));  // f3 夺回 (2,2)：f3 持 (1,1)(2,2)，f4 持 (1,2)(2,1) → 无
     EXPECT_EQ(w.map.city(cid).ownerId, 0);
 
-    f3.conquer(ctx, 1, 2);
-    f3.conquer(ctx, 2, 1);  // f3 集齐全部 4 格 → 整城易主
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 2));
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 1));  // f3 集齐全部 4 格 → 整城易主
     EXPECT_EQ(w.map.city(cid).ownerId, 3);
     EXPECT_EQ(f3.cityCount, 1);
     EXPECT_EQ(f4.cityCount, 0);
@@ -268,21 +267,21 @@ TEST(Faction, PartialOccupationDoesNotTransferCity) {
 TEST(Faction, Faction8FreeArmyOncePerWholeCity) {
     SmallWorld w;
     auto& f = w.factions[8];
-    const int cid = w.map.addCity(4, 1, 1);  // 2×2：中心 (2.0, 2.0)
-    w.map.at(1, 1).belongi = 0;
-    w.map.at(2, 1).belongi = 0;
-    w.map.at(1, 2).belongi = 0;
-    w.map.at(2, 2).belongi = 0;
+    const int cid = w.map.addCity(4, lwtest::cellIndex(w.map, 1, 1));  // 2×2：中心 (2.0, 2.0)
+    lwtest::atXY(w.map, 1, 1).belongi = 0;
+    lwtest::atXY(w.map, 2, 1).belongi = 0;
+    lwtest::atXY(w.map, 1, 2).belongi = 0;
+    lwtest::atXY(w.map, 2, 2).belongi = 0;
     lwtest::MockRng rng;
     rng.results = {true};
     lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
 
-    f.conquer(ctx, 1, 1);
-    f.conquer(ctx, 2, 1);
-    f.conquer(ctx, 1, 2);  // 前 3 格仅改土地归属，不整城易主 → 无免费兵
+    f.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 1));
+    f.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 1));
+    f.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 2));  // 前 3 格仅改土地归属，不整城易主 → 无免费兵
     EXPECT_TRUE(w.pending.empty());
 
-    f.conquer(ctx, 2, 2);  // 第 4 格集齐 → 整城易主 → 免费产兵一次
+    f.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));  // 第 4 格集齐 → 整城易主 → 免费产兵一次
     ASSERT_EQ(w.pending.size(), 1u);
     EXPECT_EQ(w.pending[0].type, 0);
     EXPECT_EQ(w.pending[0].factionId, 8);

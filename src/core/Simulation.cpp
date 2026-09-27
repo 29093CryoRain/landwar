@@ -233,17 +233,7 @@ bool Simulation::choosePlayerTech(int techIndex) {
     return true;
 }
 
-void Simulation::conquer(int x, int y, int factionId, bool freeArmyEnabled) {
-    if (factionId < 0 || factionId >= factionCount()) {
-        spdlog::error("Simulation::conquer: factionId {} out of range [0,{}); ignored", factionId,
-                      factionCount());
-        return;
-    }
-    ConquerContext ctx{map_, factions_, *rng_, pendingSpawns_, freeArmyEnabled, tickCount_};
-    factions_[static_cast<size_t>(factionId)].conquer(ctx, x, y);
-}
-
-// P12：按格下标征服（密铺统一路径；首都多格城逐格征服用）。
+// 按格下标征服（全密铺统一路径；首都多格城逐格征服用）。
 void Simulation::conquerIndex(int index, int factionId, bool freeArmyEnabled) {
     if (factionId < 0 || factionId >= factionCount()) {
         spdlog::error("Simulation::conquerIndex: factionId {} out of range [0,{}); ignored",

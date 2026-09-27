@@ -587,16 +587,13 @@ int Map::cellIndexAt(int c, int r, int b) const {
     return geom_.cellIndexAt(r, c, b);
 }
 
-// 形状 → 基建格下标（level 查密铺形状表；锚点 index 为形状原点；variant < 0 时按锚点
-// 确定性选取）。P12。渲染/放置统一用 City::shapeVariant（放置时选定、快照持久化），
+// 形状 → 基建格下标（level 查密铺形状表；锚点 index 为形状原点；variant 必须显式给出）。
+// P12。渲染/放置统一用 City::shapeVariant（放置时选定、快照持久化），
 // 保证同级多形状（Laves/部分半正）的锚朝向/局部拓扑匹配不因 anchorIndex 取模漂移。
 std::vector<int> Map::shapeCells(double level, int anchorIndex, int variant) const {
     std::vector<int> out;
     const auto& set = cityConfig_.setFor(geom_.type);
-    const int vc = set.variantCount(level);
-    int v = variant;
-    if (v < 0) v = (vc > 1) ? (std::abs(anchorIndex) % vc) : 0;  // 旧确定性选变体（测试用）
-    const Config::City::Shape* sh = set.shapeFor(level, v);
+    const Config::City::Shape* sh = set.shapeFor(level, variant);
     if (!sh || anchorIndex < 0 || anchorIndex >= cellCount()) return out;
     out.reserve(sh->cells.size());
     return resolveShapeCells(*sh, anchorIndex);
@@ -762,14 +759,6 @@ MapCell& Map::atIndex(int idx) {
 
 const MapCell& Map::atIndex(int idx) const {
     return cells_[static_cast<size_t>(idx)];
-}
-
-MapCell& Map::at(int x, int y) {
-    return cells_[static_cast<size_t>(y) * width_ + x];
-}
-
-const MapCell& Map::at(int x, int y) const {
-    return cells_[static_cast<size_t>(y) * width_ + x];
 }
 
 // ---- 边要素：河流（§5.2）----

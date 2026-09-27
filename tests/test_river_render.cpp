@@ -100,7 +100,7 @@ TEST(RiverRender, DrawsRiversWithColorWidthAndLod) {
         lw::math::ScreenTransform{static_cast<double>(kBlockSize), 0, static_cast<double>(kH)},
         800, 600, kW, kH);
     std::vector<std::array<int, 3>> colors(9, {255, 255, 255});
-    std::array<std::array<int, 3>, lw::kFactionTotal> tileColors{};
+    std::vector<std::array<int, 3>> tileColors(lw::kFactionTotal, {0, 0, 0});
     for (auto& color : tileColors) color = {255, 255, 255};
 
     // 功能断言（覆盖/颜色/LOD/线宽）用**固定**线宽 0.20/1.5，不随代码默认值调参而变；
@@ -257,7 +257,7 @@ TEST(RiverRender, CornerJoinStaysWithinHalfWidth) {
         lw::math::ScreenTransform{static_cast<double>(kBlockSize), 0, static_cast<double>(kH)},
         800, 600, kW, kH);
     std::vector<std::array<int, 3>> colors(9, {255, 255, 255});
-    std::array<std::array<int, 3>, lw::kFactionTotal> tileColors{};
+    std::vector<std::array<int, 3>> tileColors(lw::kFactionTotal, {0, 0, 0});
     for (auto& color : tileColors) color = {255, 255, 255};
     const lw::Map map = makeMap(true, cfg);
     lw::Config::Render::River thick = cfg.render.river;

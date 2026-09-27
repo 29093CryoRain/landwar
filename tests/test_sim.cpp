@@ -38,7 +38,7 @@ TEST(Simulation, InitBuildsFactionsAndConquersCapitals) {
     for (int i = 0; i < sim.map().capitalCount(); ++i) {
         const int x = sim.map().capitalX(i);
         const int y = sim.map().capitalY(i);
-        const int owner = sim.map().at(x, y).belongi;
+        const int owner = lwtest::atXY(sim.map(), x, y).belongi;
         EXPECT_GE(owner, 1);
         EXPECT_LE(owner, sim.map().capitalCount());
         capitals.emplace_back(x, y);
@@ -65,10 +65,10 @@ TEST(Simulation, SameSeedDeterministic) {
     // 整个归属网格抽查（粗间隔扫描全部 9975 格成本太高，抽样即可）。
     for (int y = 0; y < a.map().height(); y += 7) {
         for (int x = 0; x < a.map().width(); x += 11) {
-            EXPECT_EQ(a.map().at(x, y).belongi, b.map().at(x, y).belongi)
+            EXPECT_EQ(lwtest::atXY(a.map(), x, y).belongi, lwtest::atXY(b.map(), x, y).belongi)
                 << "belongi at (" << x << "," << y << ")";
             // P13：逐格 cityId 归属（格 ∈ 某城 = cityId>=0）。
-            EXPECT_EQ(a.map().at(x, y).cityId >= 0, b.map().at(x, y).cityId >= 0)
+            EXPECT_EQ(lwtest::atXY(a.map(), x, y).cityId >= 0, lwtest::atXY(b.map(), x, y).cityId >= 0)
                 << "city at (" << x << "," << y << ")";
         }
     }
@@ -106,8 +106,8 @@ bool mapDiceEqual(const lw::Map& a, const lw::Map& b) {
     if (a.width() != b.width() || a.height() != b.height()) return false;
     for (int y = 0; y < a.height(); ++y) {
         for (int x = 0; x < a.width(); ++x) {
-            const auto& ca = a.at(x, y);
-            const auto& cb = b.at(x, y);
+            const auto& ca = lwtest::atXY(a, x, y);
+            const auto& cb = lwtest::atXY(b, x, y);
             if (ca.land != cb.land || ca.mountain != cb.mountain) return false;
         }
     }
@@ -118,7 +118,7 @@ bool mapDiceEqual(const lw::Map& a, const lw::Map& b) {
 bool anyCityDiff(const lw::Map& a, const lw::Map& b) {
     for (int y = 0; y < a.height(); ++y)
         for (int x = 0; x < a.width(); ++x)
-            if ((a.at(x, y).cityId >= 0) != (b.at(x, y).cityId >= 0)) return true;
+            if ((lwtest::atXY(a, x, y).cityId >= 0) != (lwtest::atXY(b, x, y).cityId >= 0)) return true;
     return false;
 }
 
@@ -162,7 +162,7 @@ TEST(Simulation, NativeFileMapDoesNotConsumeMapSeed) {
     // Terrain and city records are fixed by the native file.
     for (int y = 0; y < a.map().height(); ++y) {
         for (int x = 0; x < a.map().width(); ++x) {
-            EXPECT_EQ(a.map().at(x, y).land, b.map().at(x, y).land) << "(" << x << "," << y << ")";
+            EXPECT_EQ(lwtest::atXY(a.map(), x, y).land, lwtest::atXY(b.map(), x, y).land) << "(" << x << "," << y << ")";
         }
     }
     EXPECT_FALSE(anyCityDiff(a.map(), b.map()));

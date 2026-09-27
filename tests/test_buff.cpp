@@ -188,7 +188,7 @@ TEST(Buff, ConquerUsesFreeArmyChanceMult) {
     Map map;
     map.configure(mcfg);
     for (int y = 0; y < 8; ++y)
-        for (int x = 0; x < 10; ++x) map.at(x, y).land = true;
+        for (int x = 0; x < 10; ++x) lwtest::atXY(map, x, y).land = true;
 
     std::vector<Faction> factions(static_cast<size_t>(kFactionTotal));
     for (int id = 0; id < kFactionTotal; ++id)
@@ -196,12 +196,12 @@ TEST(Buff, ConquerUsesFreeArmyChanceMult) {
     factions[8].buffs.push_back({BuffType::FreeArmyChanceMult, -1, 0.5, 1, "t"});
     factions[8].recomputeMods();
 
-    map.addCity(1, 2, 2);  // (2,2) 成为城市（cid 无需引用，征服行为即验证目标）
-    map.at(2, 2).belongi = 0;
+    map.addCity(1, lwtest::cellIndex(map, 2, 2));  // (2,2) 成为城市（cid 无需引用，征服行为即验证目标）
+    lwtest::atXY(map, 2, 2).belongi = 0;
     RecordingRng rng;
     std::vector<PendingSpawn> pending;
     ConquerContext ctx{map, factions, rng, pending};
-    factions[8].conquer(ctx, 2, 2);
+    factions[8].conquerIndex(ctx, lwtest::cellIndex(map, 2, 2));
     EXPECT_DOUBLE_EQ(rng.lastP, 0.3);  // 0.6 × 0.5
     ASSERT_EQ(pending.size(), 1u);
     EXPECT_EQ(pending[0].type, static_cast<int>(ArmyType::normal));
@@ -228,18 +228,18 @@ TEST(Buff, FreeArmyChanceKeepsDifferentUnitParams) {
     Map map;
     map.configure(mcfg);
     for (int y = 0; y < 8; ++y)
-        for (int x = 0; x < 10; ++x) map.at(x, y).land = true;
+        for (int x = 0; x < 10; ++x) lwtest::atXY(map, x, y).land = true;
 
     std::vector<Faction> factions(static_cast<size_t>(kFactionTotal));
     for (int id = 0; id < kFactionTotal; ++id)
         factions[static_cast<size_t>(id)].initFromDef(cfg.factions[static_cast<size_t>(id)], cfg);
-    map.addCity(1, 2, 2);
-    map.at(2, 2).belongi = 0;
+    map.addCity(1, lwtest::cellIndex(map, 2, 2));
+    lwtest::atXY(map, 2, 2).belongi = 0;
 
     RecordingRng rng;
     std::vector<PendingSpawn> pending;
     ConquerContext ctx{map, factions, rng, pending};
-    factions[8].conquer(ctx, 2, 2);
+    factions[8].conquerIndex(ctx, lwtest::cellIndex(map, 2, 2));
 
     ASSERT_EQ(rng.probabilities.size(), 2u);
     EXPECT_DOUBLE_EQ(rng.probabilities[0], 0.2);

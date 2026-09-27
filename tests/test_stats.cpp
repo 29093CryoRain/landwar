@@ -35,7 +35,7 @@ void clearToLand(Simulation& sim, int owner) {
     auto& map = sim.map();
     for (int y = 0; y < map.height(); ++y)
         for (int x = 0; x < map.width(); ++x) {
-            auto& c = map.at(x, y);
+            auto& c = lwtest::atXY(map, x, y);
             c.land = true;
             c.cityId = -1;
             c.belongi = owner;

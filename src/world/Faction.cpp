@@ -113,12 +113,6 @@ void Faction::recomputeMaxCityLevel(const Map& map) {
     }
 }
 
-void Faction::conquer(ConquerContext& ctx, int x, int y) {
-    // 保持旧 (x,y) 边界语义（x=width 或 y=height 须拒绝；转下标会落到别行）。
-    if (x < 0 || x >= ctx.map.width() || y < 0 || y >= ctx.map.height()) return;
-    conquerIndex(ctx, y * ctx.map.width() + x);
-}
-
 void Faction::conquerIndex(ConquerContext& ctx, int index) {
     // 2026-09 用户定夺：征服不再依赖"兵最终停在哪格"（旧 movedArmy 的终点格补占已删除），
     // 改为占目标格时一并检查调用方声明的 originIndex（兵进入前的格）——凡能占的一起占。

@@ -30,7 +30,7 @@ TEST(MountainRender, BakesAndDrawsAllTilingScales) {
         lw::TilingType::Laves4612, lw::TilingType::Laves488,   lw::TilingType::Laves33434,
         lw::TilingType::Laves33336, lw::TilingType::Laves3464};
     std::vector<std::array<int, 3>> colors(9, {100, 100, 100});
-    std::array<std::array<int, 3>, lw::kFactionTotal> tileColors{};
+    std::vector<std::array<int, 3>> tileColors(lw::kFactionTotal, {0, 0, 0});
     for (auto& color : tileColors) color = {160, 160, 160};
 
     for (const lw::TilingType type : types) {

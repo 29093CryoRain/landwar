@@ -79,7 +79,7 @@ namespace {
 // 用真实六/三角形密铺几何取城市形状的多边形，喂给 CityIconFitter。
 std::vector<FitPoly> polygonsFor(const Map& map, double level, int anchor) {
     std::vector<FitPoly> cells;
-    const std::vector<int> idxs = map.shapeCells(level, anchor);
+    const std::vector<int> idxs = map.shapeCells(level, anchor, 0);
     double vx[12], vy[12];
     for (int idx : idxs) {
         if (idx < 0) continue;

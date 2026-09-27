@@ -44,7 +44,7 @@ TEST(Mountain, BaselineMapHasZeroMountains) {
     int mountains = 0;
     for (int y = 0; y < map.height(); ++y)
         for (int x = 0; x < map.width(); ++x)
-            if (map.at(x, y).mountain) ++mountains;
+            if (lwtest::atXY(map, x, y).mountain) ++mountains;
     EXPECT_EQ(mountains, 0);
 }
 
@@ -61,13 +61,13 @@ TEST(Mountain, DemoMapFlagsExactlyPaintedCells) {
     int mtn = 0;
     for (int y = 0; y < map.height(); ++y)
         for (int x = 0; x < map.width(); ++x)
-            if (map.at(x, y).mountain) ++mtn;
+            if (lwtest::atXY(map, x, y).mountain) ++mtn;
     EXPECT_EQ(mtn, 3);
-    EXPECT_TRUE(map.at(50, 50).mountain);
-    EXPECT_TRUE(map.at(30, 80).mountain);
-    EXPECT_TRUE(map.at(80, 30).mountain);
-    EXPECT_FALSE(map.at(0, 0).mountain);  // 海
-    EXPECT_FALSE(map.at(60, 60).mountain);  // 普通陆
+    EXPECT_TRUE(lwtest::atXY(map, 50, 50).mountain);
+    EXPECT_TRUE(lwtest::atXY(map, 30, 80).mountain);
+    EXPECT_TRUE(lwtest::atXY(map, 80, 30).mountain);
+    EXPECT_FALSE(lwtest::atXY(map, 0, 0).mountain);  // 海
+    EXPECT_FALSE(lwtest::atXY(map, 60, 60).mountain);  // 普通陆
 }
 
 TEST(Mountain, CoastCorrectionClearsSeaAdjacent) {
@@ -79,13 +79,13 @@ TEST(Mountain, CoastCorrectionClearsSeaAdjacent) {
     map.configure(cfg.map);
     map.setTerrain(cfg.terrain);
     for (int y = 0; y < 3; ++y)
-        for (int x = 0; x < 3; ++x) map.at(x, y).land = true;
-    map.at(1, 2).land = false;         // 右上角海（邻居中心 (1,1)）
-    map.at(1, 1).mountain = true;      // 邻海 → 待清
-    map.at(2, 0).mountain = true;      // 内陆山 → 保留
+        for (int x = 0; x < 3; ++x) lwtest::atXY(map, x, y).land = true;
+    lwtest::atXY(map, 1, 2).land = false;         // 右上角海（邻居中心 (1,1)）
+    lwtest::atXY(map, 1, 1).mountain = true;      // 邻海 → 待清
+    lwtest::atXY(map, 2, 0).mountain = true;      // 内陆山 → 保留
     map.correctMountainCoast();
-    EXPECT_FALSE(map.at(1, 1).mountain);  // 邻海清除
-    EXPECT_TRUE(map.at(2, 0).mountain);   // 内陆保留
+    EXPECT_FALSE(lwtest::atXY(map, 1, 1).mountain);  // 邻海清除
+    EXPECT_TRUE(lwtest::atXY(map, 2, 0).mountain);   // 内陆保留
 }
 
 TEST(Mountain, TiledCoastCorrectionClearsPointAdjacentMountain) {
@@ -157,10 +157,10 @@ TEST(MountainEnc, SeaWhenAnyChannelBelow32) {
     t.write({std::array<int, 3>{0, 0, 0}, std::array<int, 3>{31, 200, 200},
              std::array<int, 3>{255, 0, 255}});
     t.load();
-    EXPECT_FALSE(t.map.at(0, 0).land);
-    EXPECT_FALSE(t.map.at(1, 0).land);  // min=31 <32
-    EXPECT_FALSE(t.map.at(2, 0).land);  // min=0 <32
-    EXPECT_TRUE(t.map.at(0, 0).cityId == -1);
+    EXPECT_FALSE(lwtest::atXY(t.map, 0, 0).land);
+    EXPECT_FALSE(lwtest::atXY(t.map, 1, 0).land);  // min=31 <32
+    EXPECT_FALSE(lwtest::atXY(t.map, 2, 0).land);  // min=0 <32
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).cityId == -1);
 }
 
 TEST(MountainEnc, MountainProbabilityFromRChannel) {
@@ -168,9 +168,9 @@ TEST(MountainEnc, MountainProbabilityFromRChannel) {
     t.rng.results = {true};  // 山骰=true（当前每陆格仅一骰：山；城许可为确定性 ramp(G)>0）
     t.write({std::array<int, 3>{255, 32, 32}});  // r=255 → p_mtn=1；g=32 → 城许可 false
     t.load();
-    EXPECT_TRUE(t.map.at(0, 0).land);
-    EXPECT_TRUE(t.map.at(0, 0).mountain);
-    EXPECT_FALSE(t.map.at(0, 0).cityId >= 0);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).land);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).mountain);
+    EXPECT_FALSE(lwtest::atXY(t.map, 0, 0).cityId >= 0);
 }
 
 TEST(MountainEnc, CityProbabilityFromGChannel) {
@@ -178,9 +178,9 @@ TEST(MountainEnc, CityProbabilityFromGChannel) {
     t.rng.results = {false};  // 山骰=false；城许可由 ramp(G) 决定（确定性，非骰）
     t.write({std::array<int, 3>{32, 255, 32}});  // g=255 → 城许可 true；r=32 → p_mtn=0
     t.load();
-    EXPECT_TRUE(t.map.at(0, 0).land);
-    EXPECT_TRUE(t.map.at(0, 0).cityId >= 0);
-    EXPECT_FALSE(t.map.at(0, 0).mountain);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).land);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).cityId >= 0);
+    EXPECT_FALSE(lwtest::atXY(t.map, 0, 0).mountain);
 }
 
 TEST(MountainEnc, MountainAndCityCoexist) {
@@ -188,8 +188,8 @@ TEST(MountainEnc, MountainAndCityCoexist) {
     t.rng.results = {true, true};  // 两骰独立 → 山+城同格
     t.write({std::array<int, 3>{255, 255, 32}});
     t.load();
-    EXPECT_TRUE(t.map.at(0, 0).mountain);
-    EXPECT_TRUE(t.map.at(0, 0).cityId >= 0);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).mountain);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).cityId >= 0);
 }
 
 TEST(MountainEnc, BChannelIdleButPartOfSeaRule) {
@@ -198,10 +198,10 @@ TEST(MountainEnc, BChannelIdleButPartOfSeaRule) {
     t.rng.results = {false, false};  // (0,0) 陆格：城/山均 false
     t.write({std::array<int, 3>{32, 32, 255}, std::array<int, 3>{32, 32, 31}});
     t.load();
-    EXPECT_TRUE(t.map.at(0, 0).land);
-    EXPECT_FALSE(t.map.at(0, 0).mountain);
-    EXPECT_FALSE(t.map.at(0, 0).cityId >= 0);
-    EXPECT_FALSE(t.map.at(1, 0).land);  // b=31 <32 → 海
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).land);
+    EXPECT_FALSE(lwtest::atXY(t.map, 0, 0).mountain);
+    EXPECT_FALSE(lwtest::atXY(t.map, 0, 0).cityId >= 0);
+    EXPECT_FALSE(lwtest::atXY(t.map, 1, 0).land);  // b=31 <32 → 海
 }
 
 TEST(MountainEnc, FractionalRampConsumesRng) {
@@ -210,12 +210,12 @@ TEST(MountainEnc, FractionalRampConsumesRng) {
     t.rng.results = {true};   // retained fixture field; native terrain is exact
     t.write({std::array<int, 3>{200, 32, 32}});
     t.load();
-    EXPECT_TRUE(t.map.at(0, 0).mountain);
-    EXPECT_FALSE(t.map.at(0, 0).cityId >= 0);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).mountain);
+    EXPECT_FALSE(lwtest::atXY(t.map, 0, 0).cityId >= 0);
     // 另一个中等概率没抽中：
     t.rng.results = {false, false};
     t.load();
-    EXPECT_TRUE(t.map.at(0, 0).mountain);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).mountain);
 }
 
 TEST(MountainEnc, NativeLoadPreservesExactMountainRecords) {
@@ -228,9 +228,9 @@ TEST(MountainEnc, NativeLoadPreservesExactMountainRecords) {
     t.rng.results = {true, true, true, true, true, true, true, true};
     t.write({M, S, P, P, P, P, P, P, M});
     t.load();
-    EXPECT_TRUE(t.map.at(0, 0).mountain);
-    EXPECT_TRUE(t.map.at(0, 0).land);
-    EXPECT_TRUE(t.map.at(2, 2).mountain);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).mountain);
+    EXPECT_TRUE(lwtest::atXY(t.map, 0, 0).land);
+    EXPECT_TRUE(lwtest::atXY(t.map, 2, 2).mountain);
 }
 
 // ---- 移动（复刻 test_army.cpp TestWorld 模式，含 inMountain）----
@@ -285,11 +285,11 @@ void moveOnce(MountainWorld& w, entt::entity e) {
 
 TEST(MountainMove, EnterMountainSlowsAndKeepsState) {
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;   // 己方平地
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 1;   // 己方山（避免征服分支干扰）
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;   // 己方平地
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;   // 己方山（避免征服分支干扰）
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
     w.rng.results = {true};  // 进山成功
     moveOnce(w, e);
@@ -301,26 +301,26 @@ TEST(MountainMove, EnterMountainSlowsAndKeepsState) {
 
 TEST(MountainMove, EnterMountainFailsBounces) {
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
     w.rng.results = {false};  // 进山失败 → 水平反弹，不攻占
     moveOnce(w, e);
     EXPECT_FALSE(w.reg.get<comp::MountainState>(e).inMountain);
     EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.3);  // 未减速
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);  // 反弹 + 随机小偏置
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 未占领目标山格（仍己方，未触发征服）
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);  // 未占领目标山格（仍己方，未触发征服）
 }
 
 TEST(MountainMove, LeaveMountainRestoresSpeed) {
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).belongi = 1;  // 平地目标
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;  // 平地目标
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true, /*inMountain=*/true);
     moveOnce(w, e);  // 离开山地 → 速度复原
     EXPECT_FALSE(w.reg.get<comp::MountainState>(e).inMountain);
@@ -329,9 +329,9 @@ TEST(MountainMove, LeaveMountainRestoresSpeed) {
 
 TEST(MountainMove, SeaToMountainLandingEntersMountain) {
     MountainWorld w;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, false);  // 海上
     w.rng.results = {true};  // 山地骰通过 → 登陆进山
     moveOnce(w, e);
@@ -343,9 +343,9 @@ TEST(MountainMove, SeaToMountainLandingEntersMountain) {
 TEST(MountainMove, SeaToMountainLandingBounces) {
     // 细节改进：海→山（不管当前格）也掷山地阻挡；失败 → 反弹留海、不登陆。
     MountainWorld w;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, false);  // 海上
     w.rng.results = {false};  // 山地阻挡 → 反弹
     moveOnce(w, e);
@@ -357,12 +357,12 @@ TEST(MountainMove, SeaToMountainLandingBounces) {
 TEST(MountainMove, MountainToMountainBounces) {
     // 细节改进：山→山（不管当前格）也掷山地阻挡；失败 → 反弹（留在原地山地）。
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).mountain = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).mountain = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true, /*inMountain=*/true);
     w.rng.results = {false};  // 山地阻挡 → 反弹
     moveOnce(w, e);
@@ -372,9 +372,9 @@ TEST(MountainMove, MountainToMountainBounces) {
 
 TEST(MountainMove, MountainToSeaFailedLandingKeepsMountainState) {
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).mountain = true;
-    w.map.at(1, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).mountain = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true,
                      /*inMountain=*/true);
     w.rng.results = {false};  // 下海失败 → 反弹回原山地格
@@ -386,11 +386,11 @@ TEST(MountainMove, MountainToSeaFailedLandingKeepsMountainState) {
 
 TEST(MountainMove, MountainToEnemyPlainBounceKeepsMountainState) {
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).mountain = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).mountain = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
     w.factions[2].landCount = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true,
                      /*inMountain=*/true);
@@ -398,34 +398,34 @@ TEST(MountainMove, MountainToEnemyPlainBounceKeepsMountainState) {
     moveOnce(w, e);
     EXPECT_TRUE(w.reg.get<comp::MountainState>(e).inMountain);
     EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.15);
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 征服副作用仍保留
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);  // 征服副作用仍保留
 }
 
 TEST(MountainMove, PlainToEnemyMountainBounceKeepsPlainState) {
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
     w.factions[2].landCount = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
     w.rng.results = {true, true};  // 进山通过，敌方反弹
     moveOnce(w, e);
     EXPECT_FALSE(w.reg.get<comp::MountainState>(e).inMountain);
     EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.3);
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);  // 征服副作用仍保留
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);  // 征服副作用仍保留
 }
 
 TEST(MountainMove, MountainToMountainPasses) {
     // 山→山 山地骰通过 → 继续前进，状态不变（已在山地不重复减速）。
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).mountain = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).mountain = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true, /*inMountain=*/true);
     w.rng.results = {true};  // 山地骰通过
     moveOnce(w, e);
@@ -437,11 +437,11 @@ TEST(MountainMove, MountainToMountainPasses) {
 TEST(MountainMove, PioneerMountainNoSlow) {
     // 细节改进：开拓兵在山地不减速（进山 inMountain=true 但速度不变）。
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::pioneer, 0.0, 0.3, true);
     w.rng.results = {true};  // 进山成功
     moveOnce(w, e);
@@ -460,28 +460,28 @@ TEST(MountainMove, PioneerMountainEnterChanceHigher) {
 TEST(MountainMove, VanguardCrossesEnemyMountainBothPass) {
     // 敌方+山地：先锋两骰（山地 + 敌方反弹）独立且都通过 → 不反弹、进入并征服。
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
     w.factions[2].landCount = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::vanguard, 0.0, 0.3, true);
     w.rng.results = {true, false};  // 山地骰过 + 敌方反弹不中 → 进入
     moveOnce(w, e);
     EXPECT_TRUE(w.reg.get<comp::MountainState>(e).inMountain);
-    EXPECT_EQ(w.map.at(2, 1).belongi, 1);   // 征服目标格
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);   // 征服目标格
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, 0.0, 1e-9);  // 不反弹
 }
 
 TEST(MountainMove, NormalAlwaysBouncesOnEnemyMountain) {
     // 敌方+山地：非先锋（bounceMult=1.0）敌方阻挡必然反弹——用真实 Rng 验证（chance(1.0) 恒真）。
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
-    w.map.at(2, 1).land = true;
-    w.map.at(2, 1).mountain = true;
-    w.map.at(2, 1).belongi = 2;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
     w.factions[2].landCount = 1;
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
     lw::Rng realRng(1234);  // 绕开 MockRng：真实 Rng 的 chance(1.0) 恒 true
@@ -493,8 +493,8 @@ TEST(MountainMove, NormalAlwaysBouncesOnEnemyMountain) {
 
 TEST(MountainMove, MountainToSeaRestoresBeforeGoingSea) {
     MountainWorld w;
-    w.map.at(1, 1).land = true;
-    w.map.at(1, 1).belongi = 1;
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
     // (2,1) 默认海
     auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true, /*inMountain=*/true);
     w.rng.results = {true};  // 下海成功
@@ -514,7 +514,7 @@ TEST(MountainMove, SpawnInMountainScalesSpeed) {
     Simulation sim(cfg, 7);
     ASSERT_TRUE(sim.init());
     const int mx = 52, my = 47;
-    EXPECT_TRUE(sim.map().at(mx, my).mountain);
+    EXPECT_TRUE(lwtest::atXY(sim.map(), mx, my).mountain);
     auto e = SpawnSystem::spawnArmy(sim, mx + 0.5, my + 0.5, 1, ArmyType::normal);
     ASSERT_TRUE(e != entt::null);
     EXPECT_TRUE(sim.registry().get<comp::MountainState>(e).inMountain);

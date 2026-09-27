@@ -71,8 +71,8 @@ TEST(Economy, CityIncomeUsesLevelsAlpha) {
     Config cfg = baseCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
-    const int c1 = sim.map().addCity(1, 10, 10);
-    const int c4 = sim.map().addCity(4, 20, 20);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
+    const int c4 = sim.map().addCity(4, lwtest::cellIndex(sim.map(), 20, 20));
     auto& f = sim.faction(1);
     f.economy = 0.0;
     f.landCount = 0;
@@ -92,8 +92,8 @@ TEST(Economy, LandAndCityIncomeCombine) {
     Config cfg = baseCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
-    const int c1 = sim.map().addCity(1, 10, 10);
-    const int c9 = sim.map().addCity(9, 20, 20);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
+    const int c9 = sim.map().addCity(9, lwtest::cellIndex(sim.map(), 20, 20));
     auto& f = sim.faction(1);
     f.economy = 0.0;
     f.landCount = 3;
@@ -114,11 +114,11 @@ TEST(Economy, DoubleCountingLandAndCitySeparateOwners) {
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
     // 4 级城（2×2 基建格），owner=势力1；其土地 belongi 归势力2。
-    const int c = sim.map().addCity(4, 10, 10);
+    const int c = sim.map().addCity(4, lwtest::cellIndex(sim.map(), 10, 10));
     sim.map().city(c).ownerId = 1;
     for (int dy = 0; dy < 2; ++dy)
         for (int dx = 0; dx < 2; ++dx)
-            sim.map().at(10 + dx, 10 + dy).belongi = 2;
+            lwtest::atXY(sim.map(), 10 + dx, 10 + dy).belongi = 2;
     auto& f1 = sim.faction(1);
     auto& f2 = sim.faction(2);
     f1.economy = f2.economy = 0.0;
@@ -141,7 +141,7 @@ TEST(Economy, DeadFactionGetsZeroIncome) {
     Config cfg = baseCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
-    const int c = sim.map().addCity(1, 10, 10);
+    const int c = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
     auto& f = sim.faction(1);
     f.alive = false;
     f.economy = 0.0;
@@ -174,8 +174,8 @@ TEST(Economy, CityEconomyRatePureFunction) {
     Config cfg = baseCfg();
     Simulation sim(cfg, 42);
     ASSERT_TRUE(sim.init());
-    const int c1 = sim.map().addCity(1, 10, 10);
-    const int c9 = sim.map().addCity(9, 20, 20);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
+    const int c9 = sim.map().addCity(9, lwtest::cellIndex(sim.map(), 20, 20));
     EXPECT_NEAR(EconomySystem::cityEconomyRate(cfg, sim.map().city(c1)),
                 cfg.economy.perLandIncome * cfg.economy.cityBaseMult
                     * std::pow(1.0, cfg.city.levelIncomeExponent), 1e-12);
@@ -198,7 +198,7 @@ TEST(Production, FairHeapProducesBalancedTypes) {
     clearArmies(sim);
     auto& f = sim.faction(1);
     // P13：城市注册到 Map 注册表，Faction 持 cityIds。
-    const int c1 = sim.map().addCity(1, 10, 10);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
     f.cityIds = {c1};
     f.cityCount = 1;
     f.economy = 6.0;
@@ -224,7 +224,7 @@ TEST(Production, EconomyIsRetainedStock) {
     ASSERT_TRUE(sim.init());
     clearArmies(sim);
     auto& f = sim.faction(1);
-    const int c1 = sim.map().addCity(1, 10, 10);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
     f.cityIds = {c1};
     f.cityCount = 1;
     f.economy = 3.0;
@@ -244,8 +244,8 @@ TEST(Production, PrefersLeastRecentlyProducedCity) {
     clearArmies(sim);
     auto& f = sim.faction(1);
     // P13：注册表城市；城1 lastProduce=0（闲置最久）→ 优先，城2=100 不敌城1。
-    const int c1 = sim.map().addCity(1, 10, 10);
-    const int c2 = sim.map().addCity(1, 20, 20);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
+    const int c2 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 20, 20));
     sim.map().city(c2).lastProduceArmyN = 100;
     f.cityIds = {c1, c2};
     f.cityCount = 2;
@@ -284,7 +284,7 @@ TEST(Production, StopsAtMaxArmyGuard) {
     ASSERT_TRUE(sim.init());
     clearArmies(sim);
     auto& f = sim.faction(1);
-    const int c1 = sim.map().addCity(1, 10, 10);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
     f.cityIds = {c1};
     f.cityCount = 1;
     f.economy = 100.0;

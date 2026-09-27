@@ -222,7 +222,7 @@ TEST(ProductionDispatch, PlayerAiStubProducesNothingDefaultAiProduces) {
     ASSERT_TRUE(sim.init());
     clearArmies(sim);
     auto& f = sim.faction(1);
-    const int c1 = sim.map().addCity(1, 10, 10);
+    const int c1 = sim.map().addCity(1, lwtest::cellIndex(sim.map(), 10, 10));
     f.cityIds = {c1};
     f.cityCount = 1;
     f.economy = 6.0;

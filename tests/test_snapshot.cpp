@@ -174,8 +174,8 @@ TEST(Snapshot, RoundTripPreservesState) {
     }
     for (int y = 0; y < sim.map().height(); ++y) {
         for (int x = 0; x < sim.map().width(); ++x) {
-            const auto& a = sim.map().at(x, y);
-            const auto& b = r.map().at(x, y);
+            const auto& a = lwtest::atXY(sim.map(), x, y);
+            const auto& b = lwtest::atXY(r.map(), x, y);
             EXPECT_EQ(a.belongi, b.belongi) << "(" << x << "," << y << ")";
             EXPECT_EQ(a.land, b.land) << "(" << x << "," << y << ")";
             EXPECT_EQ(a.cityId, b.cityId) << "(" << x << "," << y << ")";

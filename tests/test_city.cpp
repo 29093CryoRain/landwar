@@ -40,7 +40,7 @@ struct CityMap {
         map.setTerrain(cfg.terrain);
         map.setCityConfig(cfg.city);
         for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) map.at(x, y).land = true;
+            for (int x = 0; x < w; ++x) lwtest::atXY(map, x, y).land = true;
     }
 };
 
@@ -57,18 +57,18 @@ TEST(City, LevelSamplingBranches) {
     for (const auto& c : cases) {
         LevelRng rng;
         rng.units = {c.u};
-        EXPECT_EQ(Map::sampleCityLevel(cfg.city, rng), c.expect) << "u=" << c.u;
+        EXPECT_EQ(Map::sampleCityLevel(cfg.city, cfg.city.setFor(TilingType::Square), rng), c.expect) << "u=" << c.u;
     }
     // 极端值兜底：u=0 与 u 极近 1 都在合法等级内（不越界）。
     {
         LevelRng rng;
         rng.units = {0.0};
-        EXPECT_EQ(Map::sampleCityLevel(cfg.city, rng), 1);
+        EXPECT_EQ(Map::sampleCityLevel(cfg.city, cfg.city.setFor(TilingType::Square), rng), 1);
     }
     {
         LevelRng rng;
         rng.units = {0.999999};
-        EXPECT_EQ(Map::sampleCityLevel(cfg.city, rng), 9);
+        EXPECT_EQ(Map::sampleCityLevel(cfg.city, cfg.city.setFor(TilingType::Square), rng), 9);
     }
 }
 
@@ -80,7 +80,7 @@ TEST(City, ShapeCoverageMatchesLevel) {
     int baseY = 0;
     for (int k = 0; k < 5; ++k) {
         const int baseX = levels[k] == 9 ? 1 : 0;
-        const int cid = w.map.addCity(levels[k], baseX, baseY);
+        const int cid = w.map.addCity(levels[k], lwtest::cellIndex(w.map, baseX, baseY));
         ASSERT_GE(cid, 0);
         const City& c = w.map.city(cid);
         EXPECT_EQ(c.level, levels[k]);
@@ -104,21 +104,21 @@ TEST(City, ShapeCoverageMatchesLevel) {
 TEST(City, CanPlaceCityRules) {
     CityMap w(12, 12);
     for (int y = 0; y < 12; ++y)
-        for (int x = 0; x < 12; ++x) w.map.at(x, y).cityAllowed = true;
-    EXPECT_FALSE(w.map.canPlaceCity(9, 0, 0));  // 中心锚点形状越界
-    EXPECT_TRUE(w.map.canPlaceCity(9, 1, 1));   // 合法 3×3
-    EXPECT_TRUE(w.map.canPlaceCity(1, 11, 11));  // 单格贴右下角
-    EXPECT_FALSE(w.map.canPlaceCity(9, 11, 11));  // 中心锚点形状越界
-    EXPECT_FALSE(w.map.canPlaceCity(6, 11, 0));   // 越界（11+2>12，6 级形状 2×3）
-    w.map.addCity(1, 0, 0);                       // 锚点 (0,0) 被占
-    EXPECT_FALSE(w.map.canPlaceCity(4, 0, 0));    // 重叠
-    EXPECT_FALSE(w.map.canPlaceCity(9, 1, 1));    // 重叠（形状含 (0,0)）
-    w.map.at(5, 0).cityAllowed = false;           // 锚点不可成城
-    EXPECT_FALSE(w.map.canPlaceCity(1, 5, 0));
-    EXPECT_FALSE(w.map.canPlaceCity(2, 5, 0));    // 形状 1×2 锚点不可成城
+        for (int x = 0; x < 12; ++x) lwtest::atXY(w.map, x, y).cityAllowed = true;
+    EXPECT_FALSE(w.map.canPlaceCity(9, lwtest::cellIndex(w.map, 0, 0)));  // 中心锚点形状越界
+    EXPECT_TRUE(w.map.canPlaceCity(9, lwtest::cellIndex(w.map, 1, 1)));   // 合法 3×3
+    EXPECT_TRUE(w.map.canPlaceCity(1, lwtest::cellIndex(w.map, 11, 11)));  // 单格贴右下角
+    EXPECT_FALSE(w.map.canPlaceCity(9, lwtest::cellIndex(w.map, 11, 11)));  // 中心锚点形状越界
+    EXPECT_FALSE(w.map.canPlaceCity(6, lwtest::cellIndex(w.map, 11, 0)));   // 越界（11+2>12，6 级形状 2×3）
+    w.map.addCity(1, lwtest::cellIndex(w.map, 0, 0));                       // 锚点 (0,0) 被占
+    EXPECT_FALSE(w.map.canPlaceCity(4, lwtest::cellIndex(w.map, 0, 0)));    // 重叠
+    EXPECT_FALSE(w.map.canPlaceCity(9, lwtest::cellIndex(w.map, 1, 1)));    // 重叠（形状含 (0,0)）
+    lwtest::atXY(w.map, 5, 0).cityAllowed = false;           // 锚点不可成城
+    EXPECT_FALSE(w.map.canPlaceCity(1, lwtest::cellIndex(w.map, 5, 0)));
+    EXPECT_FALSE(w.map.canPlaceCity(2, lwtest::cellIndex(w.map, 5, 0)));    // 形状 1×2 锚点不可成城
     // 未注册等级 → 拒绝。
-    EXPECT_FALSE(w.map.canPlaceCity(3, 0, 3));
-    EXPECT_EQ(w.map.addCity(3, 0, 3), -1);
+    EXPECT_FALSE(w.map.canPlaceCity(3, lwtest::cellIndex(w.map, 0, 3)));
+    EXPECT_EQ(w.map.addCity(3, lwtest::cellIndex(w.map, 0, 3)), -1);
 }
 
 // 放置回退：采样到 9 级但形状放不下（2×2 地图）→ 回退 1 级（锚点单独可放则建 1 级城）。
@@ -137,8 +137,8 @@ TEST(City, FallbackToLevel1WhenShapeDoesNotFit) {
     EXPECT_EQ(c.level, 1);  // 回退
     EXPECT_EQ(c.baseX, 0);
     EXPECT_EQ(c.baseY, 0);
-    EXPECT_EQ(w.map.at(0, 0).cityId, 0);
-    EXPECT_EQ(w.map.at(1, 1).cityId, -1);
+    EXPECT_EQ(lwtest::atXY(w.map, 0, 0).cityId, 0);
+    EXPECT_EQ(lwtest::atXY(w.map, 1, 1).cityId, -1);
 }
 
 // 锚点不可成城 + 形状放不下 → 两级都不可放 → 本格不成城。
@@ -152,7 +152,7 @@ TEST(City, NoCityWhenPlacementFailsBothLevels) {
     CityMap w(1, 1);
     ASSERT_TRUE(w.map.loadFromLandmap(path));
     EXPECT_EQ(w.map.totalCities(), 0);
-    EXPECT_EQ(w.map.at(0, 0).cityId, -1);
+    EXPECT_EQ(lwtest::atXY(w.map, 0, 0).cityId, -1);
 }
 
 // 幂律分布（统计）——2026-08-17 调试期改均匀分布：方形成等级 {1,2,4,6,9} 各约 20%。
@@ -183,7 +183,7 @@ TEST(City, SameMapSeedDeterministic) {
     ASSERT_TRUE(b.init());
     for (int y = 0; y < a.map().height(); ++y)
         for (int x = 0; x < a.map().width(); ++x)
-            EXPECT_EQ(a.map().at(x, y).cityId, b.map().at(x, y).cityId)
+            EXPECT_EQ(lwtest::atXY(a.map(), x, y).cityId, lwtest::atXY(b.map(), x, y).cityId)
                 << "(" << x << "," << y << ")";
     ASSERT_EQ(a.map().cities().size(), b.map().cities().size());
     for (std::size_t i = 0; i < a.map().cities().size(); ++i) {

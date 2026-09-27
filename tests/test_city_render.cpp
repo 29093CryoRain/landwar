@@ -11,6 +11,7 @@
 #include "render/Camera.h"
 #include "render/CityRenderer.h"
 #include "world/Map.h"
+#include "TestUtil.h"
 
 namespace {
 
@@ -33,7 +34,7 @@ struct CityRenderFixture {
         rc = cfg.render;
     }
 
-    int addCity(int level, int baseX, int baseY) { return map.addCity(level, baseX, baseY); }
+    int addCity(int level, int baseX, int baseY) { return map.addCity(level, lwtest::cellIndex(map, baseX, baseY)); }
     render::CityRenderer::Frame compute() { return renderer.compute(map, rc); }
 };
 

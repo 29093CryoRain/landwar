@@ -28,7 +28,7 @@ Simulation makeCleanSim() {
     sim.init();
     for (int y = 0; y < sim.map().height(); ++y)
         for (int x = 0; x < sim.map().width(); ++x) {
-            auto& c = sim.map().at(x, y);
+            auto& c = lwtest::atXY(sim.map(), x, y);
             c.land = true;
             c.cityId = -1;
             c.mountain = false;
@@ -163,14 +163,14 @@ TEST(Projectile, BulletDoesNotConquerTerritory) {
     Simulation sim = makeCleanSim();  // 全中立陆地
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
     for (int t = 0; t < 260; ++t) sim.tick();  // 发射后子弹东移 ≥1 U（0.25 U/tick）
-    EXPECT_EQ(sim.map().at(21, 20).belongi, 0) << "子弹不占领途经领地";
+    EXPECT_EQ(lwtest::atXY(sim.map(), 21, 20).belongi, 0) << "子弹不占领途经领地";
     EXPECT_GT(countBullets(sim), 0) << "子弹仍在飞";
 }
 
 TEST(Projectile, BulletCrossesSeaWithoutSlow) {
     Simulation sim = makeCleanSim();
     // 正东路径铺海格（belongi 保持 0；海格征服为 no-op）。
-    for (int x = 21; x <= 30; ++x) sim.map().at(x, 20).land = false;
+    for (int x = 21; x <= 30; ++x) lwtest::atXY(sim.map(), x, 20).land = false;
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
     for (int t = 0; t < 300; ++t) sim.tick();  // 0.25 U/tick：跨到 >30 U 约需 40 tick，余量充足
     EXPECT_EQ(countBullets(sim), 1) << "子弹穿海不沉、不减速（仍存活）";
@@ -182,7 +182,7 @@ TEST(Projectile, BulletCrossesSeaWithoutSlow) {
 
 TEST(Projectile, BulletDisappearsEnteringMountain) {
     Simulation sim = makeCleanSim();
-    sim.map().at(21, 20).mountain = true;  // 子弹正东第一格为山
+    lwtest::atXY(sim.map(), 21, 20).mountain = true;  // 子弹正东第一格为山
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
     for (int t = 0; t < 241; ++t) sim.tick();  // 发射后立即撞山
     EXPECT_EQ(countBullets(sim), 0) << "陆→山子弹消失";
@@ -192,7 +192,7 @@ TEST(Projectile, BulletInMountainLifespanShorter) {
     // 全山地图：子弹始终在山地 → 每 tick 额外扣 1 寿命 → 180/2 ≈ 90 tick 内消失。
     Simulation sim = makeCleanSim();
     for (int y = 0; y < sim.map().height(); ++y)
-        for (int x = 0; x < sim.map().width(); ++x) sim.map().at(x, y).mountain = true;
+        for (int x = 0; x < sim.map().width(); ++x) lwtest::atXY(sim.map(), x, y).mountain = true;
     placeFrozen(sim, 20.5, 20.5, 1, ArmyType::pistol, 0.0);
     for (int t = 0; t < 240; ++t) sim.tick();  // 发射
     EXPECT_EQ(countBullets(sim), 1);

@@ -44,21 +44,13 @@ unsigned mixColor(unsigned color1, unsigned color2, double rate) {
     return 0xFF000000u | (r << 16) | (g << 8) | b;
 }
 
-// 连续版（唯一实现）：toScreenXf/Yf 保留小数；int 版 = f 版显式截断（2026-08 收敛）。
+// 连续版（唯一实现）：toScreenXf/Yf 保留小数（2026-08 收敛）。
 double toScreenXf(double x, double blockSize, int panelWidth) {
     return x * blockSize + panelWidth;
 }
 
 double toScreenYf(double y, double blockSize, double mapHeight) {
     return (mapHeight - y) * blockSize;
-}
-
-int toScreenX(double x, double blockSize, int panelWidth) {
-    return static_cast<int>(toScreenXf(x, blockSize, panelWidth));
-}
-
-int toScreenY(double y, double blockSize, double mapHeight) {
-    return static_cast<int>(toScreenYf(y, blockSize, mapHeight));
 }
 
 double pointDistanceFromSegment(double px, double py, double startX, double startY,

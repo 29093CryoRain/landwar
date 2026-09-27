@@ -1,4 +1,4 @@
-﻿// test_tiling_table.cpp — 表驱动规则/半正/Laves 密铺几何单测（读取 data/tiling_specs_*.json）。
+// test_tiling_table.cpp — 表驱动规则/半正/Laves 密铺几何单测（读取 data/tiling_specs_*.json）。
 // 覆盖：格数、世界尺寸、中心→worldToCell 往返、邻接对称/边界、cellPolygon/cellEdge 一致性。
 #include <gtest/gtest.h>
 
@@ -25,6 +25,12 @@ int referenceBase(std::uint32_t mask) {
     for (int b = 0; b < 31; ++b)
         if (mask & (1u << static_cast<unsigned>(b))) return b;
     return 0;
+}
+
+// 显式 variant（shapeCells 现在要求显式给出）：等价旧默认的"锚点确定性选变体"。
+int anchorVariant(const Config::City::TilingSet& set, double level, int anchor) {
+    const int vc = set.variantCount(level);
+    return (vc > 1) ? (std::abs(anchor) % vc) : 0;
 }
 
 // 形状在某参考基础格的众多候选锚点中，能解析出的最大格数（跨多个中部锚扫描）。
@@ -428,7 +434,8 @@ TEST(TilingTable, Arch488CityShapesResolveToExpectedCellCounts) {
             }
         }
         ASSERT_GE(anchor, 0) << "level index " << i;
-        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor);
+        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor,
+                                 anchorVariant(set, set.levels[static_cast<size_t>(i)], anchor));
         // 过滤界外 -1。
         int count = 0;
         for (int c : cells)
@@ -465,7 +472,8 @@ TEST(TilingTable, Laves3636CityShapesResolveToExpectedCellCounts) {
             }
         }
         ASSERT_GE(anchor, 0) << "level index " << i;
-        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor);
+        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor,
+                                 anchorVariant(set, set.levels[static_cast<size_t>(i)], anchor));
         int count = 0;
         for (int c : cells)
             if (c >= 0) ++count;
@@ -501,7 +509,8 @@ TEST(TilingTable, Laves488CityShapesResolveToExpectedCellCounts) {
             }
         }
         ASSERT_GE(anchor, 0) << "level index " << i;
-        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor);
+        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor,
+                                 anchorVariant(set, set.levels[static_cast<size_t>(i)], anchor));
         int count = 0;
         for (int c : cells)
             if (c >= 0) ++count;
@@ -537,7 +546,8 @@ TEST(TilingTable, Arch3636CityShapesResolveToExpectedCellCounts) {
             }
         }
         ASSERT_GE(anchor, 0) << "level index " << i;
-        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor);
+        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor,
+                                 anchorVariant(set, set.levels[static_cast<size_t>(i)], anchor));
         int count = 0;
         for (int c : cells)
             if (c >= 0) ++count;
@@ -573,7 +583,8 @@ TEST(TilingTable, Laves3464CityShapesResolveToExpectedCellCounts) {
             }
         }
         ASSERT_GE(anchor, 0) << "level index " << i;
-        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor);
+        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor,
+                                 anchorVariant(set, set.levels[static_cast<size_t>(i)], anchor));
         int count = 0;
         for (int c : cells)
             if (c >= 0) ++count;
@@ -609,7 +620,8 @@ TEST(TilingTable, Arch3464CityShapesResolveToExpectedCellCounts) {
             }
         }
         ASSERT_GE(anchor, 0) << "level index " << i;
-        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor);
+        const auto cells = map.shapeCells(set.levels[static_cast<size_t>(i)], anchor,
+                                 anchorVariant(set, set.levels[static_cast<size_t>(i)], anchor));
         int count = 0;
         for (int c : cells)
             if (c >= 0) ++count;
@@ -649,7 +661,7 @@ TEST(TilingTable, Arch4612CityShapesResolveToExpectedCellCountsWithVariants) {
         ASSERT_GE(anchor, 0) << "shape index " << s;
         const int variant = (vc > 1) ? (std::abs(anchor) % vc) : 0;
         const int shapeIdx = set.firstShapeIndex(level) + variant;
-        const auto cells = map.shapeCells(level, anchor);
+        const auto cells = map.shapeCells(level, anchor, anchorVariant(set, level, anchor));
         int count = 0;
         for (int c : cells)
             if (c >= 0) ++count;
@@ -889,7 +901,7 @@ TEST(TilingTable, AnchorOrientationShapesResolveCorrectlyAtAllBaseCells) {
                 if (sh.anchorBaseMask != 0 && ((1u << static_cast<unsigned>(b)) & sh.anchorBaseMask) == 0)
                     continue;
                 if (sh.anchorBaseMask == 0 && b != 0) continue;
-                const std::vector<int> cells = map.shapeCells(level, anchor);
+                const std::vector<int> cells = map.shapeCells(level, anchor, anchorVariant(set, level, anchor));
                 int okCount = 0;
                 for (int c : cells)
                     if (c >= 0) ++okCount;

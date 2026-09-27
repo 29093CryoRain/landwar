@@ -39,8 +39,6 @@ public:
     // （paletteSize>=2）；方/六/三与单色情形传空 → 用 tileColors 中点色。
     void draw(const Map& map, const std::vector<std::array<int, 3>>& tileColors,
               const std::vector<std::vector<std::array<int, 3>>>& gradeColors = {});
-    // 旧测试/调用方兼容入口；新代码应使用运行时长度的 vector 版本。
-    void draw(const Map& map, const std::array<std::array<int, 3>, kFactionTotal>& tileColors);
     // Developer-tool grid layer. The regular game draw path keeps only the
     // outer boundary; editor callers can omit this at low zoom.
     void drawGrid(const Map& map, const SDL_Color& color = {235, 235, 235, 255});
