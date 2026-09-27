@@ -240,7 +240,9 @@ void Simulation::conquerIndex(int index, int factionId, bool freeArmyEnabled) {
                       factionId, factionCount());
         return;
     }
-    ConquerContext ctx{map_, factions_, *rng_, pendingSpawns_, freeArmyEnabled, tickCount_};
+    ConquerContext ctx{map_,     factions_,          *rng_, pendingSpawns_,
+                       freeArmyEnabled, tickCount_,  /*originIndex=*/-1,
+                       /*attackerUnitType=*/-1};
     factions_[static_cast<size_t>(factionId)].conquerIndex(ctx, index);
 }
 

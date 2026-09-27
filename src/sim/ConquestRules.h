@@ -27,4 +27,23 @@ inline bool areEnemies(const std::vector<Faction>& factions, int a, int b) {
     return a != b && !areAllied(factions, a, b);
 }
 
+// 势力 factionId 的 unitType 兵能否占领 index 格（"不可占领格"的唯一判定）。
+// 海 / 盟友陆 / 敌方陆且该兵种带「禁征服」特性（密集防御）→ false；
+// 己方陆与中立陆 → true。unitType < 0 = 不施加兵种机制限制（首都初始化等无兵种来源）。
+inline bool canConquerCell(const Map& map, const std::vector<Faction>& factions, int factionId,
+                           int unitType, int index) {
+    if (factionId < 0 || factionId >= static_cast<int>(factions.size())) return false;
+    if (index < 0 || index >= map.cellCount()) return false;
+    const MapCell& cell = map.atIndex(index);
+    if (!cell.land) return false;                                    // 海（海洋闸门单独处理）
+    if (cell.belongi == factionId) return true;                      // 己方：占领是 no-op
+    if (areAllied(factions, factionId, cell.belongi)) return false;  // 盟友：不可占领
+    // 敌方陆且兵种带「禁征服」→ 不可占领；中立（0）不在此列（仍可扩张）。
+    if (unitType >= 0 && unitType < kArmyTypeCount && cell.belongi > 0
+        && factions[static_cast<std::size_t>(factionId)]
+               .mods.noEnemyConquer[static_cast<std::size_t>(unitType)])
+        return false;
+    return true;
+}
+
 }  // namespace lw

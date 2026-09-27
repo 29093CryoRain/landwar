@@ -9,6 +9,7 @@
 
 #include "core/Config.h"
 #include "core/Random.h"
+#include "sim/ConquestRules.h"
 #include "sim/SpatialHash.h"
 #include "sim/Statistics.h"
 #include "sim/components.h"
@@ -44,10 +45,13 @@ inline void conquerAtIndex(MoveContext& ctx, int index, int factionId, int unitT
     ConquerContext cc{ctx.map,      ctx.factions, ctx.rng, ctx.pendingSpawns,
                       /*freeArmyEnabled=*/true,
                       /*tick=*/static_cast<std::uint64_t>(ctx.ttime),
-                      /*originIndex=*/originIndex};
-    // 归属是否真的变化，必须**征服前**取样（origin 与目标各不相同、互不影响）。
+                      /*originIndex=*/originIndex,
+                      /*attackerUnitType=*/unitType};
+    // 归属是否真的变化，必须**征服前**取样（origin 与目标各不相同、互不影响）；
+    // 不可占领格先过唯一判定入口，避免"被拦下却记了占领 credit"。
     const auto landChanged = [&](int idx) {
-        return idx >= 0 && idx < ctx.map.cellCount() && ctx.map.atIndex(idx).land
+        return idx >= 0 && idx < ctx.map.cellCount()
+               && canConquerCell(ctx.map, ctx.factions, factionId, unitType, idx)
                && ctx.map.atIndex(idx).belongi != factionId;
     };
     const bool targetChanged = landChanged(index);

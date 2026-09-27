@@ -10,6 +10,7 @@
 #include <entt/entt.hpp>
 
 #include "core/Simulation.h"
+#include "sim/ConquestRules.h"
 #include "sim/SpatialHash.h"
 #include "sim/components.h"
 #include "sim/systems/CombatSystem.h"
@@ -278,6 +279,141 @@ TEST(Movement, PioneerConquersAdjacentCellsOnEnemy) {
     EXPECT_EQ(lwtest::atXY(w.map, 1, 1).belongi, 1);  // 左（原点，同势力不变）
     EXPECT_EQ(w.factions[1].landCount, 5);  // 原点 1 + 新占 4
     EXPECT_EQ(w.factions[2].landCount, 0);
+}
+
+// ---- 兵运动规范：不可占领格（盟友 / 禁征服）与海洋闸门（开发文档 §4）----
+
+TEST(ConquestRules, CanConquerCellTruthTable) {
+    TestWorld w(5, 5);
+    lwtest::atXY(w.map, 1, 1).land = true;  // 己方
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;  // 中立
+    lwtest::atXY(w.map, 2, 1).belongi = 0;
+    lwtest::atXY(w.map, 3, 1).land = true;  // 敌方
+    lwtest::atXY(w.map, 3, 1).belongi = 2;
+    const int own = lwtest::cellIndex(w.map, 1, 1);
+    const int neutral = lwtest::cellIndex(w.map, 2, 1);
+    const int enemy = lwtest::cellIndex(w.map, 3, 1);
+    const int sea = lwtest::cellIndex(w.map, 4, 1);  // 默认海
+    const int normal = static_cast<int>(ArmyType::normal);
+
+    EXPECT_TRUE(canConquerCell(w.map, w.factions, 1, normal, own));
+    EXPECT_TRUE(canConquerCell(w.map, w.factions, 1, normal, neutral));
+    EXPECT_TRUE(canConquerCell(w.map, w.factions, 1, normal, enemy));
+    EXPECT_FALSE(canConquerCell(w.map, w.factions, 1, normal, sea));
+    EXPECT_FALSE(canConquerCell(w.map, w.factions, 1, normal, -1));
+    EXPECT_FALSE(canConquerCell(w.map, w.factions, 1, normal, w.map.cellCount()));
+
+    // 盟友：敌方格变为不可占领，"友敌"判定同时翻转。
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    EXPECT_TRUE(areAllied(w.factions, 1, 2));
+    EXPECT_FALSE(areEnemies(w.factions, 1, 2));
+    EXPECT_FALSE(canConquerCell(w.map, w.factions, 1, normal, enemy));
+    EXPECT_TRUE(areEnemies(w.factions, 1, 3));  // 无联盟者仍是敌
+
+    // 禁征服（密集防御机制字段）：只限该兵种，且只限敌方陆；中立仍可占。
+    w.factions[1].allianceId = -1;
+    w.factions[2].allianceId = -1;
+    w.factions[1].mods.noEnemyConquer[static_cast<size_t>(ArmyType::normal)] = true;
+    EXPECT_FALSE(canConquerCell(w.map, w.factions, 1, normal, enemy));
+    EXPECT_TRUE(canConquerCell(w.map, w.factions, 1, normal, neutral));
+    EXPECT_TRUE(canConquerCell(w.map, w.factions, 1, static_cast<int>(ArmyType::vanguard), enemy));
+    EXPECT_TRUE(canConquerCell(w.map, w.factions, 1, -1, enemy));  // 无兵种来源不受限
+}
+
+TEST(Movement, AllyLandBouncesWithoutConquering) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    w.factions[1].landCount = 1;
+    w.factions[2].landCount = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
+    moveOnce(w, e);  // 规则 2：确定反弹、不占领，且不掷 bounceMult
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 2);
+    EXPECT_EQ(w.factions[1].landCount, 1);
+    EXPECT_EQ(w.factions[2].landCount, 1);
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);
+    EXPECT_EQ(w.rng.next, 0u);  // 未消耗 chance
+}
+
+TEST(Movement, PassesThroughAllyLandWithoutBounce) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 2;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
+    moveOnce(w, e);  // 规则 1：两岸都不可占领 → 直行
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, 0.0, 1e-9);
+    EXPECT_NEAR(w.reg.get<comp::Position>(e).x, 2.2, 1e-9);
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 2);
+}
+
+TEST(Movement, FromAllyLandConquersWithoutBounce) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 2;  // 原格：盟友
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 3;  // 目标格：敌方
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    w.factions[2].landCount = 1;
+    w.factions[3].landCount = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
+    moveOnce(w, e);  // 规则 3：占领且不掷反弹
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 1);
+    EXPECT_EQ(w.factions[3].landCount, 0);
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, 0.0, 1e-9);
+    EXPECT_EQ(w.rng.next, 0u);
+}
+
+TEST(Movement, LandsOnAllyLandWithoutConquering) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;  // 盟友陆，四周为海
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    w.factions[2].landCount = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, false);
+    moveOnce(w, e);  // 规则 1：登陆但不征服、不反弹
+    EXPECT_TRUE(w.reg.get<comp::OnLand>(e).value);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.3);  // 复原陆速
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 2);
+    EXPECT_EQ(w.factions[2].landCount, 1);
+}
+
+TEST(Movement, AllyLandToSeaStillUsesGoSeaGate) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 2;  // 盟友陆；(2,1) 为海
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
+    w.rng.results = {false};  // 海洋闸门优先：失败仍反弹（不因两岸不可占领而必然入海）
+    moveOnce(w, e);
+    EXPECT_TRUE(w.reg.get<comp::OnLand>(e).value);
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);
+    EXPECT_EQ(w.rng.next, 1u);
+}
+
+TEST(Movement, AllyLandToSeaEntersOnGoSeaSuccess) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 2;
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.3, true);
+    w.rng.results = {true};  // 下海成功
+    moveOnce(w, e);
+    EXPECT_FALSE(w.reg.get<comp::OnLand>(e).value);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.15);
 }
 
 // ---- 地图边界反弹（Phase 9 补：边角反弹）----

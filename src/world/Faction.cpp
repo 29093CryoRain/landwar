@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 
+#include "sim/ConquestRules.h"
 #include "world/Map.h"
 
 namespace lw {
@@ -120,6 +121,8 @@ void Faction::conquerIndex(ConquerContext& ctx, int index) {
     const int originIndex = ctx.originIndex;
     const auto conquerOne = [&](int idx) {
         if (idx < 0 || idx >= ctx.map.cellCount()) return;
+        // 不可占领格（海 / 盟友 / 禁征服敌土）在此统一拦下——唯一判定入口。
+        if (!canConquerCell(ctx.map, ctx.factions, this->id, ctx.attackerUnitType, idx)) return;
         MapCell& cell = ctx.map.atIndex(idx);
         Faction& oldOwner = ctx.factions[static_cast<size_t>(cell.belongi)];
         if (&oldOwner == this) return;  // 同势力忽略

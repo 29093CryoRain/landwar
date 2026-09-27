@@ -54,6 +54,8 @@ struct FactionMods {
     int    freeArmyType = static_cast<int>(ArmyType::normal); // 兼容字段：最后一条兵种
     double mineExplosionRadiusAdd = 1.0; // 地雷产生的爆炸半径增幅
     double techGainMult = 1.0;       // 科技点产出乘数（P8 观星台；加算）
+    // 特性：该兵种不能征服"敌方"陆格（密集防御；中立与己方不受限）。
+    std::array<bool, kArmyTypeCount> noEnemyConquer{};
 
     FactionMods() {
         costMult.fill(1.0);

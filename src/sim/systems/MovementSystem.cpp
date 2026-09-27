@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/Simulation.h"
+#include "sim/ConquestRules.h"
 #include "sim/systems/CombatSystem.h"
 
 namespace lw {
@@ -113,6 +114,11 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
                                comp::LandHistory& hist) {
     const auto& cfg = ctx.config;
     const MapCell* goalCell = &ctx.map.atIndex(goalIdx);
+    // 兵运动规范（开发文档 §4）：可占领性只由"势力 + 兵种 + 格"决定；海恒不可占领，
+    // 但海洋走独立闸门（下海骰），不参与规则 1/2 分流。
+    const int ut = static_cast<int>(unit.type);
+    const bool srcConquerable = canConquerCell(ctx.map, ctx.factions, fid.value, ut, srcIdx);
+    const bool dstConquerable = canConquerCell(ctx.map, ctx.factions, fid.value, ut, goalIdx);
     // Terrain changes are provisional until the target cell is actually entered. A later
     // sea/mountain/enemy rejection bounces the army back into its original cell.
     double nextSpeed = speed.value;
@@ -193,15 +199,28 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
         // 攻占敌方/中立领地：先征服目标格（开拓连占边邻格），再掷敌方反弹——
         // 与山地骰【独立计算】：本格既为敌又为山时两骰各掷一次（非先锋 bounceMult=1.0
         // 敌方必然反弹；先锋 bounceMult<1 两骰都过才不反弹）。反弹是征服后的"弹回"（原版语义）。
+        // 不可占领格（盟友 / 禁征服敌土）走兵运动规范：
+        //   规则 2（原格可占领）→ 确定反弹、不征服、不掷骰；
+        //   规则 1（原格也不可占领）→ 不反弹、不征服，继续前进；
+        //   规则 3（目标可占领、原格不可占领）→ 征服后不掷反弹骰。
         if (goalCell->belongi != fid.value) {
-            conquerCell(ctx, goalIdx, fid.value, unit.type, srcIdx);
-            // P7：反弹概率 × 势力增益（基线 bounceChanceMult=1.0 → 恒等，行为不变）。
-            double reboundChance =
-                cfg.units[static_cast<int>(unit.type)].bounceMult
-                * ctx.factions[static_cast<size_t>(fid.value)].mods.bounceChanceMult;
-            if (ctx.rng.chance(reboundChance)) {
-                doBounce();
-                return {true, false, 0.0};
+            if (!dstConquerable) {
+                if (srcConquerable) {
+                    doBounce();
+                    return {true, false, 0.0};
+                }
+            } else {
+                conquerCell(ctx, goalIdx, fid.value, unit.type, srcIdx);
+                if (srcConquerable) {
+                    // P7：反弹概率 × 势力增益（基线 bounceChanceMult=1.0 → 恒等，行为不变）。
+                    double reboundChance =
+                        cfg.units[static_cast<int>(unit.type)].bounceMult
+                        * ctx.factions[static_cast<size_t>(fid.value)].mods.bounceChanceMult;
+                    if (ctx.rng.chance(reboundChance)) {
+                        doBounce();
+                        return {true, false, 0.0};
+                    }
+                }
             }
         }
     } else if (goalCell->land && !onLand.value) {
@@ -223,7 +242,9 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
                 nextRemLength *= cfg.terrain.mountainSpeedMult;
             }
         }
-        conquerCell(ctx, goalIdx, fid.value, unit.type, srcIdx);
+        // 规则 3（目标可占领）：登陆 + 征服，不反弹（原格为海=不可占领）。
+        // 规则 1（目标也不可占领，如盟友陆）：登陆但不征服、不反弹，见开发文档 §4.4。
+        if (dstConquerable) conquerCell(ctx, goalIdx, fid.value, unit.type, srcIdx);
     }
     speed.value = nextSpeed;
     remLength = nextRemLength;
