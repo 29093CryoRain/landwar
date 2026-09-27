@@ -508,14 +508,14 @@ TEST(Movement, AllyGateLeakScalesWithArmySpeed) {
         w.cfg.allyGate.leakPerCell + w.cfg.allyGate.tolerancePerCell;
 
     // 从同一非零初值出发（避开 0 处的 max 反射）：慢速一次反弹。
-    w.reg.get<comp::AllyGate>(e).cusum = 3.0;
+    w.reg.get<comp::AllyGate>(e).cusum = w.cfg.allyGate.alarmThreshold * 0.25;
     moveOnce(w, e);
     const double slow = w.reg.get<comp::AllyGate>(e).cusum;
 
     // 快速一次反弹：本 tick 步长 0.15 → 0.3，泄漏多 (c+η)×0.15。
     w.reg.get<comp::Position>(e) = comp::Position{1.9, 1.9};
     w.reg.get<comp::Velocity>(e).angle = 0.0;
-    w.reg.get<comp::AllyGate>(e).cusum = 3.0;
+    w.reg.get<comp::AllyGate>(e).cusum = w.cfg.allyGate.alarmThreshold * 0.25;
     w.reg.get<comp::Speed>(e).value = 0.3;
     moveOnce(w, e);
     const double fast = w.reg.get<comp::AllyGate>(e).cusum;
@@ -548,32 +548,44 @@ TEST(Movement, AllyGateIgnoresNonBorderCrossings) {
     EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);
 }
 
-// 端到端：己方 1 格飞地被盟友领土完全围住 → 兵持续撞边界，闸门报警后自行脱离（不再永久滞留）。
-TEST(Movement, AllyGateFreesArmyFromSingleCellPocket) {
-    TestWorld w(3, 3);
-    for (int y = 0; y < 3; ++y)
-        for (int x = 0; x < 3; ++x) {
+// 端到端：己方 40 格地块被盟友领土完全包围 → 兵必须在有限时间内借道通行（不再永久滞留）。
+TEST(Movement, AllyGateFreesEnclosedFortyCellRegion) {
+    constexpr int kCols = 16, kRows = 14;
+    constexpr int kOwnX0 = 4, kOwnY0 = 4, kOwnW = 8, kOwnH = 5;  // 己方 8×5 = 40 格
+    TestWorld w(kCols, kRows);
+    for (int y = 0; y < kRows; ++y)
+        for (int x = 0; x < kCols; ++x) {
             lwtest::atXY(w.map, x, y).land = true;
-            lwtest::atXY(w.map, x, y).belongi = 2;  // 全盟友领土
+            lwtest::atXY(w.map, x, y).belongi = 2;  // 全图盟友领土：把己方地块四面完全包住
         }
-    lwtest::atXY(w.map, 1, 1).belongi = 1;  // 中心 1 格己方飞地
+    for (int y = kOwnY0; y < kOwnY0 + kOwnH; ++y)
+        for (int x = kOwnX0; x < kOwnX0 + kOwnW; ++x) lwtest::atXY(w.map, x, y).belongi = 1;
     w.factions[1].allianceId = 0;
     w.factions[2].allianceId = 0;
-    w.factions[1].landCount = 1;
-    w.factions[2].landCount = 8;
-    auto e = addArmy(w, 1.5, 1.5, 1, ArmyType::normal, 0.3, 0.15, true);
+    w.factions[1].landCount = kOwnW * kOwnH;
+    w.factions[2].landCount = kCols * kRows - kOwnW * kOwnH;
+    // 从地块内部随机相位出发（非边界格，且避开格心对称轨道）。
+    auto e = addArmy(w, kOwnX0 + kOwnW * 0.37, kOwnY0 + kOwnH * 0.61, 1, ArmyType::normal, 0.3,
+                     0.15, true);
 
-    const int pocketIdx = lwtest::cellIndex(w.map, 1, 1);
     bool alarmed = false;
-    bool escaped = false;
-    for (int i = 0; i < 4000 && !escaped; ++i) {
+    int escapeTick = -1;
+    for (int i = 0; i < 3600; ++i) {  // 硬上界 60 s @60 tick：超时即视为"滞留"
         moveOnce(w, e);
         if (w.reg.get<comp::AllyGate>(e).cusum >= w.cfg.allyGate.alarmThreshold) alarmed = true;
         const auto& p = w.reg.get<comp::Position>(e);
-        if (w.map.geom().worldToCell(p.x, p.y) != pocketIdx) escaped = true;
+        const int cell = w.map.geom().worldToCell(p.x, p.y);
+        if (cell >= 0 && w.map.atIndex(cell).belongi != 1) {
+            escapeTick = i + 1;
+            break;
+        }
     }
-    EXPECT_TRUE(alarmed);   // 闸门确实报警
-    EXPECT_TRUE(escaped);   // 报警后放行 → 脱离飞地
+    EXPECT_TRUE(alarmed);        // 闸门确实报警（而不是从顶点漏出去）
+    EXPECT_GT(escapeTick, 0);    // 有限时间内通行
+    EXPECT_LE(escapeTick, 600);  // 且远快于"永久滞留"（10 s @60 tick）
+    // 借道不征服：盟友领土归属不变。
+    EXPECT_EQ(lwtest::atXY(w.map, kOwnX0 - 1, kOwnY0).belongi, 2);
+    EXPECT_EQ(w.factions[1].landCount, kOwnW * kOwnH);
 }
 
 // 非盟友边界（敌方领土的反弹）不喂养闸门。

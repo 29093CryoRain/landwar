@@ -142,13 +142,13 @@ struct Config {
     // 无联盟时永不触发（无盟友边界反弹）→ 与今日逐位一致。
     struct AllyGate {
         // c：参考泄漏率（次/格）。边界尝试率低于 c 的兵视为"路过"，边界近似绝对硬。
-        // 默认 0.06 次/格：普通兵 0.15 格/tick → 约 0.009 次/tick，落在 .docs/包围检测.md §7
-        // 建议的 r* 区间（0.005–0.02 次/tick）内。
-        double leakPerCell = 0.06;
+        // 默认 0.03 次/格：普通兵 0.15 格/tick → 约 0.005 次/tick。
+        double leakPerCell = 0.03;
         // η：容忍裕度（次/格），与 c 同量纲；判据有效泄漏率为 c+η。默认取 0.1c。
-        double tolerancePerCell = 0.006;
-        // h：CUSUM 报警阈值（证据量）。误报/泄漏概率按几何衰减（.docs/包围检测.md §5）。
-        double alarmThreshold = 5.0;
+        double tolerancePerCell = 0.003;
+        // h：CUSUM 报警阈值（证据量）。越小放行越快、越容易（见 .docs/包围检测.md §5 的
+        // 误报-延迟权衡）。默认 3：40 格封闭地块约 2–3 s 内放行；调回 5 会更"像墙"但更慢。
+        double alarmThreshold = 3.0;
     } allyGate;
 
     // 兵种基础定义（下标 = ArmyType）。
