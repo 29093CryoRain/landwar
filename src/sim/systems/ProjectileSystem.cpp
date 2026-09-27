@@ -12,6 +12,7 @@
 
 #include "core/MathUtil.h"
 #include "core/Simulation.h"
+#include "sim/ConquestRules.h"
 #include "sim/systems/CombatSystem.h"
 #include "sim/systems/MovementSystem.h"
 #include "sim/systems/Systems.h"
@@ -30,7 +31,8 @@ bool hitEnemyAt(MoveContext& ctx, entt::entity bullet, const comp::Position& pos
         if (a == bullet) continue;
         if (ctx.registry.all_of<comp::Dead>(a)) continue;
         if (ctx.registry.all_of<comp::Projectile>(a)) continue;  // 子弹不互撞
-        if (ctx.registry.get<comp::FactionId>(a).value == fid.value) continue;
+        if (!areEnemies(ctx.factions, fid.value, ctx.registry.get<comp::FactionId>(a).value))
+            continue;  // 同势力 / 盟友不击杀
         const auto& aPos = ctx.registry.get<comp::Position>(a);
         const auto& aCol = ctx.registry.get<comp::Collider>(a);
         if (math::distance(aPos.x, aPos.y, pos.x, pos.y) < col.radius + aCol.radius) {

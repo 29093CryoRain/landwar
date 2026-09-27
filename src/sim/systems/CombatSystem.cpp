@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "core/MathUtil.h"
+#include "sim/ConquestRules.h"
 
 namespace lw {
 
@@ -29,7 +30,8 @@ bool CombatSystem::checkAt(MoveContext& ctx, entt::entity self, const comp::Posi
         const auto& otherPos = ctx.registry.get<comp::Position>(other);
         const auto& otherCollider = ctx.registry.get<comp::Collider>(other);
         const auto& otherFaction = ctx.registry.get<comp::FactionId>(other);
-        if (otherFaction.value == fid.value) continue;  // 同势力不交战
+        if (!areEnemies(ctx.factions, fid.value, otherFaction.value))
+            continue;  // 同势力 / 盟友不交战
         if (math::distance(otherPos.x, otherPos.y, pos.x, pos.y)
             < otherCollider.radius + col.radius) {
             // 双方同归于尽；P11 击杀 credit 各记对方 (faction, unitType)。

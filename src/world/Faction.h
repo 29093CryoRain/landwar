@@ -61,6 +61,9 @@ struct ConquerContext {
     // 兵原先所在格（调用方声明；-1 = 无）。conquerIndex 占领目标格后同样尝试占领它——
     // 取代旧的"本 tick 走完剩余步长的终点格补占"（2026-09 用户定夺）。
     int originIndex = -1;
+    // 发起征服的兵种（>=0）：施加兵种机制限制（密集防御「禁征服敌方陆」）；
+    // -1 = 无兵种来源（首都初始化等）→ 只保留海 / 盟友两条限制。
+    int attackerUnitType = -1;
 };
 
 class Faction {
@@ -88,6 +91,9 @@ public:
     bool selected = false; // 是否由本局选项选入（与 alive 分离，选入后即使灭亡仍属于本局）
     bool alive = false;
     int aiId = 0;  // 产兵 AI id（0=默认 AI，1=玩家；来自 Options，P1）
+    // 盟友：-1 = 无联盟；否则联盟序号（同号即互为盟友，天然是等价关系）。
+    // 唯一写入点 = Simulation::initFactions（来自 Options.alliances）；中立势力恒为 -1。
+    int allianceId = -1;
     std::array<int, 3> color = {127, 127, 127};
     int cityCount = 0;       // fcitys（始终 == cities.size()）
     int landCount = 0;       // flands

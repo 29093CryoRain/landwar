@@ -15,6 +15,7 @@
 
 #include "core/MathUtil.h"
 #include "core/Simulation.h"
+#include "sim/ConquestRules.h"
 #include "sim/systems/MovementSystem.h"
 #include "sim/systems/CombatSystem.h"
 #include "sim/systems/SpawnSystem.h"
@@ -68,7 +69,8 @@ void solveBomb(CombatEffectContext& ctx, entt::entity e, std::vector<entt::entit
         for (auto a : ctx.move.spatialHash.queryCircle(reg, pos.x, pos.y, radius)) {
             if (reg.all_of<comp::Dead>(a)) continue;
             if (reg.all_of<comp::Projectile>(a)) continue;
-            if (reg.get<comp::FactionId>(a).value == fid.value) continue;
+            if (!areEnemies(ctx.move.factions, fid.value, reg.get<comp::FactionId>(a).value))
+                continue;  // 同势力 / 盟友不杀伤
             const auto& armyPos = reg.get<comp::Position>(a);
             markDead(ctx.move, a, armyPos.x, armyPos.y, creator.x, creator.y, creator.factionId,
                      creator.unitType);  // P11：击杀 credit=创建者
@@ -97,7 +99,8 @@ void solveMine(CombatEffectContext& ctx, entt::entity e, std::vector<entt::entit
         for (auto a : ctx.move.spatialHash.queryCircle(reg, pos.x, pos.y, searchRadius)) {
             if (reg.all_of<comp::Dead>(a)) continue;
             if (reg.all_of<comp::Projectile>(a)) continue;  // P9：子弹不触发地雷
-            if (reg.get<comp::FactionId>(a).value == fid.value) continue;
+            if (!areEnemies(ctx.move.factions, fid.value, reg.get<comp::FactionId>(a).value))
+                continue;  // 同势力 / 盟友不触发
             const auto& armyPos = reg.get<comp::Position>(a);
             const double armyRadius = reg.get<comp::Collider>(a).radius;
             if (math::distance(armyPos.x, armyPos.y, pos.x, pos.y)
@@ -184,7 +187,8 @@ void solveLaser(CombatEffectContext& ctx, entt::entity e, std::vector<entt::enti
         if (nb < 0) break;
         goalCellIdx = nb;
         const MapCell& gc = ctx.move.map.atIndex(goalCellIdx);
-        if (gc.land && fid.value != gc.belongi) break;  // 进入非己方陆地停止
+        // 进入非己方陆地停止：盟友领土视同己方 → 激光穿过（见开发文档 §5.2）。
+        if (gc.land && areEnemies(ctx.move.factions, fid.value, gc.belongi)) break;
     }
     const double length = totalLength - remLength;  // 本 tick 光束实际走过的长度
 
@@ -199,7 +203,8 @@ void solveLaser(CombatEffectContext& ctx, entt::entity e, std::vector<entt::enti
     for (auto a : ctx.move.spatialHash.queryAABB(reg, boxX0, boxY0, boxX1, boxY1)) {
         if (reg.all_of<comp::Dead>(a)) continue;
         if (reg.all_of<comp::Projectile>(a)) continue;  // P9：激光不杀子弹
-        if (reg.get<comp::FactionId>(a).value == fid.value) continue;
+        if (!areEnemies(ctx.move.factions, fid.value, reg.get<comp::FactionId>(a).value))
+            continue;  // 同势力 / 盟友不杀伤
         const auto& armyPos = reg.get<comp::Position>(a);
         const double dist =
             math::pointDistanceFromSegment(armyPos.x, armyPos.y, pos.x, pos.y, angle, length);
