@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <limits>
 
 #include "core/Config.h"
 #include "TestUtil.h"
@@ -186,6 +187,43 @@ TEST(Config, JsoncCommentsAreAccepted) {
 TEST(Config, ReleaseConfigPassesStrictValidation) {
     std::string error;
     EXPECT_TRUE(lw::Config::validateFile("data/config.jsonc", &error)) << error;
+}
+
+// 盟友边界闸门参数（c/η/h）全部走 config：可覆盖、往返无损、越界被拒（开发文档 §12）。
+TEST(Config, AllyGateKeysLoadRoundTripAndValidate) {
+    const lw::Config cfg = lw::Config::loadFromJson(R"({
+        "allyGate": {"leakPerCell": 0.1, "tolerancePerCell": 0.02, "alarmThreshold": 8.0}
+    })");
+    EXPECT_DOUBLE_EQ(cfg.allyGate.leakPerCell, 0.1);
+    EXPECT_DOUBLE_EQ(cfg.allyGate.tolerancePerCell, 0.02);
+    EXPECT_DOUBLE_EQ(cfg.allyGate.alarmThreshold, 8.0);
+
+    // loadFromJson(toJson) 无损：参数进快照/存档的 config 通道。
+    const lw::Config roundTrip = lw::Config::loadFromJson(cfg.toJson());
+    EXPECT_DOUBLE_EQ(roundTrip.allyGate.leakPerCell, 0.1);
+    EXPECT_DOUBLE_EQ(roundTrip.allyGate.tolerancePerCell, 0.02);
+    EXPECT_DOUBLE_EQ(roundTrip.allyGate.alarmThreshold, 8.0);
+
+    // 缺键 → 内置默认（config 是覆盖式）；默认值本身合法。
+    const lw::Config defaults;
+    EXPECT_GT(defaults.allyGate.leakPerCell, 0.0);
+    EXPECT_GE(defaults.allyGate.tolerancePerCell, 0.0);
+    EXPECT_GT(defaults.allyGate.alarmThreshold, 0.0);
+
+    // 越界被 validate 拒绝：泄漏 / 裕度 >= 0，阈值有限且 > 0。
+    std::string err;
+    lw::Config bad = lwtest::loadCfg();
+    bad.allyGate.leakPerCell = -1.0;
+    EXPECT_FALSE(bad.validate(&err));
+    bad = lwtest::loadCfg();
+    bad.allyGate.tolerancePerCell = -0.5;
+    EXPECT_FALSE(bad.validate(&err));
+    bad = lwtest::loadCfg();
+    bad.allyGate.alarmThreshold = 0.0;
+    EXPECT_FALSE(bad.validate(&err));
+    bad = lwtest::loadCfg();
+    bad.allyGate.alarmThreshold = std::numeric_limits<double>::infinity();
+    EXPECT_FALSE(bad.validate(&err));
 }
 
 TEST(Config, FactionBuffsUseTechLevelFormat) {
