@@ -9,12 +9,18 @@
 namespace lw {
 
 namespace {
-// P13/P12：城市全部基建格（形状按密铺解析）是否同属 factionId（整城易主判定）。
+// P13/P12 + B8：城市全部基建格（形状按密铺解析）是否同属 factionId 一方——
+// "本势力"或"本势力的盟友"（同一联盟）。整城易主判定即此。
 // 注意调用点在 land 归属（cell.belongi）已改为本势力之后，故刚征服的格已计入。
-bool allBaseCellsOwned(const Map& map, const City& city, int factionId) {
+bool allBaseCellsInAlliance(const Map& map, const std::vector<Faction>& factions, const City& city,
+                            int factionId) {
     const std::vector<int> cells = map.cityCells(city);
-    for (int idx : cells)
-        if (idx < 0 || map.atIndex(idx).belongi != factionId) return false;
+    for (int idx : cells) {
+        if (idx < 0) return false;
+        const int owner = map.atIndex(idx).belongi;
+        // 中立（0）与任何非盟友仍算敌方（无联盟者之间也互不友好）→ 不满足整城易主。
+        if (owner != factionId && !areAllied(factions, factionId, owner)) return false;
+    }
     return true;
 }
 }  // namespace
@@ -132,12 +138,14 @@ void Faction::conquerIndex(ConquerContext& ctx, int index) {
             this->landCount++;
             cell.belongi = this->id;
         }
-        // 城市易主（P13，思路 9.1：全部基建地块同时被另一方占领才易主）。
-        // 本格 land 归属已改为本势力 → 检测城市全部基建格是否同归本势力：
-        //   是 → 整城易主（只触发一次，非每格）；否 → 城市不转移（部分/第三方占格只改土地归属）。
+        // 城市易主（P13，思路 9.1；B8 用户反馈改为按联盟判定）：
+        // 本格 land 归属已改为本势力 → 检测城市全部基建格是否同属本势力所在联盟：
+        //   是 → 整城易主到**本次征服者**（只触发一次，非每格）；否 → 城市不转移。
+        // 无联盟时"同联盟"退化为"同势力"，与旧行为逐位一致。
         if (cell.cityId >= 0) {
             City& city = ctx.map.city(cell.cityId);
-            if (city.ownerId != this->id && allBaseCellsOwned(ctx.map, city, this->id)) {
+            if (city.ownerId != this->id
+                && allBaseCellsInAlliance(ctx.map, ctx.factions, city, this->id)) {
                 Faction& curOwner = ctx.factions[static_cast<size_t>(city.ownerId)];
                 curOwner.removeCity(city.id, city.level);
                 curOwner.recomputeMaxCityLevel(ctx.map);

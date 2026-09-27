@@ -263,6 +263,75 @@ TEST(Faction, PartialOccupationDoesNotTransferCity) {
     EXPECT_EQ(f4.landCount, 0);
 }
 
+// B8（用户反馈）：整城易主按**联盟**判定——城市基建格全部属于征服者所在联盟时，
+// 城市归**本次改变地块归属的势力**（不必是该联盟内最初占格者）。
+TEST(Faction, WholeCityTransfersAcrossAllianceToLastAttacker) {
+    SmallWorld w;
+    auto& f3 = w.factions[3];
+    auto& f4 = w.factions[4];
+    f3.allianceId = 0;
+    f4.allianceId = 0;
+    const int cid = w.map.addCity(4, lwtest::cellIndex(w.map, 1, 1));  // 2×2 基建格
+    lwtest::MockRng rng;
+    lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
+
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 1));
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 2));
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));  // 联盟持 3/4 格 → 仍不整城易主
+    EXPECT_EQ(w.map.city(cid).ownerId, 0);
+    EXPECT_EQ(f3.cityCount, 0);
+    EXPECT_EQ(f4.cityCount, 0);
+
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 1));  // 盟友补上末格 → 城市归当次征服者 f4
+    EXPECT_EQ(w.map.city(cid).ownerId, 4);
+    EXPECT_EQ(f4.cityCount, 1);
+    EXPECT_EQ(f3.cityCount, 0);
+}
+
+// B8：非盟友占着基建格 → 盟友集齐也不整城易主；夺回该格才易主给当次征服者。
+TEST(Faction, WholeCityWaitsForNonAlliedBaseCell) {
+    SmallWorld w;
+    auto& f3 = w.factions[3];
+    auto& f4 = w.factions[4];
+    auto& f5 = w.factions[5];
+    f3.allianceId = 0;
+    f4.allianceId = 0;
+    const int cid = w.map.addCity(4, lwtest::cellIndex(w.map, 1, 1));
+    lwtest::MockRng rng;
+    lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
+
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 1));
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));
+    f5.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 2));  // 非盟友 f5 占 1 格（无联盟 → 敌对）
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 1));  // 联盟持 3 格，但 f5 仍占 1 格 → 不整城易主
+    EXPECT_EQ(w.map.city(cid).ownerId, 0);
+    EXPECT_EQ(f4.cityCount, 0);
+
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 2));  // 夺回 f5 的格 → 联盟集齐 → 归当次征服者 f4
+    EXPECT_EQ(w.map.city(cid).ownerId, 4);
+    EXPECT_EQ(f4.cityCount, 1);
+}
+
+// B8：基建格分属**不同联盟**时不算"同一联盟"，城市不整城易主。
+TEST(Faction, WholeCityNotTransferredAcrossDifferentAlliances) {
+    SmallWorld w;
+    auto& f3 = w.factions[3];
+    auto& f4 = w.factions[4];
+    f3.allianceId = 0;
+    f4.allianceId = 1;
+    const int cid = w.map.addCity(4, lwtest::cellIndex(w.map, 1, 1));
+    lwtest::MockRng rng;
+    lw::ConquerContext ctx{w.map, w.factions, rng, w.pending};
+
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 1));
+    f3.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 2));
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 1, 2));
+    f4.conquerIndex(ctx, lwtest::cellIndex(w.map, 2, 1));  // 两家各持 2 格、联盟不同 → 不整城易主
+    EXPECT_EQ(w.map.city(cid).ownerId, 0);
+    EXPECT_EQ(f3.cityCount, 0);
+    EXPECT_EQ(f4.cityCount, 0);
+}
+
 // P13 整城易主只触发一次免费产兵：多格城市逐格占领不产兵，整城易主才产（中心点一次）。
 TEST(Faction, Faction8FreeArmyOncePerWholeCity) {
     SmallWorld w;
