@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <numeric>
+#include <string>
 
 #include <spdlog/spdlog.h>
 
@@ -365,25 +366,48 @@ void Simulation::detectAnnihilationAndUnification() {
                           tickCount_});
         }
     }
-    // 统一判定：alive 可玩势力恰剩一个 → 发 Unification（恰一次，unificationEmitted_ 防重）。
+    // 统一判定：alive 可玩势力恰剩一个 → 该势力统一；或剩多个但**同属一个联盟**
+    //（allianceId 非负且全体一致）→ 该联盟共同统一。无联盟 / 分属不同联盟 / 有未入盟者 → 未统一。
+    // 恰一次（unificationEmitted_ 防重）；无联盟时与旧行为逐位一致。
     if (unificationEmitted_) return;
-    int winner = 0;
+    int firstAlive = 0;       // 首个存活势力（事件相关势力 / 消息着色锚点）
+    int aliveCount = 0;
+    int sharedAlliance = -1;  // 全体存活者共有的联盟号（= 首个存活者的；-1 = 无联盟）
+    bool allianceConsistent = true;
     for (int id : selectedFactionIds_) {
-        if (factions_[static_cast<size_t>(id)].alive) {
-            if (winner != 0) return;  // 多于一个 alive → 未统一
-            winner = id;
+        const Faction& f = factions_[static_cast<size_t>(id)];
+        if (!f.alive) continue;
+        if (aliveCount == 0) {
+            firstAlive = id;
+            sharedAlliance = f.allianceId;
+        } else if (f.allianceId != sharedAlliance) {
+            allianceConsistent = false;
         }
+        ++aliveCount;
     }
-    if (winner != 0) {
-        unificationEmitted_ = true;
-        // P11：统一时刻截止统计（此后 record* 全部忽略，冻结）。
-        stats_.cutoffTick = tickCount_;
-        events_.push_back(
-            GameEvent{GameEventKind::Unification, winner, 0,
-                      formatEventTime(tickCount_, config_.sim.tickRate) + " 势力 "
-                          + factions_[static_cast<size_t>(winner)].name + " 统一天下",
-                      tickCount_});
+    if (aliveCount == 0) return;  // 全灭：不发统一（与旧行为一致）
+    if (aliveCount > 1 && !(allianceConsistent && sharedAlliance >= 0)) return;
+    unificationEmitted_ = true;
+    // P11：统一时刻截止统计（此后 record* 全部忽略，冻结）。
+    stats_.cutoffTick = tickCount_;
+    std::string who;
+    if (aliveCount == 1) {
+        who = "势力 " + factions_[static_cast<size_t>(firstAlive)].name;
+    } else {
+        who = "联盟 " + std::to_string(sharedAlliance + 1) + "（";
+        bool first = true;
+        for (int id : selectedFactionIds_) {
+            if (!factions_[static_cast<size_t>(id)].alive) continue;
+            if (!first) who += "、";
+            who += factions_[static_cast<size_t>(id)].name;
+            first = false;
+        }
+        who += "）";
     }
+    events_.push_back(GameEvent{GameEventKind::Unification, firstAlive, 0,
+                                formatEventTime(tickCount_, config_.sim.tickRate) + " " + who
+                                    + " 统一天下",
+                                tickCount_});
 }
 
 }  // namespace lw

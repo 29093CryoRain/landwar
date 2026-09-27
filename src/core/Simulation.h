@@ -28,7 +28,7 @@ namespace lw {
 // 纯展示：不进快照（与 PlayerIntent 同理）；Application 每帧 takeEvents() → MessagePanel。
 enum class GameEventKind {
     FactionAnnihilated,  // 势力灭亡（城市+兵力+特效全灭）
-    Unification,         // 统一（只剩一个 alive 势力）
+    Unification,         // 统一（只剩一个 alive 势力，或剩余 alive 同属一个联盟）
     TechAcquired,        // 取得科技（P8）
     CapitalLost,         // 正式首都沦陷（P15：整城易主含首都 → 发消息）
     Custom,              // 自定义
@@ -199,7 +199,8 @@ public:
     bool choosePlayerTech(int techIndex);
     // P4 灭亡/统一检测：tick 末尾调用（也暴露给单测直接调用）。纯逻辑，不消耗 Rng。
     // 灭亡：alive && cityCount==0 && 无兵 && 无特效 → 置 alive=false + FactionAnnihilated。
-    // 统一：alive 势力数（1..8）==1 → 恰一次 Unification。
+    // 统一：alive 势力数 == 1，或剩余 alive 势力同属一个联盟（allianceId 非负且一致）
+    // → 恰一次 Unification（文案为"势力 X 统一天下"或"联盟 N（A、B）统一天下"）。
     void detectAnnihilationAndUnification();
     // 该势力当前活兵数 / 特效数（灭亡判定用；registry 视图统计，不消耗 Rng）。
     int countArmies(int factionId) const;

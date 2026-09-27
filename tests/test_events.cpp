@@ -3,6 +3,8 @@
 // 事件不进快照；MessageLog（过期/上限/渐隐 alpha，纯逻辑可单测）。
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -19,6 +21,16 @@ namespace {
 using namespace lw;
 
 Config loadCfg() { return lwtest::loadCfg(); }
+
+// 只保留 keep 里的势力存活（其余手动置死并清城），用于统一检测用例。
+void killAllBut(Simulation& sim, std::initializer_list<int> keep) {
+    for (int id = 1; id <= kPlayerFactionCount; ++id) {
+        if (std::find(keep.begin(), keep.end(), id) != keep.end()) continue;
+        sim.faction(id).alive = false;
+        sim.faction(id).cityIds.clear();
+        sim.faction(id).cityCount = 0;
+    }
+}
 
 // ---- 事件通道 ----
 
@@ -104,13 +116,7 @@ TEST(Annihilation, DisabledFactionNotReEmitted) {
 TEST(Unification, OnlyOneAliveEmitsOnce) {
     lw::Simulation sim(loadCfg(), 42);
     ASSERT_TRUE(sim.init());
-    // 只留势力3 alive（其余手动置死并清城）。
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
-        if (id == 3) continue;
-        sim.faction(id).alive = false;
-        sim.faction(id).cityIds.clear();
-        sim.faction(id).cityCount = 0;
-    }
+    killAllBut(sim, {3});
     sim.detectAnnihilationAndUnification();
     const auto events = sim.takeEvents();
     ASSERT_EQ(events.size(), 1u);
@@ -118,6 +124,7 @@ TEST(Unification, OnlyOneAliveEmitsOnce) {
     EXPECT_EQ(events[0].factionId, 3);
     EXPECT_NE(events[0].text.find("青"), std::string::npos);       // 文案含势力名
     EXPECT_NE(events[0].text.find("(0s)"), std::string::npos);     // 含事件时间前缀
+    EXPECT_EQ(events[0].text.find("联盟"), std::string::npos);     // 单势力统一：不提"联盟"
 
     // 再次检测不再发（恰一次）。
     sim.detectAnnihilationAndUnification();
@@ -131,15 +138,57 @@ TEST(Unification, NotEmittedWhenMultipleAlive) {
     EXPECT_TRUE(sim.takeEvents().empty());  // 8 个势力都 alive
 }
 
+// 剩余多个存活势力**同属一个联盟** → 该联盟共同统一（文案列成员；相关势力 = 首个存活成员）。
+TEST(Unification, SameAllianceSurvivorsEmitAllianceWin) {
+    lw::Options opts;
+    opts.alliances = {{2, 4}};
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init(opts));
+    ASSERT_EQ(sim.faction(2).allianceId, 0);
+    ASSERT_EQ(sim.faction(4).allianceId, 0);
+    killAllBut(sim, {2, 4});
+
+    sim.detectAnnihilationAndUnification();
+    const auto events = sim.takeEvents();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].kind, GameEventKind::Unification);
+    EXPECT_EQ(events[0].factionId, 2);  // 首个存活成员（消息着色锚点）
+    EXPECT_NE(events[0].text.find("联盟 1"), std::string::npos);
+    EXPECT_NE(events[0].text.find(sim.faction(2).name), std::string::npos);
+    EXPECT_NE(events[0].text.find(sim.faction(4).name), std::string::npos);
+
+    // 恰一次。
+    sim.detectAnnihilationAndUnification();
+    EXPECT_TRUE(sim.takeEvents().empty());
+}
+
+// 剩余多个存活势力**分属不同联盟** → 未统一。
+TEST(Unification, DifferentAlliancesNotUnified) {
+    lw::Options opts;
+    opts.alliances = {{2}, {4}};
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init(opts));
+    ASSERT_NE(sim.faction(2).allianceId, sim.faction(4).allianceId);
+    killAllBut(sim, {2, 4});
+    sim.detectAnnihilationAndUnification();
+    EXPECT_TRUE(sim.takeEvents().empty());
+}
+
+// 剩余多个存活势力**都未入盟**（互为敌人）→ 未统一。
+TEST(Unification, AllianceLessSurvivorsNotUnified) {
+    lw::Simulation sim(loadCfg(), 42);
+    ASSERT_TRUE(sim.init());
+    ASSERT_EQ(sim.faction(2).allianceId, -1);
+    ASSERT_EQ(sim.faction(4).allianceId, -1);
+    killAllBut(sim, {2, 4});
+    sim.detectAnnihilationAndUnification();
+    EXPECT_TRUE(sim.takeEvents().empty());
+}
+
 TEST(Unification, SnapshotPreservesEmittedState) {
     lw::Simulation sim(loadCfg(), 42);
     ASSERT_TRUE(sim.init());
-    for (int id = 1; id <= kPlayerFactionCount; ++id) {
-        if (id == 3) continue;
-        sim.faction(id).alive = false;
-        sim.faction(id).cityIds.clear();
-        sim.faction(id).cityCount = 0;
-    }
+    killAllBut(sim, {3});
     sim.setTickCount(1);
     sim.detectAnnihilationAndUnification();
     ASSERT_EQ(sim.takeEvents().size(), 1u);
