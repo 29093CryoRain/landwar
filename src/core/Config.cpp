@@ -1122,7 +1122,7 @@ void validateConfigKeys(const Json& root) {
     warnUnknownKeys(root,
                     {"map", "army", "sea", "terrain", "units", "factions", "effect",
                      "projectile", "economy", "city", "capital", "sim", "render",
-                     "ui", "tech", "river"},
+                     "ui", "tech", "river", "allyGate"},
                     "<root>");
     // 对象取值辅助（不存在/非对象 → 空对象，warnUnknownKeys 自动跳过）。
     auto obj = [&root](const char* name) -> const Json& {
@@ -1207,6 +1207,8 @@ void validateConfigKeys(const Json& root) {
                      "gradientSmoothScale", "mountainSourceWeight", "maxStepsPerRiver", "sourceRetryPerRiver"},
                     "river.gen");
     warnUnknownKeys(obj("river"), {"crossChance", "crossAngleJitterRad", "gen"}, "river");
+    warnUnknownKeys(obj("allyGate"), {"leakPerCell", "tolerancePerCell", "alarmThreshold"},
+                    "allyGate");
     // city（顶层，P13 城市系统 + P12 按密铺形状表）。
     const Json& cityJ = obj("city");
     warnUnknownKeys(cityJ, {"levelIncomeExponent", "levelRankExponent", "shapes", "hex", "tri",
@@ -1322,7 +1324,7 @@ void warnMissingKeys(const Json& obj, std::initializer_list<const char*> require
 void warnMissingConfigKeys(const Json& root) {
     warnMissingKeys(root, {"map", "army", "sea", "terrain", "units", "factions", "effect",
                            "projectile", "economy", "city", "capital", "sim", "render", "ui",
-                           "tech", "river"}, "<root>");
+                           "tech", "river", "allyGate"}, "<root>");
     const auto object = [&root](const char* key) -> const Json& {
         static const Json empty = Json::object();
         return root.contains(key) && root[key].is_object() ? root[key] : empty;
@@ -1376,6 +1378,8 @@ void warnMissingConfigKeys(const Json& root) {
     warnMissingKeys(object("render").value("river", Json::object()),
                     {"widthU", "color", "minPx", "minCellPx"}, "render.river");
     warnMissingKeys(object("river"), {"crossChance", "crossAngleJitterRad", "gen"}, "river");
+    warnMissingKeys(object("allyGate"), {"leakPerCell", "tolerancePerCell", "alarmThreshold"},
+                    "allyGate");
     warnMissingKeys(object("river").value("gen", Json::object()),
                     {"gradientWeight", "flowDownhill", "mouthWeight", "gmin", "gmax",
                      "gradientSmoothScale", "mountainSourceWeight", "maxStepsPerRiver", "sourceRetryPerRiver"},
@@ -1493,6 +1497,17 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
             cfg.river.gen.sourceRetryPerRiver =
                 getInt(genJson, "sourceRetryPerRiver", cfg.river.gen.sourceRetryPerRiver);
         }
+    }
+
+    // ---- allyGate（盟友边界闸门；开发文档 §12）----
+    if (root.contains("allyGate") && root["allyGate"].is_object()) {
+        const auto& gateJson = root["allyGate"];
+        cfg.allyGate.leakPerCell =
+            getNum(gateJson, "leakPerCell", cfg.allyGate.leakPerCell);
+        cfg.allyGate.tolerancePerCell =
+            getNum(gateJson, "tolerancePerCell", cfg.allyGate.tolerancePerCell);
+        cfg.allyGate.alarmThreshold =
+            getNum(gateJson, "alarmThreshold", cfg.allyGate.alarmThreshold);
     }
 
     // ---- units ----
@@ -2086,6 +2101,10 @@ bool Config::validate(std::string* err) const {
         river.gen.gmin > river.gen.gmax || !positive(river.gen.gradientSmoothScale) ||
         !nonNegative(river.gen.mountainSourceWeight))
         return fail("river.gen gradient clip/smooth range invalid");
+    // 盟友边界闸门：c、η 有限且 >= 0；h 有限且 > 0（否则一 tick 即报警/永不报警）。
+    if (!nonNegative(allyGate.leakPerCell) || !nonNegative(allyGate.tolerancePerCell)
+        || !positive(allyGate.alarmThreshold))
+        return fail("allyGate numeric range invalid");
 
     for (const auto& u : units) {
         if (!positive(u.cost) || !positive(u.speedMult) || !positive(u.sizeMult)
@@ -2314,6 +2333,10 @@ std::string Config::toJson() const {
                     {"mountainSourceWeight", river.gen.mountainSourceWeight},
                     {"maxStepsPerRiver", river.gen.maxStepsPerRiver},
                     {"sourceRetryPerRiver", river.gen.sourceRetryPerRiver}}}};
+
+    j["allyGate"] = {{"leakPerCell", allyGate.leakPerCell},
+                     {"tolerancePerCell", allyGate.tolerancePerCell},
+                     {"alarmThreshold", allyGate.alarmThreshold}};
 
     j["units"] = Json::array();
     for (int i = 0; i < kArmyTypeCount; ++i) {

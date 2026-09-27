@@ -54,10 +54,11 @@ std::string registryDump(const Simulation& sim) {
             const auto& c = sim.registry().get<comp::Collider>(e);
             const auto& l = sim.registry().get<comp::LandHistory>(e);
             const auto* mc = sim.registry().try_get<comp::MoveCarry>(e);
+            const auto* ag = sim.registry().try_get<comp::AllyGate>(e);
             oss << "A" << entt::to_integral(e) << "(" << p.x << "," << p.y << "," << v.angle << ","
                 << s.value << "," << o.value << "," << f.value << "," << static_cast<int>(u.type)
                 << "," << c.radius << "," << l.lastLandTime << ","
-                << (mc ? mc->value : 0.0) << ","
+                << (mc ? mc->value : 0.0) << "," << (ag ? ag->cusum : 0.0) << ","
                 << sim.registry().all_of<comp::Dead>(e) << ");";
         }
     }
@@ -463,6 +464,52 @@ TEST(Snapshot, ArmyMoveCarryRoundTripsAndIsRequired) {
     std::string badErr;
     EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
     EXPECT_NE(badErr.find("moveCarry"), std::string::npos);
+}
+
+// 盟友边界闸门统计量（allyGate）必须入快照并往返一致；缺该字段 → 头校验失败（v15 起必需）。
+TEST(Snapshot, ArmyAllyGateRoundTripsAndIsRequired) {
+    Config cfg = lwtest::loadCfg();
+    Simulation sim(cfg, 9);
+    ASSERT_TRUE(sim.init());
+    entt::entity e = sim.createEntity();
+    auto& reg = sim.registry();
+    reg.emplace<comp::Position>(e, 1.0, 2.0);
+    reg.emplace<comp::Velocity>(e, 0.0);
+    reg.emplace<comp::Speed>(e, 0.3);
+    reg.emplace<comp::OnLand>(e, true);
+    reg.emplace<comp::MountainState>(e, false);
+    reg.emplace<comp::FactionId>(e, 1);
+    reg.emplace<comp::UnitType>(e, ArmyType::normal);
+    reg.emplace<comp::Collider>(e, 1.1);
+    reg.emplace<comp::LandHistory>(e, 0);
+    reg.emplace<comp::MoveCarry>(e, comp::MoveCarry{0.17});
+    reg.emplace<comp::AllyGate>(e, comp::AllyGate{2.5});
+
+    const std::string json = Snapshot::serialize(sim);
+    auto parsed = nlohmann::json::parse(json);
+    bool sawArmy = false;
+    for (const auto& entity : parsed["registry"]["entities"]) {
+        if (entity["kind"].get<int>() != 0) continue;
+        if (entity["id"].get<std::uint32_t>() != entt::to_integral(e)) continue;
+        ASSERT_TRUE(entity.contains("allyGate"));
+        EXPECT_NEAR(entity["allyGate"].get<double>(), 2.5, 1e-12);
+        sawArmy = true;
+    }
+    ASSERT_TRUE(sawArmy);
+
+    Simulation restored(cfg, 9);
+    std::string err;
+    ASSERT_TRUE(Snapshot::deserialize(restored, json, &err)) << err;
+    ASSERT_TRUE(restored.registry().all_of<comp::AllyGate>(e));
+    EXPECT_NEAR(restored.registry().get<comp::AllyGate>(e).cusum, 2.5, 1e-12);
+
+    // 缺 allyGate 键 → 形状校验失败（v15 起为必需字段）。
+    for (auto& entity : parsed["registry"]["entities"])
+        if (entity["kind"].get<int>() == 0) entity.erase("allyGate");
+    Simulation rejected(cfg, 9);
+    std::string badErr;
+    EXPECT_FALSE(Snapshot::deserialize(rejected, parsed.dump(), &badErr));
+    EXPECT_NE(badErr.find("allyGate"), std::string::npos);
 }
 
 TEST(Snapshot, MalformedV6RejectedWithoutMutatingTarget) {

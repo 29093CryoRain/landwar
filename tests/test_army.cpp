@@ -64,6 +64,8 @@ entt::entity addArmy(TestWorld& w, double x, double y, int fid, ArmyType type,
     w.reg.emplace<comp::UnitType>(e, type);
     w.reg.emplace<comp::Collider>(e, 1.1);
     w.reg.emplace<comp::LandHistory>(e, 0);
+    // 与 SpawnSystem::spawnArmy 对齐：兵必带闸门统计量（0 = 未受压）。
+    w.reg.emplace<comp::AllyGate>(e);
     return e;
 }
 
@@ -414,6 +416,180 @@ TEST(Movement, AllyLandToSeaEntersOnGoSeaSuccess) {
     moveOnce(w, e);
     EXPECT_FALSE(w.reg.get<comp::OnLand>(e).value);
     EXPECT_DOUBLE_EQ(w.reg.get<comp::Speed>(e).value, 0.15);
+}
+
+// ---- 盟友边界闸门（CUSUM 检测被盟友领土围死；开发文档 §12）----
+
+// 盟友陆地判定与 canConquerCell 共用同一份盟友关系（唯一入口）。
+TEST(ConquestRules, IsAlliedLandTruthTable) {
+    TestWorld w(5, 5);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;  // 己方
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;  // 盟友（下面建盟）
+    lwtest::atXY(w.map, 3, 1).land = true;
+    lwtest::atXY(w.map, 3, 1).belongi = 3;  // 敌方
+    lwtest::atXY(w.map, 4, 1).belongi = 0;  // 中立（默认海 + 归属 0）
+    const int own = lwtest::cellIndex(w.map, 1, 1);
+    const int allied = lwtest::cellIndex(w.map, 2, 1);
+    const int enemy = lwtest::cellIndex(w.map, 3, 1);
+    const int neutral = lwtest::cellIndex(w.map, 4, 1);
+    const int sea = lwtest::cellIndex(w.map, 0, 0);  // 默认海
+
+    EXPECT_FALSE(isAlliedLand(w.map, w.factions, 1, own));
+    EXPECT_FALSE(isAlliedLand(w.map, w.factions, 1, enemy));
+    EXPECT_FALSE(isAlliedLand(w.map, w.factions, 1, sea));
+    EXPECT_FALSE(isAlliedLand(w.map, w.factions, 1, -1));
+    EXPECT_FALSE(isAlliedLand(w.map, w.factions, 1, w.map.cellCount()));
+    // 中立陆也不是盟友。
+    lwtest::atXY(w.map, 4, 1).land = true;
+    EXPECT_FALSE(isAlliedLand(w.map, w.factions, 1, neutral));
+
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    EXPECT_TRUE(isAlliedLand(w.map, w.factions, 1, allied));
+    EXPECT_FALSE(isAlliedLand(w.map, w.factions, 1, own));
+}
+
+// 被困单位反复撞盟友边界 → 统计量累积；越过报警阈值后下一次穿越放行一次（不反弹、不征服）并清零。
+TEST(Movement, AllyGateReleasesTrappedArmyThroughAllyLand) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;  // 己方小飞地
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;  // 盟友（围住飞地的一侧）
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    w.factions[1].landCount = 1;
+    w.factions[2].landCount = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true);
+
+    const double h = w.cfg.allyGate.alarmThreshold;
+    const int ownIdx = lwtest::cellIndex(w.map, 1, 1);
+    const int allyIdx = lwtest::cellIndex(w.map, 2, 1);
+    int bounces = 0;
+    bool released = false;
+    for (int i = 0; i < 50 && !released; ++i) {
+        // 把兵放回飞地、朝盟友边冲：模拟被困单位的反复尝试（否则一次反弹后就飞走了）。
+        w.reg.get<comp::Position>(e) = comp::Position{1.9, 1.9};
+        w.reg.get<comp::Velocity>(e).angle = 0.0;
+        moveOnce(w, e);
+        const auto& p = w.reg.get<comp::Position>(e);
+        const int cell = w.map.geom().worldToCell(p.x, p.y);
+        const auto& gate = w.reg.get<comp::AllyGate>(e);
+        if (cell == allyIdx) {
+            released = true;
+            EXPECT_DOUBLE_EQ(gate.cusum, 0.0);  // 放行后清零
+        } else {
+            EXPECT_EQ(cell, ownIdx);
+            ++bounces;
+            EXPECT_GT(gate.cusum, 0.0);  // 盟友边界反弹喂养闸门
+        }
+    }
+    EXPECT_TRUE(released);
+    EXPECT_GE(bounces, static_cast<int>(h));  // 至少 h 次边界反弹才够报警证据
+    EXPECT_LT(bounces, static_cast<int>(h) + 10);  // h 有限 → 不会无限反弹
+    EXPECT_EQ(lwtest::atXY(w.map, 2, 1).belongi, 2);   // 放行不征服
+    EXPECT_EQ(w.factions[2].landCount, 1);
+}
+
+// 泄漏项乘本 tick 步长（= 该兵速度）：同一次盟友边界反弹、同一初值，步长越大统计量越低
+// → 判据按"每格尝试次数"计，与兵速无关。
+TEST(Movement, AllyGateLeakScalesWithArmySpeed) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true);
+    const double leakPerCell =
+        w.cfg.allyGate.leakPerCell + w.cfg.allyGate.tolerancePerCell;
+
+    // 从同一非零初值出发（避开 0 处的 max 反射）：慢速一次反弹。
+    w.reg.get<comp::AllyGate>(e).cusum = 3.0;
+    moveOnce(w, e);
+    const double slow = w.reg.get<comp::AllyGate>(e).cusum;
+
+    // 快速一次反弹：本 tick 步长 0.15 → 0.3，泄漏多 (c+η)×0.15。
+    w.reg.get<comp::Position>(e) = comp::Position{1.9, 1.9};
+    w.reg.get<comp::Velocity>(e).angle = 0.0;
+    w.reg.get<comp::AllyGate>(e).cusum = 3.0;
+    w.reg.get<comp::Speed>(e).value = 0.3;
+    moveOnce(w, e);
+    const double fast = w.reg.get<comp::AllyGate>(e).cusum;
+
+    EXPECT_NEAR(slow - fast, leakPerCell * 0.15, 1e-9);
+    EXPECT_GT(slow, fast);
+}
+
+// 直接穿过盟友领土（规则 1/3）不计观测；在盟友领土内部的反弹（河/山骰）也不算边界尝试。
+TEST(Movement, AllyGateIgnoresNonBorderCrossings) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 2;  // 原格：盟友内部
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 2;  // 目标格：盟友内部
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true);
+    moveOnce(w, e);  // 规则 1：直行穿过，无反弹
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::AllyGate>(e).cusum, 0.0);
+
+    // 原格也是盟友陆：山骰失败反弹发生在盟友领土内部，不算"盟友边界尝试"。
+    lwtest::atXY(w.map, 2, 1).mountain = true;
+    w.reg.get<comp::Position>(e) = comp::Position{1.9, 1.9};
+    w.reg.get<comp::Velocity>(e).angle = 0.0;
+    w.rng.results = {};  // chance → false：山骰失败 → 反弹
+    w.rng.next = 0;
+    moveOnce(w, e);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::AllyGate>(e).cusum, 0.0);
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);
+}
+
+// 端到端：己方 1 格飞地被盟友领土完全围住 → 兵持续撞边界，闸门报警后自行脱离（不再永久滞留）。
+TEST(Movement, AllyGateFreesArmyFromSingleCellPocket) {
+    TestWorld w(3, 3);
+    for (int y = 0; y < 3; ++y)
+        for (int x = 0; x < 3; ++x) {
+            lwtest::atXY(w.map, x, y).land = true;
+            lwtest::atXY(w.map, x, y).belongi = 2;  // 全盟友领土
+        }
+    lwtest::atXY(w.map, 1, 1).belongi = 1;  // 中心 1 格己方飞地
+    w.factions[1].allianceId = 0;
+    w.factions[2].allianceId = 0;
+    w.factions[1].landCount = 1;
+    w.factions[2].landCount = 8;
+    auto e = addArmy(w, 1.5, 1.5, 1, ArmyType::normal, 0.3, 0.15, true);
+
+    const int pocketIdx = lwtest::cellIndex(w.map, 1, 1);
+    bool alarmed = false;
+    bool escaped = false;
+    for (int i = 0; i < 4000 && !escaped; ++i) {
+        moveOnce(w, e);
+        if (w.reg.get<comp::AllyGate>(e).cusum >= w.cfg.allyGate.alarmThreshold) alarmed = true;
+        const auto& p = w.reg.get<comp::Position>(e);
+        if (w.map.geom().worldToCell(p.x, p.y) != pocketIdx) escaped = true;
+    }
+    EXPECT_TRUE(alarmed);   // 闸门确实报警
+    EXPECT_TRUE(escaped);   // 报警后放行 → 脱离飞地
+}
+
+// 非盟友边界（敌方领土的反弹）不喂养闸门。
+TEST(Movement, AllyGateIgnoresEnemyBounce) {
+    TestWorld w(6, 6);
+    lwtest::atXY(w.map, 1, 1).land = true;
+    lwtest::atXY(w.map, 1, 1).belongi = 1;
+    lwtest::atXY(w.map, 2, 1).land = true;
+    lwtest::atXY(w.map, 2, 1).belongi = 3;  // 敌方（无联盟）
+    w.factions[1].landCount = 1;
+    w.factions[3].landCount = 1;
+    auto e = addArmy(w, 1.9, 1.9, 1, ArmyType::normal, 0.0, 0.15, true);
+    w.rng.results = {true};  // 敌方反弹骰成功 → 反弹
+    moveOnce(w, e);
+    EXPECT_DOUBLE_EQ(w.reg.get<comp::AllyGate>(e).cusum, 0.0);
+    EXPECT_NEAR(w.reg.get<comp::Velocity>(e).angle, kPi, 0.02);
 }
 
 // ---- 地图边界反弹（Phase 9 补：边角反弹）----

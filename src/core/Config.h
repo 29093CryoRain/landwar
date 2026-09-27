@@ -134,6 +134,23 @@ struct Config {
         } gen;
     } river;
 
+    // 盟友边界闸门（CUSUM 检测"被盟友领土围死"，落地规格见 .docs/兵运动与盟友系统开发文档.md §12，
+    // 算法出处 .docs/包围检测.md）：每兵维护统计量 S（`comp::AllyGate.cusum`），
+    //   S ← max(0, S − (leakPerCell + tolerancePerCell) × 本 tick 步长) + 本 tick 盟友边界反弹数；
+    // 泄漏项乘**步长**（= 该兵速度）→ 判据按"每格尝试次数"计，与兵速无关。
+    // S ≥ alarmThreshold → 下一次穿越盟友边界时放行一次（不反弹、不占领）并清零 S。
+    // 无联盟时永不触发（无盟友边界反弹）→ 与今日逐位一致。
+    struct AllyGate {
+        // c：参考泄漏率（次/格）。边界尝试率低于 c 的兵视为"路过"，边界近似绝对硬。
+        // 默认 0.06 次/格：普通兵 0.15 格/tick → 约 0.009 次/tick，落在 .docs/包围检测.md §7
+        // 建议的 r* 区间（0.005–0.02 次/tick）内。
+        double leakPerCell = 0.06;
+        // η：容忍裕度（次/格），与 c 同量纲；判据有效泄漏率为 c+η。默认取 0.1c。
+        double tolerancePerCell = 0.006;
+        // h：CUSUM 报警阈值（证据量）。误报/泄漏概率按几何衰减（.docs/包围检测.md §5）。
+        double alarmThreshold = 5.0;
+    } allyGate;
+
     // 兵种基础定义（下标 = ArmyType）。
     struct Unit {
         double cost = 1.0;        // 产兵经济成本

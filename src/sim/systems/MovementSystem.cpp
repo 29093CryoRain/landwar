@@ -111,7 +111,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
                                Bounce&& doBounce, comp::Velocity& vel, comp::Speed& speed,
                                double& remLength, comp::OnLand& onLand, comp::MountainState& mtn,
                                comp::FactionId& fid, comp::UnitType& unit,
-                               comp::LandHistory& hist) {
+                               comp::LandHistory& hist, comp::AllyGate& gate) {
     const auto& cfg = ctx.config;
     const MapCell* goalCell = &ctx.map.atIndex(goalIdx);
     // 兵运动规范（开发文档 §4）：可占领性只由"势力 + 兵种 + 格"决定；海恒不可占领，
@@ -119,6 +119,20 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
     const int ut = static_cast<int>(unit.type);
     const bool srcConquerable = canConquerCell(ctx.map, ctx.factions, fid.value, ut, srcIdx);
     const bool dstConquerable = canConquerCell(ctx.map, ctx.factions, fid.value, ut, goalIdx);
+    // 盟友边界闸门（开发文档 §12）：一次"盟友边界尝试" = 从非盟友土地一侧试图进入盟友领土。
+    // 河骰 / 山骰失败与盟友规则反弹都发生在这条边界上，一并计入观测；规则 1/3 的直接穿过不计。
+    // 惰性判定：只在目标格是盟友陆地时才查（&& 短路）；无联盟 / 非盟友目标 → 恒 false，
+    // 热路径上除两次指针比较外零额外开销（盟友陆必 !dstConquerable，故用它做先验早退）。
+    const bool dstAllyLand =
+        !dstConquerable && goalCell->belongi != fid.value
+        && isAlliedLand(ctx.map, ctx.factions, fid.value, goalIdx);
+    const bool atAllyBorder =
+        dstAllyLand && !isAlliedLand(ctx.map, ctx.factions, fid.value, srcIdx);
+    // 边界反弹计数（+1）+ 实际反弹。观测只在"盟友边界"上累加，其余反弹不喂养闸门。
+    auto bounceAtBorder = [&] {
+        if (atAllyBorder) gate.cusum += 1.0;
+        doBounce();
+    };
     // Terrain changes are provisional until the target cell is actually entered. A later
     // sea/mountain/enemy rejection bounces the army back into its original cell.
     double nextSpeed = speed.value;
@@ -150,7 +164,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
             // 2026-08 用户定夺：去掉原版紧随的 `break`——不再丢弃本 tick 剩余移动，下海后续走
             // （速度与剩余量同步减半，语义自洽；原版 `rem/=2; break` 里 `rem/=2` 因 break 成死代码）。
         } else {
-            doBounce();
+            bounceAtBorder();
             return {true, false, 0.0};
         }
     } else if (goalCell->land && onLand.value) {
@@ -164,7 +178,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
                                * cfg.units[static_cast<int>(unit.type)].riverCrossMult,
                            0.0, 1.0);
             if (!ctx.rng.chance(riverChance)) {
-                doBounce();
+                bounceAtBorder();
                 return {true, false, 0.0};
             }
             // 通过：先记下"过河了"，但方向抖动与停顿都**只在最终真正进入目标格时**结算
@@ -185,7 +199,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
         // 失败→反弹，通过才进入山地（减速，开拓不减速）。
         if (goalCell->mountain) {
             if (!ctx.rng.chance(mountainEnterChanceFor(cfg, static_cast<int>(unit.type)))) {
-                doBounce();
+                bounceAtBorder();
                 return {true, false, 0.0};
             }
             if (!nextInMountain) {
@@ -206,8 +220,14 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
         if (goalCell->belongi != fid.value) {
             if (!dstConquerable) {
                 if (srcConquerable) {
-                    doBounce();
-                    return {true, false, 0.0};
+                    // 盟友边界闸门（开发文档 §12）：持续受压已报警 → 本次穿越放行
+                    //（不反弹、不征服），并清零统计量；否则按规则 2 确定反弹并喂养闸门。
+                    if (atAllyBorder && gate.cusum >= cfg.allyGate.alarmThreshold) {
+                        gate.cusum = 0.0;
+                    } else {
+                        bounceAtBorder();
+                        return {true, false, 0.0};
+                    }
                 }
             } else {
                 conquerCell(ctx, goalIdx, fid.value, unit.type, srcIdx);
@@ -217,7 +237,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
                         cfg.units[static_cast<int>(unit.type)].bounceMult
                         * ctx.factions[static_cast<size_t>(fid.value)].mods.bounceChanceMult;
                     if (ctx.rng.chance(reboundChance)) {
-                        doBounce();
+                        bounceAtBorder();
                         return {true, false, 0.0};
                     }
                 }
@@ -228,7 +248,7 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
         // + 进山（若减速）+ 征服（开拓连占邻格）。
         if (goalCell->mountain
             && !ctx.rng.chance(mountainEnterChanceFor(cfg, static_cast<int>(unit.type)))) {
-            doBounce();
+            bounceAtBorder();
             return {true, false, 0.0};
         }
         nextOnLand = true;
@@ -251,6 +271,8 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
     onLand.value = nextOnLand;
     mtn.inMountain = nextInMountain;
     hist.lastLandTime = nextLastLandTime;
+    // 成功进入盟友领土（本次穿越没有被弹回）→ 压力解除：闸门统计量清零。
+    if (atAllyBorder) gate.cusum = 0.0;
     if (crossedRiver) {
         // 过河（真正进入目标格）：方向随机抖动一次（对称区间 [-θ, θ]，与反弹抖动同型），
         // 且本 tick 剩余步长归零（停在河边）；未用完的量由调用方结转下一 tick。
@@ -269,7 +291,8 @@ EnterResult processEnteredCell(MoveContext& ctx, int goalIdx, int srcIdx, int ed
 static void moveArmyGeom(MoveContext& ctx, entt::entity e, comp::Position& pos,
                          comp::Velocity& vel, comp::Speed& speed, comp::OnLand& onLand,
                          comp::MountainState& mtn, comp::Collider& col, comp::FactionId& fid,
-                         comp::UnitType& unit, comp::LandHistory& hist, comp::MoveCarry& carry) {
+                         comp::UnitType& unit, comp::LandHistory& hist, comp::MoveCarry& carry,
+                         comp::AllyGate& gate) {
     const auto& map = ctx.map;
     const TilingGeom& g = map.geom();
     double remLength = speed.value;
@@ -278,6 +301,12 @@ static void moveArmyGeom(MoveContext& ctx, entt::entity e, comp::Position& pos,
         remLength = carry.value;
         carry.value = 0.0;
     }
+    // 盟友边界闸门（开发文档 §12）：先按**本 tick 步长**结算泄漏（乘步长 = 结合该兵速度，
+    // 判据按"每格尝试次数"计），再在盟友边界反弹处 +1（见 processEnteredCell 的 bounceAtBorder）。
+    // CUSUM 反射于 0：S = max(0, S − (c+η)·步长) + 反弹数。放行/成功进入盟友领土时清零。
+    const auto& gateCfg = ctx.config.allyGate;
+    gate.cusum = std::max(
+        0.0, gate.cusum - (gateCfg.leakPerCell + gateCfg.tolerancePerCell) * remLength);
     int cellIdx = g.worldToCell(pos.x, pos.y);
     // 起始位置若恰落顶点/越界（贴界 spawn）：向内微调一步再取（仅起始兜底，非循环）。
     if (cellIdx < 0) {
@@ -348,7 +377,7 @@ static void moveArmyGeom(MoveContext& ctx, entt::entity e, comp::Position& pos,
         const EnterResult result = [&] {
             MoveTimer et(ctx.moveProfile, &ctx.moveProfile->enterNs);
             return processEnteredCell(ctx, nb, cellIdx, crossed, doBounce, vel, speed, remLength,
-                                      onLand, mtn, fid, unit, hist);
+                                      onLand, mtn, fid, unit, hist, gate);
         }();
         // 反弹 → 保持原格（退回）；成功进入 → 跟踪目标格。过河停顿再推入目标格内侧一小步
         //（否则下一 tick worldToCell 可能仍解析回原格 → 反复触发同一条河）。
@@ -417,10 +446,12 @@ void MovementSystem::moveArmy(MoveContext& ctx, entt::entity e) {
     auto& hist = ctx.registry.get<comp::LandHistory>(e);
     // 过河停顿结转（二期反馈）。用 get_or_emplace：单测/旧实体可能未带该组件（正常产兵/读档必带）。
     auto& carry = ctx.registry.get_or_emplace<comp::MoveCarry>(e);
+    // 盟友边界闸门统计量（开发文档 §12）；同样用 get_or_emplace 兼容未带该组件的实体。
+    auto& gate = ctx.registry.get_or_emplace<comp::AllyGate>(e);
 
     MoveTimer loopTimer(ctx.moveProfile, ctx.moveProfile ? &ctx.moveProfile->loopNs : nullptr);
     // 全密铺统一走几何路径（方/六/三/半正/Laves 同一条）。
-    moveArmyGeom(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist, carry);
+    moveArmyGeom(ctx, e, pos, vel, speed, onLand, mtn, col, fid, unit, hist, carry, gate);
 }
 
 }  // namespace lw

@@ -25,6 +25,12 @@ struct LandHistory { int lastLandTime = 0; };  // 上次登陆时间（lst_move_
 // 于是两 tick 位移合计恰好一份 speed（净停 1 tick）。0 = 无结转。
 struct MoveCarry { double value = 0.0; };
 struct Dead {};                                // 待销毁标记（tick 末由 DeathSystem 统一处理）
+// 盟友边界闸门（.docs/包围检测.md / 兵运动与盟友系统开发文档.md §12）：每兵一份 CUSUM 统计量，
+// 观测 = 该兵在盟友领土边界上的**反弹**次数（河/山骰反弹与盟友规则反弹一并计入；直接穿过不计），
+// 泄漏按**本 tick 步长**归一（结合该兵速度），故各速度下判据一致。
+// cusum >= config.allyGate.alarmThreshold 时"闸门打开"：下一次穿越盟友边界放行一次并清零，
+// 避免小飞地被盟友领土围死导致单位永久滞留。新兵为 0；随快照保存（影响模拟分支）。
+struct AllyGate { double cusum = 0.0; };
 
 // 行为组件（P9 行为抽象）：死亡特效 + 周期动作。静态部分（deathEffect/periodic/periodTicks）
 // 来自 Config::Unit，spawnArmy 时填入；counter 为运行时计数（快照序列化）。

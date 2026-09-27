@@ -23,11 +23,17 @@
   使注释承诺的“回退默认字体 + 告警”真正生效（此前 Debug 下 `AddFontFromFileTTF` 对缺失文件
   直接断言 abort，兜底分支根本走不到）。
 - 编入联盟的势力不再互相抢占领土、不再误伤友军。
+- **被盟友领土围死的兵不再永久滞留**：己方小飞地四面都是盟友领土时，兵每次撞边界都被弹回、
+  越积越多。现在每个兵维护一个 CUSUM 统计量（盟友边界反弹喂养、泄漏按步长归一 → 与兵速无关），
+  持续受压越过阈值后**下一次穿越盟友边界放行一次**（不反弹、不征服），从而自行脱困。
+  参数 `config.allyGate`；无联盟时行为与旧版逐位一致。
 
 ### 内部
 
 - 新增唯一入口 `src/sim/ConquestRules.h`（`areAllied`/`areEnemies`/`canConquerCell`），友敌与征服判定收敛；
   快照版本升到 14（新增 `allianceIds`），旧存档不再兼容。
+- 新增唯一入口 `ConquestRules.h::isAlliedLand`（盟友陆地判定，`canConquerCell` 共用）；新增兵组件
+  `comp::AllyGate` 与配置段 `allyGate`；快照版本升到 15（新增 `allyGate` 字段），旧存档不再兼容。
 - 数据格式：`units`/`factions`/`techs` 改为 CSV+JSONC 混合。把这三张记录表里“几乎必填且内容单一”
   的列外置为 `data/units.csv`、`data/factions.csv`、`data/techs.csv`（兵种 `type/cost/speedMult/
   sizeMult/bounceMult/visualRadius`、势力 `id/name/description/nameColors/color/secondary`、

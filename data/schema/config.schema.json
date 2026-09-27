@@ -33,6 +33,10 @@
       "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["seaChannelMin", "probFloor", "probScale", "mountainEnterChance", "mountainSpeedMult"],
       "properties": {"seaChannelMin": {"type": "integer", "minimum": 0, "maximum": 255}, "probFloor": {"type": "integer", "minimum": 0, "maximum": 255}, "probScale": {"type": "integer", "exclusiveMinimum": 0, "maximum": 255}, "mountainEnterChance": {"$ref": "#/$defs/unitInterval"}, "mountainSpeedMult": {"$ref": "#/$defs/positive"}}
     },
+    "allyGate": {
+      "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["leakPerCell", "tolerancePerCell", "alarmThreshold"],
+      "properties": {"leakPerCell": {"$ref": "#/$defs/nonNegative"}, "tolerancePerCell": {"$ref": "#/$defs/nonNegative"}, "alarmThreshold": {"$ref": "#/$defs/positive"}}
+    },
     "unit": {
       "type": "object", "additionalProperties": false, "patternProperties": {"^_": {}}, "required": ["type"],
       "properties": {
@@ -62,6 +66,6 @@
   "properties": {
     "map": {"$ref": "#/$defs/map"}, "army": {"$ref": "#/$defs/army"}, "sea": {"$ref": "#/$defs/sea"}, "terrain": {"$ref": "#/$defs/terrain"},
     "units": {"type": "array", "items": {"$ref": "#/$defs/unit"}}, "factions": {"type": "array", "minItems": 2, "maxItems": 64, "items": {"$ref": "#/$defs/faction"}},
-    "effect": {"$ref": "#/$defs/effect"}, "projectile": {"type": "object"}, "economy": {"type": "object"}, "city": {"type": "object"}, "capital": {"type": "object"}, "sim": {"type": "object"}, "render": {"$ref": "#/$defs/render"}, "ui": {"type": "object"}, "tech": {"type": "object"}
+    "effect": {"$ref": "#/$defs/effect"}, "projectile": {"type": "object"}, "economy": {"type": "object"}, "city": {"type": "object"}, "capital": {"type": "object"}, "sim": {"type": "object"}, "render": {"$ref": "#/$defs/render"}, "ui": {"type": "object"}, "tech": {"type": "object"}, "allyGate": {"$ref": "#/$defs/allyGate"}
   }
 }
