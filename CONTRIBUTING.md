@@ -2,6 +2,8 @@
 
 ## Before Opening a Change
 
+- Read [`.docs/代码卫生.md`](.docs/代码卫生.md), [`.docs/文档卫生.md`](.docs/文档卫生.md),
+  and [`.docs/工程规范.md`](.docs/工程规范.md) first.
 - Use C++20 and keep project targets warning-free under `-Wall -Wextra`.
 - Keep runtime assets in `data/` and generated files in `userdata/`.
 - Put temporary tools in `tools/`; do not add local build output or machine

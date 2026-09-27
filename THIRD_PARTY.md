@@ -7,7 +7,7 @@ file whenever a dependency changes.
 | Component | Version | Acquisition | License |
 |---|---:|---|---|
 | Dear ImGui | 1.91.6 | Local `_deps/imgui-src`; CI downloads tag `v1.91.6` | MIT |
-| EnTT | 3.16.0 | Local `_deps/entt`; CI downloads tag `v3.16.0` | MIT |
+| EnTT | 3.16.0 | Local `_deps/entt/include`; CI downloads tag `v3.16.0` | MIT |
 | SDL2 | MSYS2/OS package | `find_package(SDL2)` | zlib |
 | SDL2_image | MSYS2/OS package | `find_package(SDL2_image)` | zlib |
 | nlohmann/json | MSYS2/OS package | `find_package(nlohmann_json)` | MIT |
