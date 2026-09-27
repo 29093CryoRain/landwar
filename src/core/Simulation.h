@@ -40,6 +40,9 @@ struct GameEvent {
     int data = 0;           // 附加量（如科技 id / 等级）
     std::string text;       // 组装好的文案（渲染层直接显示）
     std::uint64_t tick = 0; // 产生时的逻辑帧
+    // 文案中需要按势力色着色的势力名集合（空 = 只着色 factionId）。一条消息含多个势力名时用
+    // （目前仅"联盟 N（A、B）统一天下"）；消息通道只读，进不了快照。
+    std::vector<int> highlightFactionIds;
 };
 
 // 玩家产兵意图（P2）：外部输入，不消耗 Rng、不进快照。

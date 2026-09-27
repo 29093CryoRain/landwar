@@ -37,8 +37,8 @@ void killAllBut(Simulation& sim, std::initializer_list<int> keep) {
 TEST(Events, TakeEventsDrains) {
     lw::Simulation sim(loadCfg(), 42);
     ASSERT_TRUE(sim.init());
-    sim.pushEvent({GameEventKind::Custom, 1, 0, "a", 1});
-    sim.pushEvent({GameEventKind::Custom, 2, 0, "b", 1});
+    sim.pushEvent({GameEventKind::Custom, 1, 0, "a", 1, {}});
+    sim.pushEvent({GameEventKind::Custom, 2, 0, "b", 1, {}});
 
     auto events = sim.takeEvents();
     ASSERT_EQ(events.size(), 2u);
@@ -125,6 +125,7 @@ TEST(Unification, OnlyOneAliveEmitsOnce) {
     EXPECT_NE(events[0].text.find("青"), std::string::npos);       // 文案含势力名
     EXPECT_NE(events[0].text.find("(0s)"), std::string::npos);     // 含事件时间前缀
     EXPECT_EQ(events[0].text.find("联盟"), std::string::npos);     // 单势力统一：不提"联盟"
+    EXPECT_EQ(events[0].highlightFactionIds, (std::vector<int>{3}));  // 仅着色该势力名
 
     // 再次检测不再发（恰一次）。
     sim.detectAnnihilationAndUnification();
@@ -156,6 +157,8 @@ TEST(Unification, SameAllianceSurvivorsEmitAllianceWin) {
     EXPECT_NE(events[0].text.find("联盟 1"), std::string::npos);
     EXPECT_NE(events[0].text.find(sim.faction(2).name), std::string::npos);
     EXPECT_NE(events[0].text.find(sim.faction(4).name), std::string::npos);
+    // 两个成员名都要按各自势力色渲染 → 事件携带完整着色集合（顺序 = selectedFactionIds_）。
+    EXPECT_EQ(events[0].highlightFactionIds, (std::vector<int>{2, 4}));
 
     // 恰一次。
     sim.detectAnnihilationAndUnification();
@@ -207,7 +210,7 @@ TEST(Unification, SnapshotPreservesEmittedState) {
 TEST(Events, NotSerializedInSnapshot) {
     lw::Simulation sim(loadCfg(), 42);
     ASSERT_TRUE(sim.init());
-    sim.pushEvent({GameEventKind::Custom, 1, 0, "not persisted", 5});
+    sim.pushEvent({GameEventKind::Custom, 1, 0, "not persisted", 5, {}});
     EXPECT_EQ(sim.takeEvents().size(), 1u);
 
     const std::string json = Snapshot::serialize(sim);
@@ -243,6 +246,17 @@ TEST(MessageLog, Clear) {
     log.add("m", 0, 1);
     log.clear();
     EXPECT_TRUE(log.empty());
+}
+
+// 多势力名文案（联盟共同统一）：着色集合随消息保存；不传 = 空（渲染回退到单个 factionId）。
+TEST(MessageLog, KeepsHighlightFactionIds) {
+    lw::ui::MessageLog log;
+    log.add("联盟 1（黄、蓝）统一天下", 5, 2, {2, 4});
+    log.add("势力 红 被灭亡", 6, 1);
+    ASSERT_EQ(log.messages().size(), 2u);
+    EXPECT_EQ(log.messages()[0].factionId, 2);
+    EXPECT_EQ(log.messages()[0].highlightIds, (std::vector<int>{2, 4}));
+    EXPECT_TRUE(log.messages()[1].highlightIds.empty());
 }
 
 }  // namespace

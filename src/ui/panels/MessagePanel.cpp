@@ -12,10 +12,14 @@ namespace lw::ui {
 
 namespace {
 
-// 渲染一条消息：按势力名把文本切成 [前缀|势力名|后缀] 三段——前缀/后缀白色，
-// 势力名用势力色（如 "(333s) 势力 红 被灭亡"，只有"红"红色）。factionId=0 或
-// 文本中找不到势力名时整段白色（如自定义消息）。统一走 drawTextWithHighlight（2026-08）。
+// 渲染一条消息：文案里的势力名按势力色、其余白色（如 "(333s) 势力 红 被灭亡"，只有"红"红色）。
+// highlightIds 非空 → 逐个名字着色（联盟共同统一有多个成员名）；否则回退到 factionId 的单个名字。
+// factionId=0 或文本中找不到势力名时整段白色（如自定义消息）。
 void renderMessageText(const Simulation& sim, const Message& m) {
+    if (!m.highlightIds.empty()) {
+        drawTextWithFactionNames(sim, m.highlightIds, m.text);
+        return;
+    }
     if (m.factionId < 1 || m.factionId >= sim.factionCount()) {
         ImGui::TextUnformatted(m.text.c_str());
         return;
@@ -36,7 +40,7 @@ void MessagePanel::addEvents(std::vector<lw::GameEvent> events, const Simulation
     if (events.empty()) return;
     const int maxShown = sim.config().ui.messageMaxShown;
     for (auto& ev : events) {
-        log_.add(std::move(ev.text), ev.tick, ev.factionId);
+        log_.add(std::move(ev.text), ev.tick, ev.factionId, std::move(ev.highlightFactionIds));
     }
     log_.prune(maxShown);  // 消息过多 → 立即丢最旧（不过期）
     // 2026-08-08 用户定夺：消息面板被隐藏后**不再自动弹出**（有消息也继续隐藏；

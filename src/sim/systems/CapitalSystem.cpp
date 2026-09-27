@@ -53,7 +53,7 @@ void CapitalSystem::update(Simulation& sim) {
                 sim.pushEvent(GameEvent{GameEventKind::CapitalLost, fid, 0,
                                         formatEventTime(now, cfg.sim.tickRate) + " 势力 "
                                              + f.name + " 的首都被攻破",
-                                        now});
+                                        now, {}});
             }
             continue;
         }

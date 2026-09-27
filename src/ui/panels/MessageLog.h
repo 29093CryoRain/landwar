@@ -13,14 +13,19 @@ namespace lw::ui {
 struct Message {
     std::string text;        // 完整文案（含事件时间前缀与势力名，如 "(333s) 势力 红 被灭亡"）
     std::uint64_t tick = 0;  // 事件发生时间（tick；显示用，P4 修正）
-    int factionId = 0;       // 相关势力（渲染时仅势力名按此配色；0=中立灰）
+    int factionId = 0;       // 相关势力（事件锚点；0=中立灰）
+    // 文案中需要按势力色着色的势力名集合（空 = 只着色 factionId）。一条消息含多个势力名时用
+    //（如"联盟 N（A、B）统一天下"——每个成员名各按自己的势力色）。
+    std::vector<int> highlightIds;
 };
 
 class MessageLog {
 public:
     // 追加一条消息（text 移动；不过期，持续留存）。
-    void add(std::string text, std::uint64_t tick, int factionId) {
-        messages_.push_back(Message{std::move(text), tick, factionId});
+    void add(std::string text, std::uint64_t tick, int factionId,
+             std::vector<int> highlightIds = {}) {
+        messages_.push_back(
+            Message{std::move(text), tick, factionId, std::move(highlightIds)});
     }
 
     // 仅按上限丢弃最旧（消息过多时立即消失；无时间过期）。

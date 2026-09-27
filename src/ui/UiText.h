@@ -49,7 +49,12 @@ void drawTextWithHighlight(const std::string& text, const std::string& token,
 void drawFactionName(const Config::Faction& faction);
 void drawFactionName(const Simulation& sim, int factionId);
 bool factionNameSelectable(const Config::Faction& faction, bool selected, const char* id);
-// 在消息文本中按势力定义逐字着色势力名，其余文本保持 base 色。
+// 在消息文本中把若干势力名各自按势力色着色，其余文本保持 base 色。
+// 一条消息可含多个势力名（如"联盟 N（A、B）统一天下"）；同一位置多个名字都能匹配时取最长者。
+// 这是消息势力名着色的唯一实现。
+void drawTextWithFactionNames(const Simulation& sim, const std::vector<int>& factionIds,
+                              const std::string& text, const ImVec4& base = ImVec4(1, 1, 1, 1));
+// 便捷：只着色一个势力名（= drawTextWithFactionNames 传单元素表）。
 void drawTextWithFactionName(const Simulation& sim, int factionId, const std::string& text,
                              const ImVec4& base = ImVec4(1, 1, 1, 1));
 

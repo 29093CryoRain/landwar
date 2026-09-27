@@ -147,7 +147,7 @@ void TechSystem::applyTech(Simulation& sim, int factionId, int techIndex) {
                             formatEventTime(sim.tickCount(), cfg.sim.tickRate) + " 势力 "
                                  + sim.faction(factionId).name + " 获得科技 " + def.name + "("
                                 + std::to_string(newLevel) + "级)",
-                            sim.tickCount()});
+                            sim.tickCount(), {}});
 }
 
 }  // namespace lw
