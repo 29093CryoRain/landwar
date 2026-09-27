@@ -30,6 +30,7 @@ void PanelManager::draw(PanelCtx& ctx) {
     }
 
     // 2) 可移动面板：统一可拖动窗口 + 标题栏"隐藏"按钮；位置/大小随帧回写（持久化）。
+    int autoPosIndex = 0;  // 未持久化位置的默认位依次错开，避免多面板完全重叠
     for (const auto& p : panels_) {
         if (p->state.mainPanel || !p->state.visible || !p->state.movable) continue;
 
@@ -37,7 +38,8 @@ void PanelManager::draw(PanelCtx& ctx) {
         // ImGuiCond_FirstUseEver：仅本会话首次出现时应用一次，此后拖拽/持久化位置生效。
         const ImVec2 display = ImGui::GetIO().DisplaySize;
         if (p->state.x == 0.0f && p->state.y == 0.0f) {
-            ImGui::SetNextWindowPos(ImVec2(display.x * 0.7f, display.y * 0.15f),
+            const float cascade = 24.0f * static_cast<float>(autoPosIndex++);
+            ImGui::SetNextWindowPos(ImVec2(display.x * 0.7f + cascade, display.y * 0.15f + cascade),
                                     ImGuiCond_FirstUseEver);
         } else {
             ImGui::SetNextWindowPos(ImVec2(p->state.x, p->state.y), ImGuiCond_FirstUseEver);
