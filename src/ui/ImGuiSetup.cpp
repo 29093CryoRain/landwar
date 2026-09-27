@@ -3,11 +3,27 @@
 
 #include <spdlog/spdlog.h>
 
+#include <cstdio>
+
 #include <imgui.h>
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_sdlrenderer2.h>
 
 namespace lw::ui {
+
+namespace {
+
+// 候选字体是否可读。必须先判存在再交给 ImGui：AddFontFromFileTTF 在文件读不到时
+// IM_ASSERT_USER_ERROR 直接断言（Debug 构建 abort），根本不会返回 NULL 让调用方回退。
+// 不用 std::filesystem：MSYS2 运行时 libstdc++-6.dll 不导出其符号（见 ui/Menu.cpp 同款说明）。
+bool readableFile(const char* path) {
+    std::FILE* f = std::fopen(path, "rb");
+    if (!f) return false;
+    std::fclose(f);
+    return true;
+}
+
+}  // namespace
 
 bool initImGui(SDL_Window* win, SDL_Renderer* ren) {
     IMGUI_CHECKVERSION();
@@ -27,6 +43,7 @@ bool initImGui(SDL_Window* win, SDL_Renderer* ren) {
     };
     ImFont* cjk = nullptr;
     for (const char* path : kCjkFontCandidates) {
+        if (!readableFile(path)) continue;  // 缺失只跳过；全部失败后统一告警回退默认字体
         cjk = io.Fonts->AddFontFromFileTTF(path, 16.0f, nullptr,
                                            io.Fonts->GetGlyphRangesChineseFull());
         if (cjk) {
