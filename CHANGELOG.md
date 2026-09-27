@@ -6,7 +6,25 @@
 
 ### 新功能
 
-- **数据格式：`units`/`factions`/`techs` 改为 CSV+JSONC 混合**。把这三张记录表里“几乎必填且内容单一”
+- **盟友系统**：主菜单「势力配置 → 联盟配置」可把本局势力编入若干联盟（列表式，一个势力至多入一个联盟）。
+  同一联盟内互为盟友：兵碰盟友领土只反弹不占领（确定反弹），碰盟友的兵、激光/爆炸/地雷/子弹都不杀伤；
+  激光穿过盟友领土如同己方。排行榜在势力行之前标注每个联盟的**聚合统计**（领地/城市/兵力/科技/最高城/
+  经济/科技点）与成员，成员名按势力色、其余文本白色。联盟随 `options.json` 与存档保存。
+- **兵运动规范**：把"不可占领格"从海洋推广为按势力与兵种判定——目标不可占领、原格可占领 → 反弹不占领；
+  两岸都不可占领 → 不反弹直行；目标可占领、原格不可占领 → 占领且不反弹。**海洋仍走独立闸门**：
+  任何陆地→海一律掷下海骰（成功入海、失败反弹）。
+- **科技「密集防御」**：普通兵失去征服敌方陆格的能力，造价 ×0.5（一级同时给机制与数值）。
+  科技一级改为**一组效果**（`techs.jsonc` 的 `levels` 变为数组的数组）。
+
+### 修复
+
+- 编入联盟的势力不再互相抢占领土、不再误伤友军。
+
+### 内部
+
+- 新增唯一入口 `src/sim/ConquestRules.h`（`areAllied`/`areEnemies`/`canConquerCell`），友敌与征服判定收敛；
+  快照版本升到 14（新增 `allianceIds`），旧存档不再兼容。
+- 数据格式：`units`/`factions`/`techs` 改为 CSV+JSONC 混合。把这三张记录表里“几乎必填且内容单一”
   的列外置为 `data/units.csv`、`data/factions.csv`、`data/techs.csv`（兵种 `type/cost/speedMult/
   sizeMult/bounceMult/visualRadius`、势力 `id/name/description/nameColors/color/secondary`、
   科技 `id/name/desc`），同名 `.jsonc` 只保留各记录的独有/可选字段（`buffs`、`levels`、`bullet*` 等），
