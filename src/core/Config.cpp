@@ -660,6 +660,7 @@ std::string buffTypeName(BuffType t) {
         case BuffType::UnitActionRateAdd: return "UnitActionRateAdd";
         case BuffType::ProjectileCountExtra: return "ProjectileCountExtra";
         case BuffType::TechGainAdd: return "TechGainAdd";
+        case BuffType::UnitNoEnemyConquer: return "UnitNoEnemyConquer";
     }
     return "UnitSpeedAdd";
 }
@@ -683,6 +684,7 @@ bool buffTypeFromName(const std::string& s, BuffType& out) {
     if (s == "UnitActionRateAdd") { out = BuffType::UnitActionRateAdd; return true; }
     if (s == "ProjectileCountExtra") { out = BuffType::ProjectileCountExtra; return true; }
     if (s == "TechGainAdd") { out = BuffType::TechGainAdd; return true; }
+    if (s == "UnitNoEnemyConquer") { out = BuffType::UnitNoEnemyConquer; return true; }
     return false;
 }
 
@@ -725,6 +727,53 @@ void parseBuffDefs(const Json& owner, const char* key, std::vector<BuffDef>& out
         }
         buff.magnitude = getNum(bj, "magnitude", buff.magnitude);
         out.push_back(buff);
+    }
+}
+
+// 科技等级表（P8+）：levels = 数组的数组，每级一组效果（一级可多条，如"密集防御"）。
+void parseBuffGroups(const Json& owner, const char* key, std::vector<std::vector<BuffDef>>& out) {
+    if (!owner.contains(key)) return;
+    if (!owner[key].is_array()) {
+        spdlog::warn("config key '{}' must be an array of arrays (got {}); ignored", key,
+                     owner[key].type_name());
+        return;
+    }
+    out.clear();
+    for (const auto& groupJson : owner[key]) {
+        if (!groupJson.is_array()) {
+            spdlog::warn("config key '{}' entry must be an array; ignored", key);
+            continue;
+        }
+        std::vector<BuffDef> group;
+        for (const auto& bj : groupJson) {
+            if (!bj.is_object()) continue;
+            BuffDef buff;
+            const std::string typeName = getStr(bj, "type", "");
+            if (!buffTypeFromName(typeName, buff.type)) {
+                spdlog::warn("unknown buff type '{}'; buff skipped", typeName);
+                continue;
+            }
+            if (bj.contains("param")) {
+                if (bj["param"].is_number_integer()) {
+                    buff.param = bj["param"].get<int>();
+                } else if (bj["param"].is_string()) {
+                    const std::string param = bj["param"].get<std::string>();
+                    if (param == "all") {
+                        buff.param = -1;
+                    } else {
+                        const int unit = unitIndex(param);
+                        if (unit < 0) {
+                            spdlog::warn("unknown buff param unit '{}'; buff skipped", param);
+                            continue;
+                        }
+                        buff.param = unit;
+                    }
+                }
+            }
+            buff.magnitude = getNum(bj, "magnitude", buff.magnitude);
+            group.push_back(buff);
+        }
+        out.push_back(std::move(group));
     }
 }
 
@@ -1242,10 +1291,14 @@ void validateConfigKeys(const Json& root) {
             warnUnknownKeys(tj, kTechKeys, "tech.techs[" + std::to_string(idx) + "]");
             if (tj.is_object() && tj.contains("levels") && tj["levels"].is_array()) {
                 int lv = 0;
-                for (const auto& lj : tj["levels"])
-                    warnUnknownKeys(lj, kLevelKeys,
-                                    "tech.techs[" + std::to_string(idx) + "].levels[" +
-                                        std::to_string(lv++) + "]");
+                for (const auto& groupJson : tj["levels"]) {
+                    const std::string base = "tech.techs[" + std::to_string(idx)
+                                             + "].levels[" + std::to_string(lv++) + "]";
+                    if (!groupJson.is_array()) continue;
+                    int bi = 0;
+                    for (const auto& bj : groupJson)
+                        warnUnknownKeys(bj, kLevelKeys, base + "[" + std::to_string(bi++) + "]");
+                }
             }
             ++idx;
         }
@@ -1795,7 +1848,7 @@ Config loadConfigText(const std::string& jsonText, bool* loaded) {
                 def.id = getStr(tj, "id", "");
                 def.name = getStr(tj, "name", def.id);
                 def.desc = getStr(tj, "desc", "");
-                parseBuffDefs(tj, "levels", def.levels);
+                parseBuffGroups(tj, "levels", def.levels);
                 if (tj.contains("preferenceUnits") && tj["preferenceUnits"].is_array()) {
                     for (const auto& u : tj["preferenceUnits"]) {
                         if (!u.is_string()) continue;
@@ -2184,11 +2237,15 @@ bool Config::validate(std::string* err) const {
             return fail("tech ids must be non-empty and unique");
         techIds.push_back(def.id);
         for (const auto& level : def.levels) {
-            if (!finite(level.magnitude) || level.param < -1 || level.param >= kArmyTypeCount)
-                return fail("tech level is invalid");
-            if (level.type == BuffType::FreeArmyChance
-                && (level.param < 0 || level.magnitude < 0.0 || level.magnitude > 1.0))
-                return fail("tech free army chance is invalid");
+            if (level.empty()) return fail("tech level must have at least one effect");
+            for (const auto& effect : level) {
+                if (!finite(effect.magnitude) || effect.param < -1
+                    || effect.param >= kArmyTypeCount)
+                    return fail("tech level is invalid");
+                if (effect.type == BuffType::FreeArmyChance
+                    && (effect.param < 0 || effect.magnitude < 0.0 || effect.magnitude > 1.0))
+                    return fail("tech free army chance is invalid");
+            }
         }
         for (int unit : def.preferenceUnits)
             if (unit < 0 || unit >= kArmyTypeCount) return fail("tech preference unit invalid");
@@ -2454,10 +2511,14 @@ std::string Config::toJson() const {
         tj["name"] = t.name;
         tj["desc"] = t.desc;
         Json levelsJ = Json::array();
-        for (const auto& lv : t.levels) {
-            levelsJ.push_back({{"type", buffTypeName(lv.type)},
-                               {"param", paramJson(lv.param)},
-                               {"magnitude", lv.magnitude}});
+        for (const auto& level : t.levels) {
+            Json groupJ = Json::array();
+            for (const auto& lv : level) {
+                groupJ.push_back({{"type", buffTypeName(lv.type)},
+                                  {"param", paramJson(lv.param)},
+                                  {"magnitude", lv.magnitude}});
+            }
+            levelsJ.push_back(std::move(groupJ));
         }
         tj["levels"] = std::move(levelsJ);
         Json prefJ = Json::array();

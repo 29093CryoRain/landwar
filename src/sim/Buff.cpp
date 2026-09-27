@@ -21,6 +21,8 @@ BuffKind kindOf(BuffType t) {
         case BuffType::LaserExtraBeams:
         case BuffType::ProjectileCountExtra:
             return BuffKind::Count;           // 条数：加和
+        case BuffType::UnitNoEnemyConquer:
+            return BuffKind::Feature;         // 布尔特性：开关
         default:
             return BuffKind::Additive;        // 增幅：1 + Σm
     }
@@ -96,6 +98,11 @@ FactionMods computeMods(const std::vector<Buff>& buffs) {
                 case BuffType::LaserWidthAdd: m.laserWidthMult += b.magnitude; break;
                 case BuffType::MineTimeoutAdd: m.mineTimeoutMult += b.magnitude; break;
                 case BuffType::TechGainAdd: m.techGainMult += b.magnitude; break;
+                case BuffType::UnitNoEnemyConquer:  // 特性（布尔）：命中兵种置位
+                    forParam(b.param, [&](int t) {
+                        m.noEnemyConquer[static_cast<size_t>(t)] = true;
+                    });
+                    break;
                 case BuffType::LaserExtraBeams:
                     m.laserExtraBeams += static_cast<int>(b.magnitude);
                     break;
@@ -113,8 +120,9 @@ std::vector<Buff> techBuffs(const Config& cfg, const std::vector<int>& levels) {
         const auto& def = cfg.tech.techs[i];
         const size_t level = static_cast<size_t>(levels[i]);
         if (level > def.levels.size()) continue;  // 防御：等级越界（config 变更）
-        const auto& lv = def.levels[level - 1];
-        out.push_back(Buff{lv.type, lv.param, lv.magnitude, 1, "tech:" + def.id});
+        // 一级 = 一组效果（密集防御这类"机制 + 数值"科技一次给多条）。
+        for (const auto& lv : def.levels[level - 1])
+            out.push_back(Buff{lv.type, lv.param, lv.magnitude, 1, "tech:" + def.id});
     }
     return out;
 }
@@ -124,6 +132,10 @@ std::vector<Buff> techBuffs(const Config& cfg, const std::vector<int>& levels) {
 std::string buffValueText(BuffType type, double magnitude) {
     char buf[32];
     switch (kindOf(type)) {
+        case BuffKind::Feature:
+            // 布尔特性无数值：给可读短语（科研弹窗与面板共用）。
+            if (type == BuffType::UnitNoEnemyConquer) return "失去敌方占领";
+            return "特性";
         case BuffKind::Count: {
             std::snprintf(buf, sizeof(buf), "+%d", static_cast<int>(magnitude));
             break;

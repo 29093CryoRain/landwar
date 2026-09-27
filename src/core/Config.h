@@ -500,12 +500,14 @@ struct Config {
     //   玩家 3 选 1（candidates 用游戏 Rng 采样）；AI 随机选一个可升级科技。
     //   节奏（用户定夺 2026-08-08 放慢默认）：pointsPerCityLevel 默认 0.01（占位待实验）。
     struct Tech {
-        using Level = BuffDef;  // 一级的效果（Add 为直接增量；升级 = 用新 buff 替换旧 buff）
+        using Level = BuffDef;  // 一条效果（Add 为直接增量；升级 = 用新一级整组替换旧组）
         struct TechDef {
             std::string id;     // 唯一 id（事件 data / 排序键）
             std::string name;   // 显示名（如"节流·普通兵"）
             std::string desc;   // 效果名（科研弹窗：如"造价"）
-            std::vector<Level> levels;  // levels[i] = 第 i+1 级累计效果；maxLevel = size
+            // levels[i] = 第 i+1 级的**一组**累计效果（可多条，如"密集防御"= 造价 + 禁征服）；
+            // maxLevel = size。取当前级时整组生效（不逐条叠加低等级）。
+            std::vector<std::vector<Level>> levels;
             std::vector<int> preferenceUnits;  // 每级使默认 AI 这些兵种偏好 +preferencePerLevel
         };
         double thresholdBase = 1000.0;    // 初始阈值（到阈值清点 + 科研机会）

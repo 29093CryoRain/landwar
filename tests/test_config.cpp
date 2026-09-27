@@ -322,7 +322,7 @@ TEST(Config, LoadsDataFile) {
     EXPECT_NEAR(cfg.sea.goSeaIncrease, 0.000085, 1e-9);
     EXPECT_NEAR(cfg.sea.goSeaChanceDenominator, 17700.0, 1e-9);
     EXPECT_EQ(cfg.factions.size(), 10u);
-    EXPECT_EQ(cfg.tech.techs.size(), 21u);  // techs.json 已合并
+    EXPECT_EQ(cfg.tech.techs.size(), 22u);  // techs.json 已合并（含密集防御）
     EXPECT_EQ(cfg.factions[1].unitPreference[0], 2.0);  // 数据文件红 normal 偏好 2
     EXPECT_NEAR(cfg.factions[3].seaMult, 0.666, 1e-9);
     // 双色系统（⑫）：数据文件 id0 = 深灰主色 + 浅灰副色；id1 副色 = 浅灰。

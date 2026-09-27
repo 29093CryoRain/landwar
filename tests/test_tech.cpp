@@ -13,6 +13,7 @@
 #include "core/Simulation.h"
 #include "replay/Snapshot.h"
 #include "sim/Buff.h"
+#include "sim/ConquestRules.h"
 #include "sim/systems/SpawnSystem.h"
 #include "sim/systems/TechSystem.h"
 #include "sim/systems/UnitActionSystem.h"
@@ -41,39 +42,43 @@ Config techCfg() {
         lv.magnitude = mag;
         return lv;
     };
+    // levels 是"数组的数组"（一级 = 一组效果）；本测试表每级只放一条。
+    const auto ONE = [](Config::Tech::Level lv) {
+        return std::vector<Config::Tech::Level>{std::move(lv)};
+    };
     auto& tn = cfg.tech.techs.emplace_back();
     tn.id = "throttle_normal"; tn.name = "节流·普通"; tn.desc = "造价";
-    tn.levels = {L(BuffType::UnitCostMult, static_cast<int>(ArmyType::normal), 0.90),
-                 L(BuffType::UnitCostMult, static_cast<int>(ArmyType::normal), 0.82)};
+    tn.levels = {ONE(L(BuffType::UnitCostMult, static_cast<int>(ArmyType::normal), 0.90)),
+                 ONE(L(BuffType::UnitCostMult, static_cast<int>(ArmyType::normal), 0.82))};
     tn.preferenceUnits = {static_cast<int>(ArmyType::normal)};
 
     auto& mv = cfg.tech.techs.emplace_back();
     mv.id = "march_vanguard"; mv.name = "行军·先锋"; mv.desc = "速度";
-    mv.levels = {L(BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::vanguard), 0.20),
-                 L(BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::vanguard), 0.40)};
+    mv.levels = {ONE(L(BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::vanguard), 0.20)),
+                 ONE(L(BuffType::UnitSpeedAdd, static_cast<int>(ArmyType::vanguard), 0.40))};
     mv.preferenceUnits = {static_cast<int>(ArmyType::vanguard)};
 
     auto& bb = cfg.tech.techs.emplace_back();
     bb.id = "big_bang"; bb.name = "大爆炸"; bb.desc = "爆炸半径";
-    bb.levels = {L(BuffType::ExplosionRadiusAdd, -1, 0.30)};
+    bb.levels = {ONE(L(BuffType::ExplosionRadiusAdd, -1, 0.30))};
     bb.preferenceUnits = {static_cast<int>(ArmyType::bomb), static_cast<int>(ArmyType::mine)};
 
     auto& eb = cfg.tech.techs.emplace_back();
     eb.id = "economy_boost"; eb.name = "经济振兴"; eb.desc = "经济";
-    eb.levels = {L(BuffType::EconomyGainAdd, -1, 0.10)};
+    eb.levels = {ONE(L(BuffType::EconomyGainAdd, -1, 0.10))};
 
     auto& ob = cfg.tech.techs.emplace_back();
     ob.id = "observatory"; ob.name = "观星台"; ob.desc = "科技";
-    ob.levels = {L(BuffType::TechGainAdd, -1, 0.10)};
+    ob.levels = {ONE(L(BuffType::TechGainAdd, -1, 0.10))};
 
     auto& rf = cfg.tech.techs.emplace_back();
     rf.id = "rapid_fire"; rf.name = "高速射击"; rf.desc = "攻击速度";
-    rf.levels = {L(BuffType::UnitActionRateAdd, static_cast<int>(ArmyType::pistol), 0.30)};
+    rf.levels = {ONE(L(BuffType::UnitActionRateAdd, static_cast<int>(ArmyType::pistol), 0.30))};
     rf.preferenceUnits = {static_cast<int>(ArmyType::pistol)};
 
     auto& bg = cfg.tech.techs.emplace_back();
     bg.id = "barrage"; bg.name = "弹幕"; bg.desc = "子弹数";
-    bg.levels = {L(BuffType::ProjectileCountExtra, static_cast<int>(ArmyType::shotgun), 2.0)};
+    bg.levels = {ONE(L(BuffType::ProjectileCountExtra, static_cast<int>(ArmyType::shotgun), 2.0))};
     bg.preferenceUnits = {static_cast<int>(ArmyType::shotgun)};
     return cfg;
 }
@@ -95,9 +100,10 @@ TEST(Tech, ConfigRoundTrip) {
     EXPECT_DOUBLE_EQ(back.tech.pointsPerCityLevel, 1.0);
     EXPECT_EQ(back.tech.techIndex("throttle_normal"), 0);
     EXPECT_EQ(back.tech.techs[0].levels.size(), 2u);
-    EXPECT_EQ(back.tech.techs[0].levels[0].type, BuffType::UnitCostMult);
-    EXPECT_EQ(back.tech.techs[0].levels[0].param, static_cast<int>(ArmyType::normal));
-    EXPECT_DOUBLE_EQ(back.tech.techs[0].levels[0].magnitude, 0.90);
+    EXPECT_EQ(back.tech.techs[0].levels[0].size(), 1u);  // 一级 = 一组效果
+    EXPECT_EQ(back.tech.techs[0].levels[0][0].type, BuffType::UnitCostMult);
+    EXPECT_EQ(back.tech.techs[0].levels[0][0].param, static_cast<int>(ArmyType::normal));
+    EXPECT_DOUBLE_EQ(back.tech.techs[0].levels[0][0].magnitude, 0.90);
     EXPECT_EQ(back.tech.techs[2].preferenceUnits.size(), 2u);  // 大爆炸：炸弹+地雷
     EXPECT_EQ(back.tech.techs[3].preferenceUnits.size(), 0u);  // 经济振兴：全局
 }
@@ -109,11 +115,11 @@ TEST(Tech, BuffValueText) {
 }
 
 // 锁定真实 data/config.jsonc 的首批科技表（思路"开发时第一批做的科技"）。
-// 21 个：节流×8 + 行军×6（**取消手枪/霰弹**，用户定夺 2026-08-08）+ 大爆炸/稳定激光/延长激光/
-// 高速射击/弹幕/经济振兴/观星台。
+// 22 个：节流×8 + 行军×6（**取消手枪/霰弹**，用户定夺 2026-08-08）+ 大爆炸/稳定激光/延长激光/
+// 高速射击/弹幕/经济振兴/观星台 + 密集防御（本批新做）。
 TEST(Tech, RealConfigHasFirstBatchTechs) {
     const Config cfg = lwtest::loadCfg();
-    ASSERT_EQ(cfg.tech.techs.size(), 21u);
+    ASSERT_EQ(cfg.tech.techs.size(), 22u);
     EXPECT_NE(cfg.tech.techIndex("throttle_normal"), -1);
     EXPECT_NE(cfg.tech.techIndex("march_normal"), -1);
     EXPECT_NE(cfg.tech.techIndex("march_mine"), -1);
@@ -126,14 +132,72 @@ TEST(Tech, RealConfigHasFirstBatchTechs) {
     EXPECT_NE(cfg.tech.techIndex("barrage"), -1);
     EXPECT_NE(cfg.tech.techIndex("economy_boost"), -1);
     EXPECT_NE(cfg.tech.techIndex("observatory"), -1);
+    EXPECT_NE(cfg.tech.techIndex("dense_defense"), -1);
     // 普通兵节流 4 级（四级 -30%），其余兵种 3 级。
     EXPECT_EQ(cfg.tech.techs[cfg.tech.techIndex("throttle_normal")].levels.size(), 4u);
     EXPECT_EQ(cfg.tech.techs[cfg.tech.techIndex("throttle_vanguard")].levels.size(), 3u);
     EXPECT_EQ(cfg.tech.techs[cfg.tech.techIndex("march_normal")].levels.size(), 4u);
+    // 密集防御一级两条效果：造价 ×0.5 + 禁征服敌方陆（普通兵）。
+    const auto& dd = cfg.tech.techs[cfg.tech.techIndex("dense_defense")];
+    ASSERT_EQ(dd.levels.size(), 1u);
+    ASSERT_EQ(dd.levels[0].size(), 2u);
+    EXPECT_EQ(dd.desc, "造价/占领");
+    EXPECT_EQ(dd.levels[0][0].type, BuffType::UnitCostMult);
+    EXPECT_DOUBLE_EQ(dd.levels[0][0].magnitude, 0.5);
+    EXPECT_EQ(dd.levels[0][1].type, BuffType::UnitNoEnemyConquer);
+    EXPECT_EQ(dd.levels[0][1].param, static_cast<int>(ArmyType::normal));
     // 大爆炸偏好同时含地雷与炸弹；高速射击/弹幕 desc 标注兵种。
     EXPECT_EQ(cfg.tech.techs[cfg.tech.techIndex("big_bang")].preferenceUnits.size(), 2u);
     EXPECT_EQ(cfg.tech.techs[cfg.tech.techIndex("rapid_fire")].desc, "手枪兵攻击速度");
     EXPECT_EQ(cfg.tech.techs[cfg.tech.techIndex("barrage")].desc, "霰弹兵每次子弹数");
+}
+
+// ---- 密集防御（本批科技）：机制 + 数值两条效果 ----
+
+TEST(Tech, DenseDefenseDisablesEnemyConquestAndHalvesCost) {
+    const Config cfg = lwtest::loadCfg();
+    const int idx = cfg.tech.techIndex("dense_defense");
+    ASSERT_GE(idx, 0);
+    Simulation sim(cfg, 42);
+    ASSERT_TRUE(sim.init());
+    Faction& f = sim.faction(1);
+    const size_t normal = static_cast<size_t>(ArmyType::normal);
+    EXPECT_FALSE(f.mods.noEnemyConquer[normal]);
+    const double baseCost = f.armyCost[normal];
+    const double basePref = f.unitPreference[normal];
+
+    TechSystem::applyTech(sim, 1, idx);  // AI/玩家取得该科技
+
+    EXPECT_TRUE(f.mods.noEnemyConquer[normal]);
+    EXPECT_DOUBLE_EQ(f.mods.costMult[normal], 0.5);
+    // 有效造价 = armyCost × costMult（ProductionAI 读取式）。
+    EXPECT_DOUBLE_EQ(f.armyCost[normal] * f.mods.costMult[normal], baseCost * 0.5);
+    // 非全兵种科技 → 默认 AI 偏好 +preferencePerLevel（D4）。
+    EXPECT_DOUBLE_EQ(f.unitPreference[normal], basePref + cfg.tech.preferencePerLevel);
+
+    // canConquerCell：敌方陆不可占、中立陆仍可占、其它兵种不受限、海恒不可占。
+    const int enemy = lwtest::cellIndex(sim.map(), 0, 0);
+    const int neutral = lwtest::cellIndex(sim.map(), 1, 0);
+    const int sea = lwtest::cellIndex(sim.map(), 2, 0);
+    sim.map().atIndex(enemy).land = true;
+    sim.map().atIndex(enemy).belongi = 2;
+    sim.map().atIndex(neutral).land = true;
+    sim.map().atIndex(neutral).belongi = 0;
+    sim.map().atIndex(sea).land = false;
+    EXPECT_FALSE(
+        canConquerCell(sim.map(), sim.factions(), 1, static_cast<int>(ArmyType::normal), enemy));
+    EXPECT_TRUE(
+        canConquerCell(sim.map(), sim.factions(), 1, static_cast<int>(ArmyType::normal), neutral));
+    EXPECT_TRUE(canConquerCell(sim.map(), sim.factions(), 1,
+                               static_cast<int>(ArmyType::vanguard), enemy));
+    EXPECT_FALSE(
+        canConquerCell(sim.map(), sim.factions(), 1, static_cast<int>(ArmyType::normal), sea));
+    // 己方格不受限。
+    const int own = lwtest::cellIndex(sim.map(), 3, 0);
+    sim.map().atIndex(own).land = true;
+    sim.map().atIndex(own).belongi = 1;
+    EXPECT_TRUE(
+        canConquerCell(sim.map(), sim.factions(), 1, static_cast<int>(ArmyType::normal), own));
 }
 
 // ---- 科技点累积 ----

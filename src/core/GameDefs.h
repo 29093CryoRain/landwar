@@ -66,6 +66,8 @@ enum class BuffType : int {
     UnitActionRateAdd,   // param=兵种；周期动作（射速）增幅（累计倍率）
     ProjectileCountExtra,// param=兵种；每次齐射额外子弹数（条数，加和）
     TechGainAdd,         // 科技点产出增幅（累计倍率）
+    // 特性（布尔）：该兵种不能征服敌方势力陆格（密集防御；己方/中立不受限；magnitude 忽略）。
+    UnitNoEnemyConquer,
 };
 
 using FactionId = int;

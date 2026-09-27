@@ -1,6 +1,7 @@
 // TechSystem.cpp — 科技系统实现（开发计划 P8，思路"科技细节"节为准）。
 #include "sim/systems/TechSystem.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -41,16 +42,24 @@ std::vector<int> sampleCandidates(Simulation& sim, Faction& f, const Config& cfg
     return candidates;
 }
 
-// 行军重缩放：科技 buff 为 UnitSpeedAdd 时，把该势力现有兵（非子弹）的 Speed × (新/旧 mods)。
-// 每 tick 移动量在出生/下海/登陆时已含速度乘数 → 研究后按比率一次缩放即对已存兵即时生效。
-void rescaleExistingArmySpeed(Simulation& sim, int factionId, const Config::Tech::Level& lv,
+// 行军重缩放：该级含 UnitSpeedAdd 时，把涉及兵种（param<0 → 全兵）的现有兵（非子弹）Speed
+// × (新/旧 mods) 一次；同兵种多条只缩放一次。不消耗 RNG；无速度效果时零遍历。
+void rescaleExistingArmySpeed(Simulation& sim, int factionId,
+                              const std::vector<Config::Tech::Level>& levelBuffs,
                               const FactionMods& oldMods) {
     auto& reg = sim.registry();
     std::vector<int> types;
-    if (lv.param < 0) {
-        for (int t = 0; t < kArmyTypeCount; ++t) types.push_back(t);
-    } else {
-        types.push_back(lv.param);
+    const auto addType = [&](int t) {
+        if (t < 0 || t >= kArmyTypeCount) return;
+        if (std::find(types.begin(), types.end(), t) == types.end()) types.push_back(t);
+    };
+    for (const auto& lv : levelBuffs) {
+        if (lv.type != BuffType::UnitSpeedAdd) continue;
+        if (lv.param < 0) {
+            for (int t = 0; t < kArmyTypeCount; ++t) addType(t);
+        } else {
+            addType(lv.param);
+        }
     }
     for (int t : types) {
         const double oldM = oldMods.speedMult[static_cast<size_t>(t)];
@@ -129,10 +138,9 @@ void TechSystem::applyTech(Simulation& sim, int factionId, int techIndex) {
             f.unitPreference[static_cast<size_t>(u)] += cfg.tech.preferencePerLevel;
     }
 
-    // 3. 行军：重缩放现有兵 Speed（对已存兵即时生效）。
-    const auto& lv = def.levels[static_cast<size_t>(newLevel - 1)];
-    if (lv.type == BuffType::UnitSpeedAdd)
-        rescaleExistingArmySpeed(sim, factionId, lv, oldMods);
+    // 3. 行军：重缩放现有兵 Speed（该级任何 UnitSpeedAdd 都对已存兵即时生效；无则空转）。
+    rescaleExistingArmySpeed(sim, factionId, def.levels[static_cast<size_t>(newLevel - 1)],
+                             oldMods);
 
     // 4. 事件（消息面板显示；data = 科技下标）。
     sim.pushEvent(GameEvent{GameEventKind::TechAcquired, factionId, techIndex,

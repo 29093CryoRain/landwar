@@ -746,14 +746,21 @@ void Application::drawTechResearchModal(ui::UiRequests& req) {
         const int cur = (c < static_cast<int>(f.tech.levels.size())) ? f.tech.levels[c] : 0;
         const int newLevel = cur + 1;
         if (newLevel <= 0 || newLevel > static_cast<int>(def.levels.size())) continue;
+        // 一级 = 一组效果：把该级全部效果拼成"新值"，升级时同序拼出上一级"旧值"。
+        const auto joinValues = [](const std::vector<Config::Tech::Level>& buffs) {
+            std::string out;
+            for (const auto& b : buffs) {
+                if (!out.empty()) out += "、";
+                out += buffValueText(b.type, b.magnitude);
+            }
+            return out;
+        };
         const auto& newLv = def.levels[static_cast<size_t>(newLevel - 1)];
-        const std::string newVal = buffValueText(newLv.type, newLv.magnitude);
+        if (newLv.empty()) continue;
+        const std::string newVal = joinValues(newLv);
         const bool upgrade = cur >= 1;  // 已拥有 → 升级项（显示旧值）
         std::string oldVal;
-        if (upgrade) {
-            const auto& oldLv = def.levels[static_cast<size_t>(cur - 1)];
-            oldVal = buffValueText(oldLv.type, oldLv.magnitude);
-        }
+        if (upgrade) oldVal = joinValues(def.levels[static_cast<size_t>(cur - 1)]);
 
         ImGui::PushID(c);
         if (ImGui::Selectable(def.name.c_str())) choice = c;

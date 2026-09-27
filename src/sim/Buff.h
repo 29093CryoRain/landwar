@@ -73,8 +73,8 @@ FactionMods computeMods(const std::vector<Buff>& buffs);
 // 只含 level>0 的科技，每条取该科技当前级的累计效果。纯函数、无 RNG。
 std::vector<Buff> techBuffs(const Config& cfg, const std::vector<int>& levels);
 
-// 聚合类别（思路"科技细节"：数值增加默认加算、数值减小默认乘算）。
-enum class BuffKind { Multiplicative, Additive, Count };
+// 聚合类别（思路"科技细节"：数值增加默认加算、数值减小默认乘算；Feature = 布尔特性）。
+enum class BuffKind { Multiplicative, Additive, Count, Feature };
 BuffKind buffKind(BuffType t);
 
 // 数值文案（科研弹窗/科技面板用）：加算按 m×100、乘算按 (m-1)×100 显示，条数 "+N"。
