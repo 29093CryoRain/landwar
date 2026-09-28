@@ -78,8 +78,10 @@ foreach ($file in $configFiles) {
 Copy-RequiredFile "data\tiling_specs_regular.json"
 Copy-RequiredFile "data\tiling_specs_arch.json"
 Copy-RequiredFile "data\tiling_specs_laves.json"
+$defaultDir = Join-Path $OutputDir "data\default"
+New-Item -ItemType Directory -Path $defaultDir -Force | Out-Null
 foreach ($file in $configFiles) {
-    Copy-RequiredFile (Join-Path "data" (Join-Path "default" $file))
+    Copy-Item -LiteralPath (Join-Path $data $file) -Destination (Join-Path $defaultDir $file) -Force
 }
 New-Item -ItemType Directory -Path (Join-Path $OutputDir "data\maps") -Force | Out-Null
 $schemaFiles = @(
